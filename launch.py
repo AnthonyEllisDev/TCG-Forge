@@ -35,7 +35,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -44,7 +44,7 @@ WEB_DIR = os.path.join(ROOT, "web")
 ASSET_CATEGORIES = ["frames", "backgrounds", "icons", "art", "textures", "fonts"]
 WORKSPACE_DIRS = (
     [os.path.join("assets", c) for c in ASSET_CATEGORIES]
-    + ["templates", "projects", "exports"]
+    + ["templates", "projects", "exports", "batch"]
 )
 
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".bmp"}
@@ -360,8 +360,14 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         if route == "export":
             filename = safe_filename(body.get("filename") or "card.png")
             data = decode_data_url(body.get("data") or "")
-            os.makedirs(os.path.join(WORKSPACE, "exports"), exist_ok=True)
-            dest = unique_path(os.path.join(WORKSPACE, "exports"), filename)
+            target_dir = os.path.join(WORKSPACE, "exports")
+            folder = body.get("folder")
+            if folder:
+                target_dir = os.path.join(target_dir, safe_filename(folder))
+            os.makedirs(target_dir, exist_ok=True)
+            # Batch runs overwrite deliberately; single exports never clobber.
+            dest = (os.path.join(target_dir, filename) if body.get("overwrite")
+                    else unique_path(target_dir, filename))
             with open(dest, "wb") as fh:
                 fh.write(data)
             r = rel_path(dest)

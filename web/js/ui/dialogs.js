@@ -19,7 +19,7 @@ export function toast(message, kind = 'info', duration = 2800) {
 
 let activeClose = null;
 
-export function openModal({ title = '', body = '', buttons = [], onOpen } = {}) {
+export function openModal({ title = '', body = '', buttons = [], onOpen, wide = false } = {}) {
   const root = $('#modalRoot');
   const bodyEl = $('#modalBody');
   const footEl = $('#modalFoot');
@@ -41,6 +41,7 @@ export function openModal({ title = '', body = '', buttons = [], onOpen } = {}) 
     );
   }
 
+  root.querySelector('.modal').classList.toggle('wide', !!wide);
   root.hidden = false;
   activeClose = closeModal;
   onOpen?.(bodyEl);

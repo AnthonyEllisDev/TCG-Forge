@@ -91,11 +91,17 @@ new `path` and `url`.
 ### `POST /api/export`
 
 ```json
-{ "filename": "ember-wyrm.png", "data": "data:image/png;base64,…" }
+{ "filename": "ember-wyrm.png", "data": "data:image/png;base64,…",
+  "folder": "core-set", "overwrite": true }
 ```
 
 Writes into `workspace/exports` and returns both the relative path and the
 absolute one, so the UI can tell you where the file landed.
+
+`folder` puts the file in a subfolder of `exports/` (used by batch runs to keep
+a set together). `overwrite` replaces an existing file instead of writing
+`name-2.png`; batch runs set it so re-rendering a set replaces it, single
+exports leave it off.
 
 ### `POST /api/mkdir`
 

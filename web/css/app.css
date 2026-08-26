@@ -611,3 +611,80 @@
 @media (max-width: 1180px) {
   :root { --dock-w-left: 268px; --dock-w-right: 290px; }
 }
+
+/* --------------------------------------------------------------------------
+   batch generator
+   -------------------------------------------------------------------------- */
+
+.modal.wide { width: min(900px, 94vw); }
+
+.map-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 232px;
+  overflow-y: auto;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 6px;
+  min-height: 44px;
+}
+.map-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 168px;
+  gap: 8px;
+  align-items: center;
+}
+.map-col {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-sample {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress {
+  height: 6px;
+  background: var(--bg-active);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--gold));
+  transition: width 0.18s ease;
+}
+
+.batch-log {
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.batch-log .log-line.err { color: #ff8f98; }
+
+.batch-preview:empty { display: none; }
+.batch-preview img {
+  max-height: 300px;
+  display: block;
+  margin: 6px auto 0;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.hint.warn { color: var(--warn); }

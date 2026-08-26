@@ -62,6 +62,7 @@ web/
     │   ├── effects.js  fills, strokes, shadows, filters, crop
     │   ├── assets.js   asset index and font registration
     │   ├── templates.js template load/save and the slot system
+    │   ├── batch.js    spreadsheet parsing and set rendering
     │   └── project.js  serialise, save, open, export
     └── ui/
         ├── panels.js      collapsing panels, dock splitters
@@ -71,6 +72,7 @@ web/
         ├── assetPanel.js  thumbnail browser, click-to-place, drag & drop
         ├── templatePanel.js
         ├── fieldsPanel.js the form view of a template
+        ├── batchPanel.js  the batch generator dialog
         ├── shortcuts.js   keyboard map
         └── dialogs.js     modal + toasts
 ```
@@ -143,6 +145,16 @@ hook straight onto the canvas context. An `exporting` flag suppresses them while
 `editor:modified`, capped at 80 steps. Restoring re-applies the card geometry
 and calls `canvas.loadFromJSON`. Snapshots are strings so no live object can be
 mutated out from under a step.
+
+### Batch rendering
+
+`core/batch.js` is deliberately thin: it snapshots the canvas, and for each
+spreadsheet row restores that snapshot, writes values into slots via the same
+`setFieldText` / `setFieldImage` the Card Fields panel uses, renders, and saves.
+Restoring per row is what stops state (auto-fit font sizes, swapped art) leaking
+from one card into the next, and the snapshot is restored again in a `finally`
+so a failed row can never leave the user's canvas in a half-edited state.
+History is locked for the duration, so a 200-card run does not flood undo.
 
 ## Extending it
 

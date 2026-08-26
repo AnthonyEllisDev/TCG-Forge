@@ -406,6 +406,7 @@ export function openShortcuts() {
     ['Ctrl/⌘ + Shift + Z', 'Redo'],
     ['Ctrl/⌘ + S', 'Save project'],
     ['Ctrl/⌘ + E', 'Export card'],
+    ['Ctrl/⌘ + B', 'Batch generate a set'],
     ['Ctrl/⌘ + N', 'New card'],
     ['Ctrl/⌘ + O', 'Open project'],
     ['Ctrl/⌘ + D', 'Duplicate selection'],

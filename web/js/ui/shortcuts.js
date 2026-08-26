@@ -4,6 +4,7 @@ import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
 import { saveProject } from '../core/project.js';
 import { openExportDialog, openShortcuts } from './toolbar.js';
+import { openBatchDialog } from './batchPanel.js';
 import { toast } from './dialogs.js';
 
 export function initShortcuts() {
@@ -46,6 +47,11 @@ export function initShortcuts() {
         case 'e':
           e.preventDefault();
           openExportDialog();
+          return;
+        case 'b':
+          if (typing) return;
+          e.preventDefault();
+          openBatchDialog();
           return;
         case 'd':
           if (typing) return;

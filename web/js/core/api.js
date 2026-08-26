@@ -87,8 +87,8 @@ class ForgeAPI {
     return this.post('/api/upload', { category, filename, data: dataURL, group });
   }
 
-  exportImage({ filename, dataURL }) {
-    return this.post('/api/export', { filename, data: dataURL });
+  exportImage({ filename, dataURL, folder = '', overwrite = false }) {
+    return this.post('/api/export', { filename, data: dataURL, folder, overwrite });
   }
 
   trash(path) {

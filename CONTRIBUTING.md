@@ -53,8 +53,16 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full map. In short:
 
 ## Testing changes
 
-There is no test runner yet (contributions welcome). Before opening a PR, please
-walk through this by hand:
+Run the smoke test — it drives a real browser through the paths that break most
+easily and is the same suite CI runs:
+
+```bash
+python launch.py --no-browser &
+npm i playwright && npx playwright install chromium
+node tools/smoke_test.mjs
+```
+
+Then walk through anything it does not cover:
 
 1. App loads with **no console errors**.
 2. Load each starter template; the card renders correctly.
@@ -65,6 +73,11 @@ walk through this by hand:
 7. Export a PNG and confirm guides are *not* in the output.
 8. Reload with the server stopped (`file://`) and confirm the app still opens
    and warns instead of crashing.
+
+CI additionally byte-compiles the launcher on Python 3.8 and 3.12, parses every
+front-end module, validates the template JSON, and fails the build if any file
+under `web/` references a remote URL — that last one is what keeps the
+local-first promise honest.
 
 If you change the starter templates or sample assets, regenerate them:
 

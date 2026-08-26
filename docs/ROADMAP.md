@@ -4,11 +4,12 @@ Ordered roughly by how much they improve day-to-day card making. Nothing here is
 a promise; it is a shared to-do list. Issues and pull requests welcome on any of
 it.
 
+## Shipped
+
+- **Batch generation from CSV/JSON** (0.2.0) — see [`BATCH.md`](BATCH.md).
+
 ## Next
 
-- **Batch generation from CSV/JSON.** Point the app at a spreadsheet, map columns
-  to slots, render a whole set into `exports/`. The slot system already provides
-  everything this needs; it wants a mapping UI and a render queue.
 - **Multi-card projects.** A card list in one file, with a strip of thumbnails to
   switch between them — the natural home for set-wide edits.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.

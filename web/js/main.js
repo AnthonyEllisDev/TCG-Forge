@@ -23,6 +23,7 @@ import { initProperties } from './ui/properties.js';
 import { initAssetPanel } from './ui/assetPanel.js';
 import { initTemplatePanel, refresh as refreshTemplates } from './ui/templatePanel.js';
 import { initFieldsPanel } from './ui/fieldsPanel.js';
+import { initBatchPanel } from './ui/batchPanel.js';
 import { initShortcuts } from './ui/shortcuts.js';
 
 async function boot() {
@@ -48,6 +49,7 @@ async function boot() {
   initAssetPanel();
   initTemplatePanel();
   initFieldsPanel();
+  initBatchPanel();
   initShortcuts();
   history.attach();
 

@@ -1,0 +1,15 @@
+title,cost,type,rules,flavor,stats,footer,art
+Ember Wyrm,3,Creature — Dragon,"Flying, haste.
+
+When Ember Wyrm enters the battlefield, it deals 2 damage to any target.","The sky burns where it passes.",4 / 4,TCG Forge · Sample Set · 001,ember
+Frostbite Colossus,6,Creature — Giant,"Vigilance.
+
+Whenever Frostbite Colossus attacks, tap target creature an opponent controls.","It walks, and winter follows.",7 / 7,TCG Forge · Sample Set · 002,abyss
+Void Pilgrim,2,Creature — Spirit,"Flying.
+
+When Void Pilgrim dies, draw a card.","Every road ends somewhere darker.",1 / 3,TCG Forge · Sample Set · 003,starfield
+Gilded Sentinel,4,Creature — Construct,"Defender, reach.
+
+Gilded Sentinel gets +0/+2 as long as you control an artifact.","Built to outlast the builders.",2 / 6,TCG Forge · Sample Set · 004,parchment
+Ashfall Ritual,1,Sorcery,"Deal 3 damage divided as you choose among any number of targets.","",—,TCG Forge · Sample Set · 005,ember
+Starless Oracle,5,Creature — Human Wizard,"When Starless Oracle enters the battlefield, look at the top three cards of your library, then put one into your hand and the rest on the bottom in any order.","She reads the gaps between the stars.",3 / 5,TCG Forge · Sample Set · 006,starfield

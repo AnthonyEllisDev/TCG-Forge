@@ -7,14 +7,7 @@ launcher script starts a tiny local server, your browser becomes the workspace,
 and every asset, template and project lives in ordinary folders on your disk.
 No account, no cloud, no network connection required.
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  Card setup    │                                    │  Card fields       │
-│  Insert        │                                    │  Layers            │
-│  Templates     │            your card               │  Properties        │
-│  Asset library │                                    │  Effects           │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+![The TCG Forge editor](docs/images/editor.png)
 
 ---
 
@@ -83,6 +76,12 @@ until it fits its box (and never grows past the size the template intended).
 with optional transparency, saved straight into `workspace/exports`. Safe-zone
 and bleed guides are on-screen only and never appear in the export.
 
+**Whole sets from a spreadsheet.** Point the batch generator at a CSV, map the
+columns to slots once, and render the set into `workspace/exports/` — with a
+preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
+
+![Six cards generated from one CSV](docs/images/sample-set.png)
+
 **Built for keyboards.** Undo/redo, duplicate, copy/paste, nudge, layer
 ordering, zoom, fit, and space-drag panning. Press `?` in the app for the full
 list.
@@ -105,6 +104,7 @@ workspace/
 │   └── fonts/         .ttf / .otf / .woff / .woff2
 ├── templates/         reusable layouts (.json)
 ├── projects/          saved cards (.json)
+├── batch/             spreadsheets for batch generation (.csv / .json)
 └── exports/           rendered PNG / JPEG
 ```
 
@@ -131,6 +131,9 @@ API moves it to `workspace/.trash/`.
 5. **Export** — choose 2× for a crisp print file. It lands in
    `workspace/exports`.
 
+Making more than one card? Fill a spreadsheet instead and use **Batch**
+(`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example.
+
 To make the layout reusable, give the text layers slot names in
 *Properties → Typography → Field slot* and hit **Save current card as
 template…**. Your slots become that template's form fields.
@@ -143,6 +146,7 @@ template…**. Your slots become that template's form fields.
 | --- | --- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app is put together, module by module |
 | [`docs/TEMPLATES.md`](docs/TEMPLATES.md) | Template and project file format, slot system |
+| [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/API.md`](docs/API.md) | The local HTTP API exposed by `launch.py` |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned next, and where help is welcome |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup and code conventions |
@@ -167,6 +171,14 @@ template…**. Your slots become that template's form fields.
 - **Fabric.js 6** (vendored in `web/vendor/`, MIT) for canvas objects
 - **Vanilla ES modules** — no framework, no bundler, no transpiler
 - **Python standard library** for the launcher and file API — no pip install
+
+CI runs static checks plus a headless browser smoke test on every push. Run the
+same suite locally with the app running:
+
+```bash
+npm i playwright && npx playwright install chromium
+node tools/smoke_test.mjs
+```
 
 ---
 
