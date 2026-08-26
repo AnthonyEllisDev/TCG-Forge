@@ -1,0 +1,252 @@
+/* ==========================================================================
+   TCG Forge — design tokens and base element styling
+   Change the values in :root to re-skin the whole application.
+   ========================================================================== */
+
+:root {
+  /* surfaces */
+  --bg-app:        #0a0d14;
+  --bg-dock:       #121722;
+  --bg-panel:      #161c29;
+  --bg-sunken:     #0d111a;
+  --bg-raised:     #1d2534;
+  --bg-hover:      #232c3e;
+  --bg-active:     #2c3852;
+  --viewport-bg:   #090c12;
+
+  /* lines */
+  --line:          #222b3c;
+  --line-strong:   #33405a;
+
+  /* text */
+  --text:          #e8ecf5;
+  --text-dim:      #9aa6bd;
+  --text-faint:    #64708a;
+
+  /* brand */
+  --accent:        #5b7cfa;
+  --accent-hover:  #4a6bf0;
+  --accent-soft:   rgba(91, 124, 250, 0.16);
+  --gold:          #f0a53a;
+  --danger:        #ef4d5a;
+  --ok:            #3ecf8e;
+  --warn:          #f0a53a;
+
+  /* geometry */
+  --r-sm: 4px;
+  --r-md: 7px;
+  --r-lg: 11px;
+  --dock-w-left: 320px;
+  --dock-w-right: 340px;
+  --topbar-h: 46px;
+  --statusbar-h: 26px;
+
+  /* type */
+  --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  --fs-xs: 10.5px;
+  --fs-sm: 11.5px;
+  --fs-md: 12.5px;
+  --fs-lg: 14px;
+
+  --shadow-panel: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 24px 60px rgba(0, 0, 0, 0.72);
+}
+
+/* A lighter skin, opt in with <html data-theme="light">. */
+[data-theme="light"] {
+  --bg-app: #eef1f7;
+  --bg-dock: #f7f9fc;
+  --bg-panel: #ffffff;
+  --bg-sunken: #eceff6;
+  --bg-raised: #f2f5fa;
+  --bg-hover: #e6ebf5;
+  --bg-active: #dbe4f7;
+  --viewport-bg: #dfe4ee;
+  --line: #d8dee9;
+  --line-strong: #bcc6d8;
+  --text: #161c28;
+  --text-dim: #566079;
+  --text-faint: #8892a8;
+  --shadow-card: 0 18px 44px rgba(20, 28, 45, 0.22);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); background-clip: content-box; }
+
+/* --------------------------------------------------------------------------
+   form controls
+   -------------------------------------------------------------------------- */
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 5px 7px;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+input[type="text"]:focus, input[type="number"]:focus,
+input[type="search"]:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%239aa6bd' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 7px center;
+  padding-right: 22px;
+  cursor: pointer;
+}
+
+textarea { resize: vertical; line-height: 1.4; }
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { opacity: 0.35; }
+
+input[type="color"] {
+  appearance: none;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
+
+input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--bg-active);
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 3px; background: var(--bg-active); }
+input[type="range"]::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg-panel);
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  cursor: pointer;
+  position: relative;
+  flex: 0 0 auto;
+}
+input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px; top: 1px;
+  width: 4px; height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
+/* buttons ---------------------------------------------------------------- */
+
+.btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+.btn:hover { background: var(--bg-hover); border-color: var(--line-strong); }
+.btn:active { transform: translateY(0.5px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
+.btn.ghost:hover { background: var(--bg-hover); color: var(--text); }
+.btn.tiny { padding: 3px 7px; font-size: var(--fs-xs); }
+.btn.wide { width: 100%; }
+.btn.danger:hover { background: rgba(239, 77, 90, 0.16); border-color: var(--danger); color: #ff8f98; }
+.btn.toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn[disabled] { opacity: 0.45; pointer-events: none; }
+
+.btn .ico { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.check:hover { color: var(--text); }

@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TCG Forge — Card Editor</title>
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/app.css">
+<script src="vendor/fabric.min.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================= TOP BAR ================= -->
+  <header id="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" class="brand-mark" aria-hidden="true">
+        <rect x="3" y="2" width="13" height="19" rx="2.5"/>
+        <rect x="7" y="5" width="13" height="19" rx="2.5" class="brand-mark-2"/>
+      </svg>
+      <span class="brand-name">TCG&nbsp;Forge</span>
+    </div>
+
+    <div class="topbar-project">
+      <input id="projectName" class="project-name" value="Untitled Card" spellcheck="false"
+             title="Project name — used as the default filename">
+      <span id="dirtyDot" class="dirty-dot" title="Unsaved changes"></span>
+    </div>
+
+    <nav class="topbar-actions">
+      <button class="btn" data-action="new-project" title="New card (Ctrl+N)">New</button>
+      <button class="btn" data-action="open-project" title="Open a saved project (Ctrl+O)">Open</button>
+      <button class="btn" data-action="save-project" title="Save project (Ctrl+S)">Save</button>
+      <button class="btn" data-action="save-project-as" title="Save project as…">Save As</button>
+      <span class="sep"></span>
+      <button class="btn" data-action="undo" title="Undo (Ctrl+Z)">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h9a7 7 0 010 14h-3"/></svg>
+      </button>
+      <button class="btn" data-action="redo" title="Redo (Ctrl+Shift+Z)">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9h-9a7 7 0 000 14h3"/></svg>
+      </button>
+      <span class="sep"></span>
+      <button class="btn primary" data-action="export" title="Export image (Ctrl+E)">Export</button>
+    </nav>
+
+    <div class="topbar-right">
+      <button class="btn ghost" data-action="shortcuts" title="Keyboard shortcuts (?)">?</button>
+      <span id="serverPill" class="pill pill-warn" title="Backend connection">connecting…</span>
+    </div>
+  </header>
+
+  <!-- ================= WORK AREA ================= -->
+  <div id="workarea">
+
+    <!-- ---------- LEFT DOCK ---------- -->
+    <aside id="leftDock" class="dock">
+
+      <section class="panel" data-panel="card">
+        <header class="panel-head"><h2>Card Setup</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <label class="field">
+            <span>Size preset</span>
+            <select id="cardPreset">
+              <option value="poker">Poker / TCG — 2.5 × 3.5 in</option>
+              <option value="bridge">Bridge — 2.25 × 3.5 in</option>
+              <option value="tarot">Tarot — 2.75 × 4.75 in</option>
+              <option value="square">Square — 2.75 × 2.75 in</option>
+              <option value="mini">Mini — 1.75 × 2.5 in</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+          <div class="field-row">
+            <label class="field"><span>Width (px)</span><input type="number" id="cardWidth" min="64" max="6000" step="1" value="750"></label>
+            <label class="field"><span>Height (px)</span><input type="number" id="cardHeight" min="64" max="6000" step="1" value="1050"></label>
+          </div>
+          <div class="field-row">
+            <label class="field"><span>DPI</span>
+              <select id="cardDpi"><option>150</option><option selected>300</option><option>600</option></select>
+            </label>
+            <label class="field"><span>Corner radius</span><input type="number" id="cardRadius" min="0" max="200" step="1" value="36"></label>
+          </div>
+          <label class="field"><span>Card background</span>
+            <div class="color-row">
+              <input type="color" id="cardBg" value="#12161f">
+              <input type="text" id="cardBgHex" class="hex" value="#12161f" spellcheck="false">
+              <button class="btn tiny" id="cardBgClear" title="Transparent background">clear</button>
+            </div>
+          </label>
+          <div class="field-row">
+            <label class="check"><input type="checkbox" id="showSafeZone"> Safe zone</label>
+            <label class="check"><input type="checkbox" id="showBleed"> Bleed guide</label>
+          </div>
+          <button class="btn wide" id="applyCardSetup">Apply card size</button>
+          <p class="hint">Changing the size keeps your layers; use Fit (Ctrl+0) to re-centre the view.</p>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="insert">
+        <header class="panel-head"><h2>Insert</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="tool-grid">
+            <button class="tool" data-insert="text"><span class="tool-ico">T</span>Text</button>
+            <button class="tool" data-insert="heading"><span class="tool-ico">H</span>Heading</button>
+            <button class="tool" data-insert="rect"><span class="tool-ico">▭</span>Rectangle</button>
+            <button class="tool" data-insert="roundrect"><span class="tool-ico">▢</span>Rounded</button>
+            <button class="tool" data-insert="ellipse"><span class="tool-ico">◯</span>Ellipse</button>
+            <button class="tool" data-insert="triangle"><span class="tool-ico">△</span>Triangle</button>
+            <button class="tool" data-insert="line"><span class="tool-ico">╱</span>Line</button>
+            <button class="tool" data-insert="artbox"><span class="tool-ico">▨</span>Art box</button>
+          </div>
+          <button class="btn wide" data-insert="image">Import image from disk…</button>
+          <input type="file" id="imageFileInput" accept="image/*" multiple hidden>
+          <label class="check"><input type="checkbox" id="embedImages"> Embed images in project file</label>
+          <p class="hint">Off = projects store a path to the file in your workspace (smaller files, shareable folders). On = fully self-contained project files.</p>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="templates">
+        <header class="panel-head"><h2>Templates</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="field-row">
+            <input type="search" id="templateSearch" placeholder="Search templates…" class="search">
+            <button class="btn tiny" data-action="reload-templates" title="Rescan the templates folder">⟳</button>
+          </div>
+          <div id="templateList" class="list"></div>
+          <button class="btn wide" data-action="save-template">Save current card as template…</button>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="assets">
+        <header class="panel-head"><h2>Asset Library</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="tabs" id="assetTabs">
+            <button class="tab active" data-cat="frames">Frames</button>
+            <button class="tab" data-cat="backgrounds">Backgrounds</button>
+            <button class="tab" data-cat="icons">Icons</button>
+            <button class="tab" data-cat="art">Art</button>
+            <button class="tab" data-cat="textures">Textures</button>
+            <button class="tab" data-cat="fonts">Fonts</button>
+          </div>
+          <div class="field-row">
+            <input type="search" id="assetSearch" placeholder="Filter…" class="search">
+            <button class="btn tiny" data-action="reload-assets" title="Rescan the asset folders">⟳</button>
+          </div>
+          <div id="assetGrid" class="asset-grid"></div>
+          <div id="assetMeta" class="asset-meta"></div>
+          <div class="field-row">
+            <button class="btn" data-action="import-asset">Import files…</button>
+            <button class="btn" data-action="reveal-workspace" title="Show the folder path to drop files into">Folder path</button>
+          </div>
+          <input type="file" id="assetFileInput" multiple hidden>
+          <p class="hint">Drop files into the workspace folders and press ⟳ — the library reads straight from disk.</p>
+        </div>
+      </section>
+    </aside>
+
+    <div class="splitter" id="splitLeft" title="Drag to resize"></div>
+
+    <!-- ---------- VIEWPORT ---------- -->
+    <main id="viewport">
+      <div id="viewToolbar">
+        <div class="group">
+          <button class="btn tiny" data-action="zoom-out" title="Zoom out (Ctrl+-)">−</button>
+          <span id="zoomLabel" class="readout" title="Click to reset to 100%">100%</span>
+          <button class="btn tiny" data-action="zoom-in" title="Zoom in (Ctrl++)">+</button>
+          <button class="btn tiny" data-action="zoom-fit" title="Fit to window (Ctrl+0)">Fit</button>
+        </div>
+        <div class="group">
+          <label class="check" title="Snap to guides, edges and other objects"><input type="checkbox" id="snapToggle" checked> Snap</label>
+          <label class="check" title="Show alignment guides while dragging"><input type="checkbox" id="guideToggle" checked> Guides</label>
+          <label class="check" title="Show a transparency checkerboard behind the card"><input type="checkbox" id="checkerToggle" checked> Checker</label>
+        </div>
+        <div class="group">
+          <button class="btn tiny" data-align="left" title="Align left">⇤</button>
+          <button class="btn tiny" data-align="hcenter" title="Center horizontally">⇔</button>
+          <button class="btn tiny" data-align="right" title="Align right">⇥</button>
+          <button class="btn tiny" data-align="top" title="Align top">⤒</button>
+          <button class="btn tiny" data-align="vcenter" title="Center vertically">⇕</button>
+          <button class="btn tiny" data-align="bottom" title="Align bottom">⤓</button>
+        </div>
+        <div class="group right">
+          <span id="selectionLabel" class="readout muted">no selection</span>
+        </div>
+      </div>
+
+      <div id="canvasScroll">
+        <div id="canvasStage">
+          <canvas id="cardCanvas"></canvas>
+        </div>
+      </div>
+    </main>
+
+    <div class="splitter" id="splitRight" title="Drag to resize"></div>
+
+    <!-- ---------- RIGHT DOCK ---------- -->
+    <aside id="rightDock" class="dock">
+
+      <section class="panel" data-panel="fields">
+        <header class="panel-head"><h2>Card Fields</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div id="fieldForm" class="field-form"></div>
+          <p class="hint" id="fieldHint">Load a template with named slots and its editable fields appear here.</p>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="layers">
+        <header class="panel-head"><h2>Layers</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="layer-toolbar">
+            <button class="btn tiny" data-action="layer-up" title="Bring forward (])">▲</button>
+            <button class="btn tiny" data-action="layer-down" title="Send backward ([)">▼</button>
+            <button class="btn tiny" data-action="layer-top" title="Bring to front">⤒</button>
+            <button class="btn tiny" data-action="layer-bottom" title="Send to back">⤓</button>
+            <span class="spacer"></span>
+            <button class="btn tiny" data-action="duplicate" title="Duplicate (Ctrl+D)">⧉</button>
+            <button class="btn tiny" data-action="group" title="Group / ungroup (Ctrl+G)">▣</button>
+            <button class="btn tiny danger" data-action="delete" title="Delete (Del)">🗑</button>
+          </div>
+          <div id="layerList" class="layer-list"></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="properties">
+        <header class="panel-head"><h2>Properties</h2><span class="chev"></span></header>
+        <div class="panel-body">
+          <div id="noSelection" class="empty">Select a layer to edit its properties.</div>
+
+          <div id="propsRoot" hidden>
+
+            <!-- transform -->
+            <div class="subgroup" data-sub="transform">
+              <h3>Transform</h3>
+              <div class="field-row">
+                <label class="field"><span>X</span><input type="number" id="pX" step="1"></label>
+                <label class="field"><span>Y</span><input type="number" id="pY" step="1"></label>
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Width</span><input type="number" id="pW" step="1" min="1"></label>
+                <label class="field"><span>Height</span><input type="number" id="pH" step="1" min="1"></label>
+                <button class="btn tiny toggle" id="pLockRatio" title="Lock aspect ratio">🔗</button>
+              </div>
+              <label class="field slider"><span>Rotation <b id="pAngleVal">0°</b></span>
+                <input type="range" id="pAngle" min="-180" max="180" step="1" value="0"></label>
+              <label class="field slider"><span>Opacity <b id="pOpacityVal">100%</b></span>
+                <input type="range" id="pOpacity" min="0" max="100" step="1" value="100"></label>
+              <label class="field"><span>Blend mode</span>
+                <select id="pBlend">
+                  <option value="source-over">Normal</option>
+                  <option value="multiply">Multiply</option>
+                  <option value="screen">Screen</option>
+                  <option value="overlay">Overlay</option>
+                  <option value="darken">Darken</option>
+                  <option value="lighten">Lighten</option>
+                  <option value="color-dodge">Color dodge</option>
+                  <option value="color-burn">Color burn</option>
+                  <option value="hard-light">Hard light</option>
+                  <option value="soft-light">Soft light</option>
+                  <option value="difference">Difference</option>
+                  <option value="exclusion">Exclusion</option>
+                  <option value="hue">Hue</option>
+                  <option value="saturation">Saturation</option>
+                  <option value="color">Color</option>
+                  <option value="luminosity">Luminosity</option>
+                </select>
+              </label>
+              <div class="field-row">
+                <label class="check"><input type="checkbox" id="pFlipX"> Flip H</label>
+                <label class="check"><input type="checkbox" id="pFlipY"> Flip V</label>
+                <label class="check"><input type="checkbox" id="pClip"> Clip to card</label>
+              </div>
+            </div>
+
+            <!-- fill -->
+            <div class="subgroup" data-sub="fill">
+              <h3>Fill</h3>
+              <div class="seg" id="fillMode">
+                <button class="seg-btn active" data-mode="solid">Solid</button>
+                <button class="seg-btn" data-mode="linear">Linear</button>
+                <button class="seg-btn" data-mode="radial">Radial</button>
+                <button class="seg-btn" data-mode="none">None</button>
+              </div>
+              <div id="fillSolid">
+                <div class="color-row">
+                  <input type="color" id="pFill" value="#ffffff">
+                  <input type="text" id="pFillHex" class="hex" value="#ffffff" spellcheck="false">
+                </div>
+              </div>
+              <div id="fillGradient" hidden>
+                <div class="color-row">
+                  <input type="color" id="gradA" value="#3b82f6">
+                  <input type="color" id="gradB" value="#0b1020">
+                </div>
+                <label class="field slider"><span>Angle <b id="gradAngleVal">90°</b></span>
+                  <input type="range" id="gradAngle" min="0" max="360" step="1" value="90"></label>
+              </div>
+            </div>
+
+            <!-- stroke -->
+            <div class="subgroup" data-sub="stroke">
+              <h3>Stroke</h3>
+              <div class="color-row">
+                <input type="color" id="pStroke" value="#000000">
+                <input type="text" id="pStrokeHex" class="hex" value="#000000" spellcheck="false">
+                <input type="number" id="pStrokeWidth" min="0" max="80" step="0.5" value="0" title="Stroke width">
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Style</span>
+                  <select id="pStrokeStyle">
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </label>
+                <label class="check" title="Draw the stroke behind the fill — keeps text crisp"><input type="checkbox" id="pPaintFirst"> Stroke behind</label>
+              </div>
+              <label class="field" id="radiusField"><span>Corner radius</span>
+                <input type="range" id="pRadius" min="0" max="200" step="1" value="0"></label>
+            </div>
+
+            <!-- shadow / glow -->
+            <div class="subgroup" data-sub="shadow">
+              <h3>Shadow &amp; Glow</h3>
+              <label class="check"><input type="checkbox" id="shadowOn"> Enable</label>
+              <div id="shadowControls" class="stack" hidden>
+                <div class="color-row">
+                  <input type="color" id="shadowColor" value="#000000">
+                  <input type="text" id="shadowHex" class="hex" value="#000000" spellcheck="false">
+                </div>
+                <label class="field slider"><span>Blur <b id="shadowBlurVal">12</b></span>
+                  <input type="range" id="shadowBlur" min="0" max="120" step="1" value="12"></label>
+                <div class="field-row">
+                  <label class="field"><span>Offset X</span><input type="number" id="shadowX" step="1" value="0"></label>
+                  <label class="field"><span>Offset Y</span><input type="number" id="shadowY" step="1" value="4"></label>
+                </div>
+                <button class="btn tiny wide" id="shadowGlowPreset">Make it a glow (centred, coloured)</button>
+              </div>
+            </div>
+
+            <!-- text -->
+            <div class="subgroup" data-sub="text" hidden>
+              <h3>Typography</h3>
+              <textarea id="pText" rows="3" class="text-input" placeholder="Layer text…"></textarea>
+              <div class="field-row">
+                <label class="field"><span>Font</span><select id="pFontFamily"></select></label>
+                <label class="field narrow"><span>Size</span><input type="number" id="pFontSize" min="4" max="400" step="1" value="24"></label>
+              </div>
+              <div class="btn-row">
+                <button class="btn tiny toggle" id="tBold" title="Bold"><b>B</b></button>
+                <button class="btn tiny toggle" id="tItalic" title="Italic"><i>I</i></button>
+                <button class="btn tiny toggle" id="tUnderline" title="Underline"><u>U</u></button>
+                <button class="btn tiny toggle" id="tStrike" title="Strikethrough"><s>S</s></button>
+                <button class="btn tiny toggle" id="tCaps" title="UPPERCASE">AA</button>
+                <span class="spacer"></span>
+                <button class="btn tiny toggle" data-textalign="left" title="Align left">⬅</button>
+                <button class="btn tiny toggle" data-textalign="center" title="Align center">⬌</button>
+                <button class="btn tiny toggle" data-textalign="right" title="Align right">➡</button>
+                <button class="btn tiny toggle" data-textalign="justify" title="Justify">☰</button>
+              </div>
+              <div class="field-row">
+                <label class="field"><span>Line height</span><input type="number" id="pLineHeight" min="0.5" max="3" step="0.05" value="1.16"></label>
+                <label class="field"><span>Letter spacing</span><input type="number" id="pCharSpacing" min="-200" max="800" step="10" value="0"></label>
+              </div>
+              <label class="check" title="Shrink the font until the text fits the box height"><input type="checkbox" id="pAutoFit"> Auto-fit text to box</label>
+              <label class="field"><span>Field slot (for templates)</span>
+                <input type="text" id="pSlot" class="search" placeholder="e.g. title, rules, cost" spellcheck="false"></label>
+            </div>
+
+            <!-- image -->
+            <div class="subgroup" data-sub="image" hidden>
+              <h3>Image</h3>
+              <div class="btn-row">
+                <button class="btn tiny" data-action="img-fit">Fit to box</button>
+                <button class="btn tiny" data-action="img-fill">Fill box</button>
+                <button class="btn tiny" data-action="img-reset">Reset crop</button>
+                <button class="btn tiny" data-action="img-replace">Replace…</button>
+              </div>
+              <label class="field slider"><span>Crop width <b id="cropWVal">100%</b></span>
+                <input type="range" id="cropW" min="5" max="100" step="1" value="100"></label>
+              <label class="field slider"><span>Crop height <b id="cropHVal">100%</b></span>
+                <input type="range" id="cropH" min="5" max="100" step="1" value="100"></label>
+              <label class="field slider"><span>Pan X <b id="panXVal">50%</b></span>
+                <input type="range" id="panX" min="0" max="100" step="1" value="50"></label>
+              <label class="field slider"><span>Pan Y <b id="panYVal">50%</b></span>
+                <input type="range" id="panY" min="0" max="100" step="1" value="50"></label>
+              <h3 class="sub">Adjustments</h3>
+              <label class="field slider"><span>Brightness <b id="fxBrightVal">0</b></span>
+                <input type="range" id="fxBright" min="-100" max="100" step="1" value="0"></label>
+              <label class="field slider"><span>Contrast <b id="fxContrastVal">0</b></span>
+                <input type="range" id="fxContrast" min="-100" max="100" step="1" value="0"></label>
+              <label class="field slider"><span>Saturation <b id="fxSatVal">0</b></span>
+                <input type="range" id="fxSat" min="-100" max="100" step="1" value="0"></label>
+              <label class="field slider"><span>Blur <b id="fxBlurVal">0</b></span>
+                <input type="range" id="fxBlur" min="0" max="100" step="1" value="0"></label>
+              <div class="field-row">
+                <label class="check"><input type="checkbox" id="fxGray"> Grayscale</label>
+                <label class="check"><input type="checkbox" id="fxSepia"> Sepia</label>
+                <label class="check"><input type="checkbox" id="fxInvert"> Invert</label>
+              </div>
+            </div>
+
+            <!-- layer meta -->
+            <div class="subgroup" data-sub="meta">
+              <h3>Layer</h3>
+              <label class="field"><span>Name</span><input type="text" id="pName" class="search" spellcheck="false"></label>
+              <div class="field-row">
+                <label class="check"><input type="checkbox" id="pVisible" checked> Visible</label>
+                <label class="check"><input type="checkbox" id="pLocked"> Locked</label>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- ================= STATUS BAR ================= -->
+  <footer id="statusbar">
+    <span id="statusMsg">Ready.</span>
+    <span class="spacer"></span>
+    <span id="statCard" class="stat">750 × 1050 px</span>
+    <span id="statLayers" class="stat">0 layers</span>
+    <span id="statPointer" class="stat">—</span>
+    <span id="statWorkspace" class="stat" title="Workspace folder">workspace</span>
+  </footer>
+</div>
+
+<!-- ================= MODALS ================= -->
+<div id="modalRoot" class="modal-root" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal" role="dialog" aria-modal="true">
+    <header class="modal-head"><h2 id="modalTitle">Dialog</h2><button class="btn ghost" data-close>✕</button></header>
+    <div class="modal-body" id="modalBody"></div>
+    <footer class="modal-foot" id="modalFoot"></footer>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

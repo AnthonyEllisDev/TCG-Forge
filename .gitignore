@@ -1,0 +1,22 @@
+# user work — keep the folders, ignore the contents
+workspace/projects/*
+workspace/exports/*
+workspace/.trash/
+!workspace/projects/.gitkeep
+!workspace/exports/.gitkeep
+
+# backups written by the save API
+*.bak
+*.tmp
+
+# os / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# tooling
+node_modules/
+package-lock.json
