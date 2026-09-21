@@ -634,12 +634,18 @@ class Editor {
 
   async loadJSON(json) {
     this.suspendEvents = true;
-    await this.canvas.loadFromJSON(json);
-    this.canvas.getObjects().forEach((o) => styleObject(o));
-    this.applyCardClip();
-    this.canvas.requestRenderAll();
-    this.suspendEvents = false;
-    this.emitSelection();
+    try {
+      await this.canvas.loadFromJSON(json);
+      this.canvas.getObjects().forEach((o) => styleObject(o));
+      this.applyCardClip();
+      this.canvas.requestRenderAll();
+      this.emitSelection();
+    } finally {
+      // A load that throws must still clear the flag. Latched on, it silences
+      // touch() for the rest of the session: no dirty marker, no history, and
+      // a save that quietly writes stale JSON.
+      this.suspendEvents = false;
+    }
   }
 
   clear() {

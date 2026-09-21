@@ -25,10 +25,25 @@ export function fillColors(obj) {
     return {
       a: toHex(stops[0].color, '#ffffff'),
       b: toHex(stops[stops.length - 1].color, '#000000'),
-      angle: fill.tcgAngle ?? 90,
+      angle: gradientAngle(fill),
     };
   }
   return { a: '#ffffff', b: '#000000', angle: 90 };
+}
+
+/**
+ * Recover a linear gradient's angle from the gradient itself.
+ *
+ * Fabric's `Gradient.toObject()` writes a fixed set of keys, so an angle
+ * parked on the gradient object does not survive a save. The coordinates do,
+ * and they already encode the angle — so read it back out of them rather than
+ * storing it twice.
+ */
+function gradientAngle(fill) {
+  const { x1 = 0, y1 = 0, x2 = 0, y2 = 0 } = fill.coords || {};
+  if (fill.type !== 'linear' || (x1 === x2 && y1 === y2)) return 90;
+  const deg = Math.round((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI);
+  return ((deg % 360) + 360) % 360;
 }
 
 export function setSolidFill(obj, color) {
@@ -64,7 +79,6 @@ export function setGradientFill(obj, { type = 'linear', from = '#5b7cfa', to = '
       { offset: 1, color: to },
     ],
   });
-  gradient.tcgAngle = angle;
   obj.set('fill', gradient);
 }
 

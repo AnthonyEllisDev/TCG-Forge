@@ -18,8 +18,9 @@ export function toast(message, kind = 'info', duration = 2800) {
 /* ----------------------------------------------------------------- modal */
 
 let activeClose = null;
+let activeDismiss = null;
 
-export function openModal({ title = '', body = '', buttons = [], onOpen, wide = false } = {}) {
+export function openModal({ title = '', body = '', buttons = [], onOpen, onClosed, wide = false } = {}) {
   const root = $('#modalRoot');
   const bodyEl = $('#modalBody');
   const footEl = $('#modalFoot');
@@ -44,6 +45,7 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, wide = 
   root.querySelector('.modal').classList.toggle('wide', !!wide);
   root.hidden = false;
   activeClose = closeModal;
+  activeDismiss = onClosed || null;
   onOpen?.(bodyEl);
 
   const firstInput = bodyEl.querySelector('input, textarea, select');
@@ -56,20 +58,28 @@ export function closeModal() {
   const root = $('#modalRoot');
   if (root) root.hidden = true;
   activeClose = null;
+  // Escape and the ✕ bypass the buttons entirely, so every close has to run
+  // through here: a dialog that owes its caller an answer would otherwise
+  // leave a promise that can never settle.
+  const closed = activeDismiss;
+  activeDismiss = null;
+  closed?.();
 }
 
 export function confirmDialog({ title = 'Are you sure?', message = '', confirmLabel = 'Confirm', danger = false }) {
   return new Promise((resolve) => {
+    let answer = false;
     openModal({
       title,
+      onClosed: () => resolve(answer),
       body: el('p', { text: message, style: 'margin:0;color:var(--text-dim);line-height:1.6' }),
       buttons: [
-        { label: 'Cancel', onClick: (close) => { close(); resolve(false); } },
+        { label: 'Cancel', onClick: (close) => close() },
         {
           label: confirmLabel,
           primary: !danger,
           danger,
-          onClick: (close) => { close(); resolve(true); },
+          onClick: (close) => { answer = true; close(); },
         },
       ],
     });
@@ -78,23 +88,26 @@ export function confirmDialog({ title = 'Are you sure?', message = '', confirmLa
 
 export function promptDialog({ title = 'Enter a value', label = '', value = '', confirmLabel = 'OK', hint = '' }) {
   return new Promise((resolve) => {
+    let answer = null;
     const input = el('input', { type: 'text', value, spellcheck: 'false' });
     const body = el('div', { class: 'stack' }, [
       el('label', { class: 'field' }, [el('span', { text: label }), input]),
       hint ? el('p', { class: 'hint', text: hint }) : null,
     ]);
+    const accept = (close) => {
+      answer = input.value.trim();
+      close();
+    };
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        closeModal();
-        resolve(input.value.trim());
-      }
+      if (e.key === 'Enter') accept(closeModal);
     });
     openModal({
       title,
+      onClosed: () => resolve(answer),
       body,
       buttons: [
-        { label: 'Cancel', onClick: (close) => { close(); resolve(null); } },
-        { label: confirmLabel, primary: true, onClick: (close) => { close(); resolve(input.value.trim()); } },
+        { label: 'Cancel', onClick: (close) => close() },
+        { label: confirmLabel, primary: true, onClick: accept },
       ],
     });
   });

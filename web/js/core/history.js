@@ -49,14 +49,20 @@ class History {
     const data = JSON.parse(snapshot);
     this.locked = true;
     editor.suspendEvents = true;
-    Object.assign(state.card, data.card || {});
-    editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
-    await editor.loadJSON(data.canvas);
-    editor.canvas.backgroundColor = state.card.background || '';
-    editor.applyCardClip();
-    editor.applyZoom();
-    editor.suspendEvents = false;
-    this.locked = false;
+    try {
+      Object.assign(state.card, data.card || {});
+      editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
+      await editor.loadJSON(data.canvas);
+      editor.canvas.backgroundColor = state.card.background || '';
+      editor.applyCardClip();
+      editor.applyZoom();
+    } finally {
+      // A step that fails to restore must still release the lock, or undo and
+      // redo are dead for the rest of the session with nothing on screen to
+      // say why.
+      editor.suspendEvents = false;
+      this.locked = false;
+    }
     bus.emit(EVT.CARD, state.card);
     bus.emit(EVT.OBJECTS, editor.objects());
     bus.emit(EVT.HISTORY, this.status());

@@ -184,6 +184,97 @@ try {
 
   await page.screenshot({ path: 'smoke-ui.png' });
 
+  /* ---- regression guards ---------------------------------------------- */
+  /* These exercise failure paths, so they run last: they deliberately wreck
+     the canvas and leave the card setup pointing somewhere else. */
+
+  const gradient = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const fx = await import('/js/core/effects.js');
+    const rect = editor.insert('rect');
+    rect.set('tcgName', 'gradient-probe');
+    fx.setGradientFill(rect, { type: 'linear', from: '#ff0000', to: '#0000ff', angle: 30 });
+    const before = fx.fillColors(rect).angle;
+    await editor.loadJSON(JSON.parse(JSON.stringify(editor.toJSON())));
+    const reloaded = editor.objects().find((o) => o.tcgName === 'gradient-probe');
+    return { before, after: reloaded ? fx.fillColors(reloaded).angle : null };
+  });
+  check('gradient angle survives a save and reload',
+    gradient.before === 30 && gradient.after === 30, JSON.stringify(gradient));
+
+  const cardSetup = await page.evaluate(() => {
+    window.TCGForge.editor.setCard({ width: 825, height: 1425, dpi: 600, preset: 'tarot' });
+    return {
+      dpi: document.getElementById('cardDpi').value,
+      preset: document.getElementById('cardPreset').value,
+      width: document.getElementById('cardWidth').value,
+    };
+  });
+  check('card setup mirrors the card, not the last thing typed',
+    cardSetup.dpi === '600' && cardSetup.preset === 'tarot' && cardSetup.width === '825',
+    JSON.stringify(cardSetup));
+
+  const afterBadLoad = await page.evaluate(async () => {
+    const { editor, state } = window.TCGForge;
+    let threw = false;
+    try {
+      await editor.loadJSON({ version: '6.9.1', objects: [{ type: 'NoSuchThing' }] });
+    } catch { threw = true; }
+    state.dirty = false;
+    editor.touch();
+    return { threw, suspended: editor.suspendEvents, stillTracking: state.dirty };
+  });
+  check('a failed canvas load still leaves edits tracked',
+    afterBadLoad.threw && afterBadLoad.suspended === false && afterBadLoad.stillTracking === true,
+    JSON.stringify(afterBadLoad));
+
+  const afterBadStep = await page.evaluate(async () => {
+    const { history } = window.TCGForge;
+    let threw = false;
+    try {
+      await history.apply(JSON.stringify({ card: {}, canvas: { version: '6.9.1', objects: [{ type: 'NoSuchThing' }] } }));
+    } catch { threw = true; }
+    return { threw, locked: history.locked };
+  });
+  check('a failed history step releases the lock',
+    afterBadStep.threw && afterBadStep.locked === false, JSON.stringify(afterBadStep));
+
+  /* Every way out of a dialog has to answer its caller exactly once: the
+     buttons, Enter, Escape and the ✕. */
+  const answers = await page.evaluate(async () => {
+    const d = await import('/js/ui/dialogs.js');
+    const settle = (p) => Promise.race([p, new Promise((r) => setTimeout(() => r('NEVER SETTLED'), 500))]);
+    const tick = () => new Promise((r) => setTimeout(r, 60));
+    const footButton = (label) =>
+      [...document.querySelectorAll('#modalFoot .btn')].find((b) => b.textContent === label);
+
+    const out = {};
+    let p = settle(d.confirmDialog({ title: 'T', message: 'M', confirmLabel: 'Go' }));
+    await tick();
+    footButton('Go').click();
+    out.confirmed = await p;
+
+    p = settle(d.confirmDialog({ title: 'T', message: 'M' }));
+    await tick();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    out.escaped = await p;
+
+    p = settle(d.promptDialog({ title: 'T', value: 'typed name' }));
+    await tick();
+    footButton('OK').click();
+    out.prompted = await p;
+
+    p = settle(d.promptDialog({ title: 'T' }));
+    await tick();
+    document.querySelector('#modalRoot .modal-head [data-close]').click();
+    out.dismissed = await p;
+    return out;
+  });
+  check('every way out of a dialog answers its caller',
+    answers.confirmed === true && answers.escaped === false &&
+    answers.prompted === 'typed name' && answers.dismissed === null,
+    JSON.stringify(answers));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

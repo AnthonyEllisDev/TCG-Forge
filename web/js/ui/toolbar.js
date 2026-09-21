@@ -5,7 +5,7 @@
 import { $, $$, el, isHex, on, toHex } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
-import { state, presetSize } from '../core/state.js';
+import { CARD_PRESETS, state, presetSize } from '../core/state.js';
 import { editor } from '../core/editor.js';
 import { history } from '../core/history.js';
 import {
@@ -321,6 +321,13 @@ function bindCardSetup() {
     width.value = card.width;
     height.value = card.height;
     radius.value = card.radius;
+    // dpi and preset have to come back too. Left stale, the next press of
+    // Apply pushes whatever the boxes happened to be showing onto a card that
+    // has since been replaced by a template, a project or an undo step.
+    if (card.dpi && [...dpi.options].some((o) => o.value === String(card.dpi))) {
+      dpi.value = String(card.dpi);
+    }
+    preset.value = CARD_PRESETS[card.preset] ? card.preset : 'custom';
     if (card.background) {
       bg.value = toHex(card.background, '#12161f');
       bgHex.value = toHex(card.background, '#12161f');
