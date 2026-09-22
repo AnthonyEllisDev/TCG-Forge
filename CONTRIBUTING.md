@@ -50,6 +50,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full map. In short:
 | change the look | `css/theme.css` (tokens first, components second) |
 | add a panel | new `<section class="panel">` + an `init…()` in `ui/` |
 | touch file handling | `launch.py` and `core/api.js` together |
+| take a file from the user | `assets.sourceForFile()` — never `URL.createObjectURL` |
 
 ## Testing changes
 
@@ -73,6 +74,8 @@ Then walk through anything it does not cover:
 7. Export a PNG and confirm guides are *not* in the output.
 8. Reload with the server stopped (`file://`) and confirm the app still opens
    and warns instead of crashing.
+9. Make a print sheet (`Ctrl/⌘ + P`), open the PDF and measure a card against a
+   ruler at 100% — physical size is the one thing a screenshot cannot check.
 
 CI additionally byte-compiles the launcher on Python 3.8 and 3.12, parses every
 front-end module, validates the template JSON, and fails the build if any file

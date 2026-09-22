@@ -11,6 +11,15 @@ All `path` values are **workspace-relative** (`templates/foo.json`,
 `assets/icons/fire.svg`). Anything that resolves outside the workspace is
 rejected.
 
+**Who may call it.** A request carrying an `Origin` header that does not match
+the host it was sent to is refused with `403`, as is one whose `Host` names
+something this server does not answer to. Requests with no `Origin` at all —
+curl, CI, a script — are unaffected. This is what stops a web page you happen to
+have open from rewriting your workspace over loopback; there is no
+`Access-Control-Allow-Origin` anywhere. A refused request closes its connection.
+
+Bodies must carry a `Content-Length`; chunked bodies are refused.
+
 ## Static routes
 
 | Route | Purpose |
@@ -53,7 +62,9 @@ sets.
 ### `GET /api/templates` · `GET /api/projects`
 
 List the JSON files in `workspace/templates` / `workspace/projects`, with each
-file's `name`, `description`, `tags`, `card` and field count read from inside.
+file's `id`, `name`, `description`, `tags`, `card` and field count read from
+inside. `id` is the slug a project's `templateId` refers to, which need not be
+the slug of the display name (`classic-spell` vs "Classic Spell Frame").
 Corrupt files are still listed, with an `error` key.
 
 ### `GET /api/read?path=…`

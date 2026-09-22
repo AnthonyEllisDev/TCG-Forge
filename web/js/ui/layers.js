@@ -151,7 +151,6 @@ function toggleLock(obj) {
     lockRotation: !locked,
     lockScalingX: !locked,
     lockScalingY: !locked,
-    tcgLocked: !locked,
   });
   if (!locked) editor.canvas.discardActiveObject();
   editor.canvas.requestRenderAll();
@@ -165,16 +164,26 @@ function startRename(nameEl, obj) {
   input.focus();
   input.select();
 
-  const commit = () => {
-    const value = input.value.trim();
-    obj.set('tcgName', value || undefined);
-    editor.touch();
+  // render() detaches the input, which fires its blur handler — so cancelling
+  // by re-rendering would commit the very edit it is meant to throw away.
+  let done = false;
+  const finish = (fn) => {
+    if (done) return;
+    done = true;
+    fn();
     render();
   };
+  const commit = () =>
+    finish(() => {
+      obj.set('tcgName', input.value.trim() || undefined);
+      editor.touch();
+    });
+  const cancel = () => finish(() => {});
+
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') commit();
-    if (e.key === 'Escape') render();
+    if (e.key === 'Escape') cancel();
     e.stopPropagation();
   });
 }

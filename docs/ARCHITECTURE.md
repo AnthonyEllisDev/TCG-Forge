@@ -30,6 +30,24 @@ Safety rules it enforces:
 - uploads are capped at 64 MB and must be base64 data URLs
 - deletes are moves into `workspace/.trash/<date>/`
 - the socket binds to `127.0.0.1` unless `--host` says otherwise
+- requests carrying a foreign `Origin`, or a `Host` this server does not answer
+  to, are refused — see below
+
+**Loopback is not a security boundary.** Any page you visit can `POST` to
+`127.0.0.1`, and a form-style content type needs no CORS preflight, so a server
+that simply trusts local connections hands the whole workspace to whichever
+website you happen to have open. Two checks close that:
+
+- **`Origin`** must match the host the request was sent to. Absent is fine —
+  curl, CI and plain navigation send none — but a foreign one is refused.
+- **`Host`** must be a name this server answers to. Without it, an attacker can
+  point their own DNS record at `127.0.0.1`, making their page same-origin with
+  yours. Binding to something other than loopback with `--host` is a deliberate
+  choice to serve the network, and turns this check off.
+
+A refused request is answered `403` and the connection is closed, because its
+body was never read and the socket can no longer be trusted to start at a
+request line. Nothing sends `Access-Control-Allow-Origin`.
 
 If the API is unreachable — the server was stopped, or the page was opened some
 other way — `core/api.js` detects it at startup and the app degrades instead of
@@ -63,6 +81,8 @@ web/
     │   ├── assets.js   asset index and font registration
     │   ├── templates.js template load/save and the slot system
     │   ├── batch.js    spreadsheet parsing and set rendering
+    │   ├── printSheet.js page geometry and sheet composition
+    │   ├── pdf.js      a small one-JPEG-per-page PDF writer
     │   └── project.js  serialise, save, open, export
     └── ui/
         ├── panels.js      collapsing panels, dock splitters
@@ -73,6 +93,7 @@ web/
         ├── templatePanel.js
         ├── fieldsPanel.js the form view of a template
         ├── batchPanel.js  the batch generator dialog
+        ├── printPanel.js  the print sheet dialog
         ├── shortcuts.js   keyboard map
         └── dialogs.js     modal + toasts
 ```
@@ -119,11 +140,17 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgAutoFit`, `tcgFitHeight`, `tcgFitSize` | auto-shrinking text |
 | `tcgUppercase` | force uppercase on field updates |
 | `tcgClip` | clip this layer to the card rectangle |
+| `tcgCardClip` | marks the clipPath `tcgClip` installed, so it can be removed again |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
 
 > One gotcha worth knowing: serialised Fabric objects use capitalised type names
 > (`"Image"`, `"Textbox"`) while live instances report lower case (`"image"`).
 > Code that walks raw JSON compares case-insensitively.
+
+> A second one: this list is passed down into an object's `clipPath` as well, so
+> a marker parked there survives. It is **not** passed into a `fill`, so nothing
+> can be stored on a `Gradient` — `effects.js` reads a gradient's angle back out
+> of its coordinates instead of keeping a copy.
 
 ### Rendering and coordinates
 
@@ -156,12 +183,32 @@ from one card into the next, and the snapshot is restored again in a `finally`
 so a failed row can never leave the user's canvas in a half-edited state.
 History is locked for the duration, so a 200-card run does not flood undo.
 
+### Print sheets
+
+`core/printSheet.js` is the other end of the same pipeline and shares none of
+its machinery. It takes images that are already rendered, works out how many
+cards fit on a page at their true physical size (pixel size ÷ dpi = inches), and
+paints them onto a plain 2D canvas — it never opens the Fabric canvas, the slot
+system or a project file, which is why it is short and why it cannot corrupt
+anything.
+
+`core/pdf.js` turns the finished sheets into a PDF: a catalogue, a page tree and
+one DCTDecode image per page, about 150 lines. It exists because an image file
+cannot state its physical size, so "print at 100%" only means something in a
+format carrying a MediaBox. No server endpoint was needed — `/api/list` finds
+the images and `/api/export` writes the files. See [`PRINT.md`](PRINT.md).
+
 ## Extending it
 
 - **A new shape or tool:** add a factory in `core/objects.js`, a case in
   `editor.insert()`, and a button with `data-insert="…"` in `index.html`.
 - **A new effect:** add the read/write pair in `core/effects.js`, then the
   controls in the properties panel markup and `ui/properties.js`.
+- **Anything that takes a file from the user:** call `assets.sourceForFile()`
+  and place what it returns. It copies the file into the workspace (or inlines
+  it when there is no server) and hands back a URL and a path. A `blob:` URL put
+  on the canvas dies with the tab, and the saved project then points at nothing
+  — silently, with the artwork simply gone on reopen.
 - **A new panel:** add a `<section class="panel" data-panel="…">` and an
   `init…()` module; `ui/panels.js` picks up collapsing and persistence for free.
 - **Scripting from the console:** `window.TCGForge` exposes

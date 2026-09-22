@@ -257,17 +257,26 @@ function initCanvasDrop() {
 
     const files = Array.from(e.dataTransfer.files || []).filter((f) => f.type.startsWith('image/'));
     if (!files.length) return;
-    for (const file of files) {
-      const url = URL.createObjectURL(file);
-      const img = await editor.addImage(url, { tcgName: file.name.replace(/\.[^.]+$/, ''), center: false });
-      img.set({
-        left: point.x - img.getScaledWidth() / 2,
-        top: point.y - img.getScaledHeight() / 2,
-      });
-      img.setCoords();
+    try {
+      for (const file of files) {
+        const source = await assets.sourceForFile(file, category === 'fonts' ? 'art' : category);
+        const img = await editor.addImage(source.url, {
+          assetPath: source.path,
+          tcgName: file.name.replace(/\.[^.]+$/, ''),
+          center: false,
+        });
+        img.set({
+          left: point.x - img.getScaledWidth() / 2,
+          top: point.y - img.getScaledHeight() / 2,
+        });
+        img.setCoords();
+      }
+    } catch (err) {
+      toast(`Could not place dropped files: ${err.message}`, 'err');
+      return;
     }
     editor.canvas.requestRenderAll();
-    toast(`Placed ${files.length} image${files.length === 1 ? '' : 's'}. Import them to keep them in your library.`, 'ok');
+    toast(`Placed ${files.length} image${files.length === 1 ? '' : 's'} and added them to your library.`, 'ok');
   });
 }
 

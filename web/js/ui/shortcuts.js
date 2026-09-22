@@ -3,8 +3,9 @@
 import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
 import { saveProject } from '../core/project.js';
-import { openExportDialog, openShortcuts } from './toolbar.js';
+import { openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
+import { openPrintDialog } from './printPanel.js';
 import { toast } from './dialogs.js';
 
 export function initShortcuts() {
@@ -48,10 +49,19 @@ export function initShortcuts() {
           e.preventDefault();
           openExportDialog();
           return;
+        case 'o':
+          e.preventDefault();
+          openProjectDialog();
+          return;
         case 'b':
           if (typing) return;
           e.preventDefault();
           openBatchDialog();
+          return;
+        case 'p':
+          if (typing) return;
+          e.preventDefault();
+          openPrintDialog();
           return;
         case 'd':
           if (typing) return;
@@ -60,10 +70,14 @@ export function initShortcuts() {
           return;
         case 'c':
           if (typing) return;
+          // Without this the browser's own copy runs too and puts the page
+          // selection on the clipboard alongside our layers.
+          e.preventDefault();
           editor.copy();
           return;
         case 'v':
           if (typing) return;
+          e.preventDefault();
           editor.paste();
           return;
         case 'a':

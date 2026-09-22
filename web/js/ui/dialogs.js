@@ -19,6 +19,19 @@ export function toast(message, kind = 'info', duration = 2800) {
 
 let activeClose = null;
 let activeDismiss = null;
+let lastFocus = null;
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function focusables() {
+  const root = $('#modalRoot');
+  if (!root || root.hidden) return [];
+  return Array.from(root.querySelectorAll(FOCUSABLE)).filter(
+    (node) => node.offsetParent !== null || node === document.activeElement
+  );
+}
 
 export function openModal({ title = '', body = '', buttons = [], onOpen, onClosed, wide = false } = {}) {
   const root = $('#modalRoot');
@@ -44,13 +57,18 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, onClose
 
   root.querySelector('.modal').classList.toggle('wide', !!wide);
   root.hidden = false;
+  lastFocus = document.activeElement;
   activeClose = closeModal;
   activeDismiss = onClosed || null;
   onOpen?.(bodyEl);
 
   const firstInput = bodyEl.querySelector('input, textarea, select');
-  firstInput?.focus();
-  firstInput?.select?.();
+  if (firstInput) {
+    firstInput.focus();
+    firstInput.select?.();
+  } else {
+    (footEl.querySelector('.btn.primary') || focusables()[0])?.focus();
+  }
   return closeModal;
 }
 
@@ -58,6 +76,11 @@ export function closeModal() {
   const root = $('#modalRoot');
   if (root) root.hidden = true;
   activeClose = null;
+  // Whatever opened the dialog gets the keyboard back; otherwise focus is left
+  // on a button that no longer exists and the next Tab restarts from the top.
+  const restore = lastFocus;
+  lastFocus = null;
+  if (restore && document.contains(restore)) restore.focus?.();
   // Escape and the ✕ bypass the buttons entirely, so every close has to run
   // through here: a dialog that owes its caller an answer would otherwise
   // leave a promise that can never settle.
@@ -121,6 +144,26 @@ export function initDialogs() {
     if (e.key === 'Escape' && activeClose) {
       e.preventDefault();
       closeModal();
+      return;
+    }
+    // aria-modal only marks the rest of the page inert for assistive tech; it
+    // does nothing to Tab, so the trap has to be built by hand or the keyboard
+    // walks off into the editor behind the dialog.
+    if (e.key !== 'Tab' || !activeClose) return;
+    const items = focusables();
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const here = document.activeElement;
+    if (!$('#modalRoot').contains(here)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && here === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && here === last) {
+      e.preventDefault();
+      first.focus();
     }
   });
 }

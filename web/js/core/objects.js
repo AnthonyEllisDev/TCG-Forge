@@ -9,6 +9,10 @@
  *               reference files on disk instead of embedding base64
  *   tcgAutoFit / tcgUppercase - text behaviours
  *   tcgClip   - clip the object to the card rectangle
+ *   tcgCardClip - marks the clipPath that tcgClip installed, so switching the
+ *               option off again knows which clip is ours. Fabric passes
+ *               propertiesToInclude down into a clipPath, so this round-trips
+ *               — but only because it is listed below.
  *   _baseWidth/_baseHeight - natural pixel size of an image, for cropping
  */
 
@@ -22,6 +26,7 @@ export const CUSTOM_PROPS = [
   'tcgAutoFit',
   'tcgUppercase',
   'tcgClip',
+  'tcgCardClip',
   'tcgId',
   'tcgArtBox',
   'tcgFitHeight',

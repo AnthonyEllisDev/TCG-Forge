@@ -76,6 +76,12 @@ until it fits its box (and never grows past the size the template intended).
 with optional transparency, saved straight into `workspace/exports`. Safe-zone
 and bleed guides are on-screen only and never appear in the export.
 
+**Sheets you can actually cut.** **Print** (`Ctrl/⌘ + P`) lays the current card
+or a whole rendered set onto A4, Letter, Legal, A3 or Tabloid at the cards' true
+physical size, with crop marks or cut lines, margins, gaps and bleed. Save as a
+PDF — which carries a real page size, so "print at 100%" means something — or as
+one PNG per page. See [`docs/PRINT.md`](docs/PRINT.md).
+
 **Whole sets from a spreadsheet.** Point the batch generator at a CSV, map the
 columns to slots once, and render the set into `workspace/exports/` — with a
 preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
@@ -129,7 +135,8 @@ API moves it to `workspace/.trash/`.
 4. **Layers / Properties** — nudge anything that needs nudging; add a glow, a
    gradient panel, a set symbol.
 5. **Export** — choose 2× for a crisp print file. It lands in
-   `workspace/exports`.
+   `workspace/exports`. Ready to print? **Print** (`Ctrl/⌘ + P`) turns it into a
+   page of nine, with crop marks.
 
 Making more than one card? Fill a spreadsheet instead and use **Batch**
 (`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example.
@@ -147,6 +154,7 @@ template…**. Your slots become that template's form fields.
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app is put together, module by module |
 | [`docs/TEMPLATES.md`](docs/TEMPLATES.md) | Template and project file format, slot system |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
+| [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |
 | [`docs/API.md`](docs/API.md) | The local HTTP API exposed by `launch.py` |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned next, and where help is welcome |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup and code conventions |
@@ -187,6 +195,12 @@ node tools/smoke_test.mjs
 TCG Forge makes no outbound requests. The server binds to `127.0.0.1` only, so
 it is not reachable from other machines on your network unless you deliberately
 pass `--host 0.0.0.0`. There is no telemetry of any kind.
+
+Binding to loopback is not by itself enough to keep a local server private —
+any web page you have open can send requests to `127.0.0.1`. The API therefore
+refuses requests carrying a foreign `Origin`, or a `Host` it does not answer to,
+so a website cannot read or rewrite your workspace while TCG Forge is running.
+Nothing changes for curl or scripts, which send no `Origin` at all.
 
 ---
 

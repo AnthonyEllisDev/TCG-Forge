@@ -30,7 +30,7 @@
     </div>
 
     <nav class="topbar-actions">
-      <button class="btn" data-action="new-project" title="New card (Ctrl+N)">New</button>
+      <button class="btn" data-action="new-project" title="Start a new card">New</button>
       <button class="btn" data-action="open-project" title="Open a saved project (Ctrl+O)">Open</button>
       <button class="btn" data-action="save-project" title="Save project (Ctrl+S)">Save</button>
       <button class="btn" data-action="save-project-as" title="Save project as…">Save As</button>
@@ -43,6 +43,7 @@
       </button>
       <span class="sep"></span>
       <button class="btn" data-action="batch" title="Generate a whole set from a spreadsheet (Ctrl+B)">Batch</button>
+      <button class="btn" data-action="print-sheet" title="Lay cards out on a printable page (Ctrl+P)">Print</button>
       <button class="btn primary" data-action="export" title="Export image (Ctrl+E)">Export</button>
     </nav>
 
@@ -431,7 +432,7 @@
 <!-- ================= MODALS ================= -->
 <div id="modalRoot" class="modal-root" hidden>
   <div class="modal-backdrop" data-close></div>
-  <div class="modal" role="dialog" aria-modal="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <header class="modal-head"><h2 id="modalTitle">Dialog</h2><button class="btn ghost" data-close>✕</button></header>
     <div class="modal-body" id="modalBody"></div>
     <footer class="modal-foot" id="modalFoot"></footer>

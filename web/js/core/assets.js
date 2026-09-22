@@ -106,6 +106,26 @@ class AssetLibrary {
   /* -------------------------------------------------------------- imports */
 
   /**
+   * Turn a file the user picked into a source the canvas can keep.
+   *
+   * A `blob:` URL is only valid while the tab that made it is open, so putting
+   * one on the canvas saves a project that points at nothing — the artwork is
+   * simply gone on reopen, with no error anywhere. Every file picker goes
+   * through here instead: with the backend running the file is copied into the
+   * workspace and referenced by path, and without it the pixels are inlined as
+   * a data URL.
+   */
+  async sourceForFile(file, category = 'art') {
+    if (api.online) {
+      const dataURL = await fileToDataURL(file);
+      const res = await api.uploadAsset({ category, filename: file.name, dataURL });
+      await this.refresh();
+      return { url: api.fileURL(res.path), path: res.path };
+    }
+    return { url: await fileToDataURL(file), path: null };
+  }
+
+  /**
    * Import files into the workspace. With the backend running they are copied
    * into workspace/assets/<category>; otherwise they are kept in memory for
    * this session only.

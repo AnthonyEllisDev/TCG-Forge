@@ -5,6 +5,7 @@
 import { $, $$, el, isHex, on, toHex } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
+import { assets } from '../core/assets.js';
 import { CARD_PRESETS, state, presetSize } from '../core/state.js';
 import { editor } from '../core/editor.js';
 import { history } from '../core/history.js';
@@ -93,7 +94,7 @@ async function handleSaveAs() {
   }
 }
 
-async function openProjectDialog() {
+export async function openProjectDialog() {
   const body = el('div', { class: 'stack' });
   const list = el('div', { class: 'list' });
   body.append(list);
@@ -234,7 +235,9 @@ function bindInsert() {
     const files = Array.from(e.target.files || []);
     for (const file of files) {
       try {
-        await editor.addImage(URL.createObjectURL(file), {
+        const source = await assets.sourceForFile(file, 'art');
+        await editor.addImage(source.url, {
+          assetPath: source.path,
           tcgName: file.name.replace(/\.[^.]+$/, ''),
         });
       } catch (err) {
@@ -414,7 +417,7 @@ export function openShortcuts() {
     ['Ctrl/⌘ + S', 'Save project'],
     ['Ctrl/⌘ + E', 'Export card'],
     ['Ctrl/⌘ + B', 'Batch generate a set'],
-    ['Ctrl/⌘ + N', 'New card'],
+    ['Ctrl/⌘ + P', 'Print sheet'],
     ['Ctrl/⌘ + O', 'Open project'],
     ['Ctrl/⌘ + D', 'Duplicate selection'],
     ['Ctrl/⌘ + C / V', 'Copy / paste'],

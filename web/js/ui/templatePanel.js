@@ -23,6 +23,10 @@ export function initTemplatePanel() {
   });
 
   bus.on(EVT.TEMPLATES, refresh);
+  // The list only redraws on its own data changing, so loading a template or
+  // opening a project would leave the highlight on the previous row.
+  bus.on(EVT.TEMPLATE_APPLIED, render);
+  bus.on(EVT.PROJECT, render);
   refresh();
 }
 
@@ -63,7 +67,9 @@ function render() {
 
   for (const tpl of items) {
     const item = el('div', {
-      class: `list-item${state.project.templateId && tpl.name === state.project.templateId ? ' active' : ''}`,
+      // templateId is a slug and need not be the slug of the display name
+      // ("classic-spell" vs "Classic Spell Frame"), so match on the id.
+      class: `list-item${state.project.templateId && templateIdOf(tpl) === state.project.templateId ? ' active' : ''}`,
     }, [
       el('div', { class: 'li-title', text: tpl.name }),
       el('div', {
@@ -78,6 +84,10 @@ function render() {
     on(item, 'click', () => load(tpl));
     list.append(item);
   }
+}
+
+function templateIdOf(tpl) {
+  return tpl.id || tpl.file?.replace(/\.json$/i, '') || '';
 }
 
 async function load(tpl) {

@@ -25,6 +25,7 @@ import posixpath
 import re
 import shutil
 import socket
+import stat
 import sys
 import threading
 import time
@@ -35,7 +36,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -50,6 +51,12 @@ WORKSPACE_DIRS = (
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".avif", ".bmp"}
 FONT_EXT = {".ttf", ".otf", ".woff", ".woff2"}
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024  # 64 MB per file
+MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES * 2  # base64 inflates a 64 MB upload
+
+# Host names a browser may legitimately use to reach a loopback server. Any
+# other name means the request arrived through a DNS record someone else
+# controls, which is how a remote page gets to talk to a local port.
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("application/javascript", ".mjs")
@@ -93,6 +100,12 @@ def rel_path(full: str) -> str:
     return os.path.relpath(full, WORKSPACE).replace(os.sep, "/")
 
 
+def slugify(value: str, fallback: str = "untitled") -> str:
+    """Mirror of the front end's slugify, so ids agree on both sides."""
+    out = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return out or fallback
+
+
 def safe_filename(name: str) -> str:
     name = os.path.basename(name or "").strip()
     name = re.sub(r"[^A-Za-z0-9._ \-()]", "_", name)
@@ -129,7 +142,7 @@ def scan_assets() -> dict:
                     full = os.path.join(dirpath, fn)
                     r = rel_path(full)
                     try:
-                        stat = os.stat(full)
+                        st = os.stat(full)
                     except OSError:
                         continue
                     group = os.path.relpath(dirpath, base).replace(os.sep, "/")
@@ -140,8 +153,8 @@ def scan_assets() -> dict:
                         "path": r,
                         "url": "/files/" + r,
                         "group": "" if group == "." else group,
-                        "size": stat.st_size,
-                        "modified": iso(stat.st_mtime),
+                        "size": st.st_size,
+                        "modified": iso(st.st_mtime),
                     })
         out[category] = items
     return out
@@ -158,12 +171,17 @@ def scan_json_dir(subdir: str, expect_format: str | None = None) -> list:
             if not fn.lower().endswith(".json") or fn.startswith("."):
                 continue
             full = os.path.join(dirpath, fn)
+            try:
+                st = os.stat(full)
+            except OSError:
+                continue  # deleted between the walk and the stat
             entry = {
                 "path": rel_path(full),
                 "file": fn,
                 "name": os.path.splitext(fn)[0],
-                "modified": iso(os.stat(full).st_mtime),
-                "size": os.stat(full).st_size,
+                "id": os.path.splitext(fn)[0],
+                "modified": iso(st.st_mtime),
+                "size": st.st_size,
             }
             try:
                 with open(full, "r", encoding="utf-8") as fh:
@@ -172,6 +190,9 @@ def scan_json_dir(subdir: str, expect_format: str | None = None) -> list:
                     if expect_format and data.get("format") not in (None, expect_format):
                         continue
                     entry["name"] = data.get("name") or entry["name"]
+                    # The browser matches this against project.templateId, which
+                    # is a slug — never the display name.
+                    entry["id"] = data.get("id") or slugify(entry["name"], entry["id"])
                     entry["description"] = data.get("description", "")
                     entry["author"] = data.get("author", "")
                     entry["tags"] = data.get("tags", [])
@@ -210,6 +231,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -217,13 +240,52 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         self._send_json({"ok": False, "error": message}, status=status)
 
     def _read_body(self) -> dict:
+        if self.headers.get("Transfer-Encoding"):
+            # Chunked bodies are not decoded here, and a body left unread turns
+            # the next request on this connection into nonsense.
+            self.close_connection = True
+            raise ValueError("send a Content-Length, not a chunked body")
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
             return {}
-        if length > MAX_UPLOAD_BYTES * 2:
+        if length > MAX_REQUEST_BYTES:
+            # The body is refused unread, so the bytes still in flight would be
+            # parsed as the next request on a keep-alive connection. Close it.
+            self.close_connection = True
             raise ValueError("payload too large")
         raw = self.rfile.read(length)
         return json.loads(raw.decode("utf-8"))
+
+    # -- access control ----------------------------------------------------
+    # Loopback is not a security boundary. Any web page in the browser can post
+    # to 127.0.0.1, and a form-style content type needs no preflight, so without
+    # these two checks a visited site could rewrite the whole workspace.
+
+    def _host_name(self) -> str:
+        host = (self.headers.get("Host") or "").strip()
+        if host.startswith("["):                      # [::1]:7870
+            return host[1:host.find("]")].lower() if "]" in host else ""
+        return host.rsplit(":", 1)[0].lower() if ":" in host else host.lower()
+
+    def _refuse(self):
+        # The body of a refused POST is never read, so the socket cannot be
+        # trusted to start at a request line again. Answer and hang up.
+        self.close_connection = True
+        return self._error("forbidden", 403)
+
+    def _request_allowed(self) -> bool:
+        allowed = getattr(self.server, "allowed_hosts", None)
+        if allowed:
+            # A name we do not serve under means the request arrived through
+            # someone else's DNS record: that is a rebinding attack.
+            if self._host_name() not in allowed:
+                return False
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True                               # curl, CI, plain navigation
+        host = (self.headers.get("Host") or "").strip()
+        return origin.strip().lower() in (f"http://{host}".lower(),
+                                          f"https://{host}".lower())
 
     def end_headers(self):
         # The app is local-only; these headers just keep dev reloads honest.
@@ -232,6 +294,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
 
     # -- routing -----------------------------------------------------------
     def do_GET(self):
+        if not self._request_allowed():
+            return self._refuse()
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -251,6 +315,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             return self._error(f"{type(exc).__name__}: {exc}", 500)
 
     def do_POST(self):
+        if not self._request_allowed():
+            return self._refuse()
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
             return self._error("not found", 404)
@@ -303,17 +369,24 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         if route == "list":
             rel = (query.get("path") or ["."])[0]
             full = WORKSPACE if rel in (".", "") else safe_join(rel)
+            if not os.path.isdir(full):
+                raise FileNotFoundError(rel)
             entries = []
             for name in sorted(os.listdir(full)):
                 if name.startswith("."):
                     continue
                 p = os.path.join(full, name)
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue  # one file vanishing must not fail the listing
+                is_dir = stat.S_ISDIR(st.st_mode)
                 entries.append({
                     "name": name,
                     "path": rel_path(p),
-                    "dir": os.path.isdir(p),
-                    "size": os.path.getsize(p) if os.path.isfile(p) else 0,
-                    "modified": iso(os.stat(p).st_mtime),
+                    "dir": is_dir,
+                    "size": 0 if is_dir else st.st_size,
+                    "modified": iso(st.st_mtime),
                 })
             return self._send_json({"ok": True, "entries": entries})
 
@@ -407,7 +480,6 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         with open(full, "rb") as fh:
             shutil.copyfileobj(fh, self.wfile)
@@ -428,6 +500,7 @@ class ThreadingHTTPServerV6(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     verbose = False
+    allowed_hosts = frozenset()
 
 
 # --------------------------------------------------------------------------
@@ -471,6 +544,12 @@ def main(argv=None):
     port = find_free_port(args.host, args.port)
     httpd = ThreadingHTTPServerV6((args.host, port), ForgeHandler)
     httpd.verbose = args.verbose
+    # Binding somewhere other than loopback is a deliberate choice to serve the
+    # network, so the caller decides which names reach it; the default refuses
+    # everything but this machine.
+    bound = args.host.strip().lower()
+    httpd.allowed_hosts = (frozenset(LOOPBACK_HOSTS | {bound})
+                           if bound in LOOPBACK_HOSTS else frozenset())
     url = f"http://{args.host}:{port}/"
 
     print(f"\n  {APP_NAME} {APP_VERSION}")

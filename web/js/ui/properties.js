@@ -10,6 +10,7 @@ import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
+import { toast } from './dialogs.js';
 import {
   applyCrop,
   applyFilters,
@@ -448,31 +449,43 @@ function openReplaceDialog(img) {
   replaceInput.onchange = async () => {
     const file = replaceInput.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
     const target = img;
-    const element = await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = reject;
-      image.src = url;
-    });
-    target.setElement(element);
-    target.set({
-      _baseWidth: element.naturalWidth,
-      _baseHeight: element.naturalHeight,
-      width: element.naturalWidth,
-      height: element.naturalHeight,
-      cropX: 0,
-      cropY: 0,
-      tcgAsset: null,
-    });
-    if (target.tcgArtBox) fitImage(target, target.tcgArtBox, 'cover');
-    target.setCoords();
-    editor.canvas.requestRenderAll();
-    editor.touch();
-    replaceInput.value = '';
+    try {
+      // The picked file has to become something the project can find again,
+      // so it goes through the library rather than onto the canvas as a
+      // short-lived blob: URL.
+      const source = await assets.sourceForFile(file, 'art');
+      const element = await loadImageElement(source.url);
+      target.setElement(element);
+      target.set({
+        _baseWidth: element.naturalWidth,
+        _baseHeight: element.naturalHeight,
+        width: element.naturalWidth,
+        height: element.naturalHeight,
+        cropX: 0,
+        cropY: 0,
+        tcgAsset: source.path,
+      });
+      if (target.tcgArtBox) fitImage(target, target.tcgArtBox, 'cover');
+      target.setCoords();
+      editor.canvas.requestRenderAll();
+      editor.touch();
+    } catch (err) {
+      toast(`Could not replace the image: ${err.message}`, 'err');
+    } finally {
+      replaceInput.value = '';
+    }
   };
   replaceInput.click();
+}
+
+function loadImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('the file could not be decoded as an image'));
+    image.src = url;
+  });
 }
 
 /* ----------------------------------------------------------------- meta -- */
@@ -492,7 +505,6 @@ function bindMeta() {
         lockRotation: locked,
         lockScalingX: locked,
         lockScalingY: locked,
-        tcgLocked: locked,
       });
     }),
     'change'

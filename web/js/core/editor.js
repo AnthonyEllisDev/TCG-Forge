@@ -236,9 +236,13 @@ class Editor {
     const { width: W, height: H } = state.card;
     const bb = obj.getBoundingRect();
 
+    // Fabric 6 dropped isPartOfActiveSelection(), so asking an object whether
+    // it is being dragged always answered "no" and every member of a multi-layer
+    // drag snapped to itself at zero distance. Ask the mover for its members.
+    const moving = new Set(obj.getObjects?.() || []);
     const others = this.canvas
       .getObjects()
-      .filter((o) => o !== obj && o.visible !== false && !o.isPartOfActiveSelection?.())
+      .filter((o) => o !== obj && o.visible !== false && !moving.has(o))
       .map((o) => o.getBoundingRect());
 
     const targetsX = [0, W / 2, W, W * 0.08, W * (1 - 0.08)];
@@ -664,18 +668,23 @@ class Editor {
     const previousBg = canvas.backgroundColor;
     this.exporting = true;
     canvas.discardActiveObject();
-    if (transparent) canvas.backgroundColor = '';
-    canvas.renderAll();
-    const url = canvas.toDataURL({
-      format,
-      quality,
-      multiplier: multiplier / this.zoom,
-      enableRetinaScaling: false,
-    });
-    canvas.backgroundColor = previousBg;
-    this.exporting = false;
-    canvas.requestRenderAll();
-    return url;
+    try {
+      if (transparent) canvas.backgroundColor = '';
+      canvas.renderAll();
+      return canvas.toDataURL({
+        format,
+        quality,
+        multiplier: multiplier / this.zoom,
+        enableRetinaScaling: false,
+      });
+    } finally {
+      // A render that throws must not leave the guide suppressor latched on,
+      // or the safe zone and smart guides stay invisible for the rest of the
+      // session — and the transparent background must not stick either.
+      canvas.backgroundColor = previousBg;
+      this.exporting = false;
+      canvas.requestRenderAll();
+    }
   }
 }
 

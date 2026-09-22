@@ -7,6 +7,7 @@
 
 import { $, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
+import { assets } from '../core/assets.js';
 import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
 import { collectFields, fieldValue, setFieldImage, setFieldText } from '../core/templates.js';
@@ -110,7 +111,8 @@ function pickArt(slot) {
     const file = artInput.files?.[0];
     if (!file) return;
     try {
-      await setFieldImage(slot, URL.createObjectURL(file));
+      const source = await assets.sourceForFile(file, 'art');
+      await setFieldImage(slot, source.url, { assetPath: source.path });
       toast(`Placed ${file.name} in “${slot}”.`, 'ok');
     } catch (err) {
       toast(`Could not place image: ${err.message}`, 'err');

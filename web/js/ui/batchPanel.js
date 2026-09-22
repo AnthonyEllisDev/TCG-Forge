@@ -221,10 +221,13 @@ export function openBatchDialog() {
 /* ----------------------------------------------------------------- data --- */
 
 function loadData(text, filename, slots) {
-  table = parseAny(text, filename);
-  sourceName = filename;
-  if (!table.rows.length) throw new Error('no data rows found');
+  // Validate before replacing anything: a headers-only file used to discard
+  // the spreadsheet that was already loaded and then report the error.
+  const parsed = parseAny(text, filename);
+  if (!parsed.rows.length) throw new Error('no data rows found');
 
+  table = parsed;
+  sourceName = filename;
   mapping = {};
   for (const column of table.columns) mapping[column] = guessSlot(column, slots);
 
