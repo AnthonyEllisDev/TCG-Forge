@@ -601,6 +601,294 @@ try {
     /cards per/.test(dialogFit) && sheetFiles.some((f) => /\.pdf$/.test(f.name) && f.size > 10000),
     JSON.stringify({ dialogFit, sheetFiles }));
 
+  /* ---- card backs: duplex and gutterfold ------------------------------- */
+  /* The geometry is the feature. A back has to land on the far side of the
+     page centre line from its front, because that is what the sheet of paper
+     does when the printer turns it over. */
+  const duplex = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const base = { cardWidth: 750, cardHeight: 1050, cardDpi: 300, page: 'a4', dpi: 150, marginMm: 6 };
+    const plain = ps.planSheet(base);
+    const long = ps.planSheet({ ...base, backMode: 'duplex', flipEdge: 'long' });
+    const short = ps.planSheet({ ...base, backMode: 'duplex', flipEdge: 'short' });
+    const shifted = ps.planSheet({ ...base, backMode: 'duplex', flipEdge: 'long', shiftXMm: 2, shiftYMm: -1 });
+    const mirrorsX = long.slots.every((slot, i) =>
+      Math.abs(long.backSlots[i].left + slot.width - (long.pageWidth - slot.left)) < 0.01 &&
+      Math.abs(long.backSlots[i].top - slot.top) < 0.01);
+    const mirrorsY = short.slots.every((slot, i) =>
+      Math.abs(short.backSlots[i].top + slot.height - (short.pageHeight - slot.top)) < 0.01 &&
+      Math.abs(short.backSlots[i].left - slot.left) < 0.01);
+    const mmX = 2 / 25.4 * 150;
+    const mmY = -1 / 25.4 * 150;
+    const shiftApplied =
+      Math.abs(shifted.backSlots[0].left - (long.backSlots[0].left + mmX)) < 0.01 &&
+      Math.abs(shifted.backSlots[0].top - (long.backSlots[0].top + mmY)) < 0.01;
+    return {
+      plainHasNoBacks: plain.backSlots === null,
+      perPageUnchanged: long.perPage === plain.perPage,
+      mirrorsX,
+      mirrorsY,
+      shiftApplied,
+      // Rounding the page to whole pixels leaves the mirrored grid a fraction
+      // of a pixel off the printed one; a millimetre is 6 pixels here.
+      firstBackOverLastFront:
+        Math.abs(long.backSlots[0].left - long.slots[long.cols - 1].left) < 1,
+    };
+  });
+  check('a duplex back lands on the far side of the page from its front',
+    duplex.plainHasNoBacks && duplex.perPageUnchanged && duplex.mirrorsX && duplex.mirrorsY &&
+      duplex.shiftApplied && duplex.firstBackOverLastFront,
+    JSON.stringify(duplex));
+
+  const gutter = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const base = { cardWidth: 750, cardHeight: 1050, cardDpi: 300, page: 'a4', dpi: 150, marginMm: 6 };
+    const plain = ps.planSheet(base);
+    const fold = ps.planSheet({ ...base, backMode: 'gutterfold' });
+    let refused = null;
+    try { ps.planSheet({ ...base, cardHeight: 1800, backMode: 'gutterfold' }); }
+    catch (err) { refused = err.message; }
+    return {
+      halfThePage: fold.perPage < plain.perPage && fold.rows < plain.rows && fold.cols === plain.cols,
+      foldAtCentre: fold.foldY === fold.pageHeight / 2,
+      rotated: fold.backRotated === true,
+      frontsBelowFold: fold.slots.every((s) => s.top > fold.foldY),
+      backsAboveFold: fold.backSlots.every((s) => s.top + s.height < fold.foldY),
+      mirrorsFold: fold.slots.every((s, i) =>
+        Math.abs(fold.backSlots[i].top + s.height - (fold.pageHeight - s.top)) < 0.01 &&
+        Math.abs(fold.backSlots[i].left - s.left) < 0.01),
+      refused,
+    };
+  });
+  check('a gutterfold sheet puts the backs across the fold from the fronts',
+    gutter.halfThePage && gutter.foldAtCentre && gutter.rotated && gutter.frontsBelowFold &&
+      gutter.backsAboveFold && gutter.mirrorsFold && /half of/.test(gutter.refused || ''),
+    JSON.stringify(gutter));
+
+  /* Geometry can be right on paper and wrong on the page. Paint real sheets
+     and read the pixels back: the wrong mirror, or a back printed the right
+     way up on a folded sheet, is invisible in the source and obvious here. */
+  const painted = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const swatch = (top, bottom = top) => {
+      const c = document.createElement('canvas');
+      c.width = 60; c.height = 84;
+      const x = c.getContext('2d');
+      x.fillStyle = top; x.fillRect(0, 0, 60, 42);
+      x.fillStyle = bottom; x.fillRect(0, 42, 60, 42);
+      return c.toDataURL('image/png');
+    };
+    const at = (canvas, x, y) => {
+      const d = canvas.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data;
+      return `${d[0]},${d[1]},${d[2]}`;
+    };
+
+    const base = { cardWidth: 750, cardHeight: 1050, cardDpi: 300, page: 'a4', dpi: 150, marginMm: 6 };
+    const plan = ps.planSheet({ ...base, backMode: 'duplex', flipEdge: 'long' });
+    const fronts = await Promise.all(['#ff0000', '#00ff00', '#0000ff'].map((c) => ps.loadImage(swatch(c))));
+    const backs = await Promise.all(['#00ffff', '#ff00ff', '#ffff00'].map((c) => ps.loadImage(swatch(c))));
+    const pages = await ps.buildSheets(
+      fronts.map((_, i) => swatch(['#ff0000', '#00ff00', '#0000ff'][i])),
+      plan,
+      { backs: ['#00ffff', '#ff00ff', '#ffff00'].map((c) => swatch(c)), guides: 'none', pageLabel: 'smoke' }
+    );
+
+    const front = pages[0].canvas;
+    const back = pages[1].canvas;
+    const mid = (slot) => [slot.left + slot.width / 2, slot.top + slot.height / 2];
+    // Back 0 must sit exactly where front 2 sits, so the sheet turned over
+    // puts each back behind its own card.
+    const backOfFirst = at(back, ...mid(plan.slots[2]));
+    const frontOfFirst = at(front, ...mid(plan.slots[0]));
+
+    /* gutterfold: the back is printed upside down, so the half that was on
+       top comes out at the bottom. */
+    const foldPlan = ps.planSheet({ ...base, backMode: 'gutterfold' });
+    const foldPages = await ps.buildSheets([swatch('#ff0000')], foldPlan, {
+      backs: [swatch('#000080', '#ffffff')],
+      guides: 'none',
+    });
+    const bs = foldPlan.backSlots[0];
+    const foldTop = at(foldPages[0].canvas, bs.left + bs.width / 2, bs.top + bs.height * 0.15);
+    const foldBottom = at(foldPages[0].canvas, bs.left + bs.width / 2, bs.top + bs.height * 0.85);
+
+    return {
+      pageCount: pages.length,
+      sides: pages.map((p) => p.side).join(','),
+      frontOfFirst,
+      backOfFirst,
+      emptyWhereBackIsNot: at(back, ...mid(plan.slots[6])),
+      foldPages: foldPages.length,
+      foldTop,
+      foldBottom,
+    };
+  });
+  check('a printed back sits behind its own card, and a folded one upside down',
+    painted.pageCount === 2 && painted.sides === 'front,back' &&
+      painted.frontOfFirst === '255,0,0' && painted.backOfFirst === '0,255,255' &&
+      painted.emptyWhereBackIsNot === '255,255,255' &&
+      painted.foldPages === 1 && painted.foldTop === '255,255,255' && painted.foldBottom === '0,0,128',
+    JSON.stringify(painted));
+
+  const pairing = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const errors = [];
+    const grab = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
+    errors.push(grab(() => ps.pairBacks([], 4)));
+    errors.push(grab(() => ps.pairBacks(['a', 'b'], 4)));
+    return {
+      oneForAll: ps.pairBacks(['back.png'], 4),
+      onePerCard: ps.pairBacks(['a', 'b', 'c'], 3).join(''),
+      errors,
+    };
+  });
+  check('card backs pair one for the set, or one per card, or not at all',
+    pairing.oneForAll.length === 4 && pairing.oneForAll.every((u) => u === 'back.png') &&
+      pairing.onePerCard === 'abc' && /single-sided/.test(pairing.errors[0] || '') &&
+      /2 backs for 4 cards/.test(pairing.errors[1] || ''),
+    JSON.stringify(pairing));
+
+  /* And the dialog drives all of it. */
+  await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const c = document.createElement('canvas');
+    c.width = 750; c.height = 1050;
+    const x = c.getContext('2d');
+    x.fillStyle = '#204080'; x.fillRect(0, 0, 750, 1050);
+    await api.exportImage({
+      filename: 'smoke-back.png', dataURL: c.toDataURL('image/png'),
+      folder: 'smoke-backs', overwrite: true,
+    });
+  });
+  await page.click('[data-action="print-sheet"]');
+  await page.waitForTimeout(500);
+  await page.selectOption('#modalBody label.field:has-text("Both sides") select', 'duplex');
+  await page.selectOption('#modalBody label.field:has-text("Backs from") select', 'exports/smoke-backs');
+  await page.selectOption('#modalBody label.field:has-text("Format") select', 'png');
+  await page.fill('#modalBody label.field:has-text("Copies") input', '2');
+  const duplexFit = await page.$$eval('#modalBody .hint', (nodes) => nodes[0].textContent);
+  for (const button of await page.$$('#modalFoot .btn')) {
+    if ((await button.textContent()) === 'Make sheets') { await button.click(); break; }
+  }
+  await page.waitForTimeout(7000);
+  await page.screenshot({ path: 'smoke-duplex.png' });
+  const duplexStatus = await page.$$eval('#modalBody .hint', (nodes) => nodes[nodes.length - 1].textContent);
+  const duplexFiles = await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const data = await api.request('/api/list?path=exports/print').catch(() => ({ entries: [] }));
+    return (data.entries || []).map((e) => e.name);
+  });
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check('the print dialog writes a front page and a back page',
+    /double-sided/.test(duplexFit) && /fronts and backs interleaved/.test(duplexStatus) &&
+      duplexFiles.some((n) => /-sheet-01(-\d+)?\.png$/.test(n)) &&
+      duplexFiles.some((n) => /-sheet-01-back(-\d+)?\.png$/.test(n)),
+    JSON.stringify({ duplexFit, duplexStatus, duplexFiles: duplexFiles.slice(0, 6) }));
+
+  /* ---- bug guards ------------------------------------------------------ */
+  /* A batch that cannot put the canvas back must still hand the history lock
+     over, or undo and redo are dead for the rest of the session and nothing
+     on screen says why. */
+  const batchLock = await page.evaluate(async () => {
+    const { history, editor } = window.TCGForge;
+    const batch = await import('/js/core/batch.js');
+    const real = editor.loadJSON.bind(editor);
+    let calls = 0;
+    editor.loadJSON = async (json) => {
+      calls += 1;
+      if (calls >= 2) throw new Error('simulated restore failure');
+      return real(json);
+    };
+    try {
+      await batch.runBatch({
+        rows: [{ title: 'Lock probe' }], mapping: { title: 'title' },
+        options: { toWorkspace: false },
+      });
+    } catch { /* the restore failure is the point */ }
+    editor.loadJSON = real;
+    const locked = history.locked;
+    const depthBefore = history.status().depth;
+    editor.insert('rect');
+    await new Promise((r) => setTimeout(r, 700));
+    const depthAfter = history.status().depth;
+    editor.remove(editor.objects().slice(-1));
+    history.locked = false;
+    return { locked, depthBefore, depthAfter, stillRecording: depthAfter > depthBefore };
+  });
+  check('a batch that fails to restore still hands back the history lock',
+    batchLock.locked === false && batchLock.stillRecording, JSON.stringify(batchLock));
+
+  /* Opening a project replaces the canvas as completely as New does. */
+  const openGuard = await page.evaluate(async () => {
+    const { state, editor } = window.TCGForge;
+    state.setDirty(true);
+    const layersBefore = editor.objects().length;
+    document.querySelector('[data-action="open-project"]').click();
+    await new Promise((r) => setTimeout(r, 400));
+    const title = document.querySelector('#modalTitle').textContent;
+    // Cancel, and nothing may have happened to the card.
+    const cancel = [...document.querySelectorAll('#modalFoot .btn')]
+      .find((b) => b.textContent === 'Cancel');
+    cancel?.click();
+    await new Promise((r) => setTimeout(r, 300));
+    return {
+      title,
+      asked: /unsaved|Open another/i.test(title),
+      closed: document.querySelector('#modalRoot').hidden,
+      layersKept: editor.objects().length === layersBefore,
+    };
+  });
+  check('opening a project asks before discarding unsaved work',
+    openGuard.asked && openGuard.closed && openGuard.layersKept, JSON.stringify(openGuard));
+
+  /* A panel field owns its own undo stack while the caret is in it. */
+  const fieldUndo = await page.evaluate(async () => {
+    const { editor, history, state } = window.TCGForge;
+    state.setDirty(false);
+    const input = document.querySelector('#fieldForm input[type="text"]');
+    if (!input) return { skipped: true };
+    const slot = input.id.replace(/^ff_/, '');
+    input.focus();
+    input.value = 'Undo probe';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 600));
+    const indexBefore = history.status().index;
+    const event = new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+    input.dispatchEvent(event);
+    await new Promise((r) => setTimeout(r, 600));
+    return {
+      hijacked: event.defaultPrevented,
+      indexBefore,
+      indexAfter: history.status().index,
+      textKept: editor.findBySlot(slot)[0]?.text === 'Undo probe',
+    };
+  });
+  check('undo inside a card field is left to the field',
+    fieldUndo.hijacked === false && fieldUndo.indexAfter === fieldUndo.indexBefore && fieldUndo.textKept,
+    JSON.stringify(fieldUndo));
+
+  /* The library feeds the canvas, and the canvas feeds the project file. */
+  const offlineImport = await page.evaluate(async () => {
+    const { assets, api } = window.TCGForge;
+    const was = api.online;
+    api.online = false;
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 4;
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const file = new File([blob], 'offline-probe.png', { type: 'image/png' });
+    const imported = await assets.importFiles([file], 'art');
+    api.online = was;
+    const entry = (assets.index.art || []).find((i) => i.file === 'offline-probe.png');
+    assets.index.art = (assets.index.art || []).filter((i) => i.file !== 'offline-probe.png');
+    return {
+      returned: String(imported[0]?.url || '').slice(0, 11),
+      indexed: String(entry?.url || '').slice(0, 11),
+    };
+  });
+  check('an import without the backend keeps the picture, not a blob URL',
+    offlineImport.returned === 'data:image/' && offlineImport.indexed === 'data:image/',
+    JSON.stringify(offlineImport));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

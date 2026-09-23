@@ -95,6 +95,18 @@ async function handleSaveAs() {
 }
 
 export async function openProjectDialog() {
+  // New and "load template" both ask first; opening a project replaces the
+  // canvas just as completely, and used to do it without a word.
+  if (state.dirty) {
+    const go = await confirmDialog({
+      title: 'Open another project?',
+      message: 'The current card has unsaved changes. Opening a project replaces it.',
+      confirmLabel: 'Discard and open',
+      danger: true,
+    });
+    if (!go) return;
+  }
+
   const body = el('div', { class: 'stack' });
   const list = el('div', { class: 'list' });
   body.append(list);

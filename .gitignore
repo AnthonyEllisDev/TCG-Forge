@@ -23,6 +23,4 @@ node_modules/
 package-lock.json
 package.json
 __pycache__/
-smoke-export.png
-smoke-print.png
-smoke-ui.png
+smoke-*.png

@@ -10,13 +10,18 @@ it.
 - **Print sheets** (0.3.0) — cards laid out on A4/Letter/Legal/A3/Tabloid at
   their true physical size, with crop marks or cut lines, bleed handling and
   PDF or PNG output. See [`PRINT.md`](PRINT.md).
+- **Card backs, duplex and gutterfold sheets** (0.4.0) — a shared or per-card
+  back, mirrored back pages with a choice of flip edge, a millimetre alignment
+  shift for printer drift, and fold-over sheets for people without a duplex
+  printer. See [`PRINT.md`](PRINT.md).
 
 ## Next
 
-- **Card backs and duplex sheets.** A back image per card, mirrored page order
-  so back 1 lands behind front 1, and a front/back alignment shift to absorb
-  printer drift. Gutterfold layouts for people without a duplex printer. The
-  geometry is already in `planSheet()`.
+- **Per-card quantities.** A `qty` column in a batch file, honoured by the
+  print sheet builder, so a deck is `4 × Lightning Bolt` rather than four
+  duplicated spreadsheet rows. Every comparable tool has this.
+- **Conditional layers.** A `tcgShowIf` property so an empty spreadsheet cell
+  hides the icon badge or divider behind the field, not just its text.
 - **Multi-card projects.** A card list in one file, with a strip of thumbnails to
   switch between them — the natural home for set-wide edits.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.

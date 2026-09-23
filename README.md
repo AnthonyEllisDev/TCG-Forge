@@ -82,6 +82,13 @@ physical size, with crop marks or cut lines, margins, gaps and bleed. Save as a
 PDF — which carries a real page size, so "print at 100%" means something — or as
 one PNG per page. See [`docs/PRINT.md`](docs/PRINT.md).
 
+**Two-sided cards.** The same dialog puts backs on the paper: **double-sided**
+writes mirrored back pages so each back lands behind its own card when the
+printer turns the sheet over, with a flip-edge setting and a millimetre shift to
+absorb printer drift; **gutterfold** puts fronts and backs either side of a fold
+on one page, for anyone without a duplex printer. One back for the whole set, or
+one per card.
+
 **Whole sets from a spreadsheet.** Point the batch generator at a CSV, map the
 columns to slots once, and render the set into `workspace/exports/` — with a
 preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
@@ -136,7 +143,7 @@ API moves it to `workspace/.trash/`.
    gradient panel, a set symbol.
 5. **Export** — choose 2× for a crisp print file. It lands in
    `workspace/exports`. Ready to print? **Print** (`Ctrl/⌘ + P`) turns it into a
-   page of nine, with crop marks.
+   page of nine, with crop marks — and a page of backs to go behind them.
 
 Making more than one card? Fill a spreadsheet instead and use **Batch**
 (`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example.

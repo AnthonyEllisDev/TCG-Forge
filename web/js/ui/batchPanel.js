@@ -184,6 +184,11 @@ export function openBatchDialog() {
     title: 'Batch generate a set',
     wide: true,
     body,
+    // Escape and the ✕ bypass the Close button, so without this a run carries
+    // on against a dialog that is off screen and can no longer be stopped.
+    onClosed: () => {
+      if (running) cancelRequested = true;
+    },
     buttons: [
       { label: 'Close', onClick: (c) => (running ? (cancelRequested = true) : c()) },
       {

@@ -208,8 +208,15 @@ export async function renderRow(row, mapping, { multiplier = 1, format = 'png', 
     await nextFrame();
     return editor.toDataURL({ multiplier, format, transparent });
   } finally {
-    await restoreSnapshot(snapshot);
-    history.locked = false;
+    // Releasing the lock is nested inside its own finally because the restore
+    // can throw — an image the row referenced may have gone from the
+    // workspace. Left latched, history stops recording for the rest of the
+    // session and undo dies silently.
+    try {
+      await restoreSnapshot(snapshot);
+    } finally {
+      history.locked = false;
+    }
   }
 }
 
@@ -281,8 +288,13 @@ export async function runBatch({
     }
   } finally {
     state.project.name = originalName;
-    await restoreSnapshot(snapshot);
-    history.locked = false;
+    // Same reason as renderRow: a restore that throws must not take undo and
+    // redo down with it for the rest of the session.
+    try {
+      await restoreSnapshot(snapshot);
+    } finally {
+      history.locked = false;
+    }
   }
 
   return { rendered, failed, total: rows.length };

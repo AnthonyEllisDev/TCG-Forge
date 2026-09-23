@@ -148,7 +148,10 @@ class AssetLibrary {
         const family = await this.registerFontFromFile(file);
         results.push({ name: file.name, family, local: true });
       } else {
-        const url = URL.createObjectURL(file);
+        // Never a blob: URL. The library feeds the canvas, the canvas feeds the
+        // project file, and a blob: URL dies with the tab — the artwork would
+        // simply be gone on reopen with nothing to say why.
+        const url = await fileToDataURL(file);
         const entry = {
           name: file.name.replace(/\.[^.]+$/, ''),
           file: file.name,

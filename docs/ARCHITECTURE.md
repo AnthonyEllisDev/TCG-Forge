@@ -192,6 +192,17 @@ paints them onto a plain 2D canvas — it never opens the Fabric canvas, the slo
 system or a project file, which is why it is short and why it cannot corrupt
 anything.
 
+Card backs are the same geometry turned over. When a back mode is on,
+`planSheet()` returns `backSlots` running parallel to `slots`: each one is its
+front mirrored about the page centre line, which is what the sheet of paper does
+when the printer flips it, and which is also where a gutterfold sheet folds — so
+one piece of arithmetic covers a short-edge duplex flip and a fold alike, and a
+long-edge flip is the same thing about the other axis. A back page is therefore
+the front page's own grid painted in `backSlots`, and a gutterfold page is both
+blocks on one canvas with the backs drawn through half a turn. `composeBlocks()`
+paints any number of blocks onto a page; `composePage()` is the one-block case
+every single-sided sheet uses.
+
 `core/pdf.js` turns the finished sheets into a PDF: a catalogue, a page tree and
 one DCTDecode image per page, about 150 lines. It exists because an image file
 cannot state its physical size, so "print at 100%" only means something in a

@@ -29,10 +29,15 @@ export function initShortcuts() {
     if (mod) {
       switch (e.key.toLowerCase()) {
         case 'z':
+          // A field in the panels owns its own undo stack. Hijacking Ctrl+Z
+          // there rolls back the whole canvas while the caret is mid-word,
+          // and leaves the input showing text the card no longer has.
+          if (typing) return;
           e.preventDefault();
           e.shiftKey ? history.redo() : history.undo();
           return;
         case 'y':
+          if (typing) return;
           e.preventDefault();
           history.redo();
           return;

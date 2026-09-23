@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0 — card backs
+
+- **Card backs, duplex and gutterfold sheets**: the print sheet builder can now
+  put a second side on the paper. **Double-sided** writes a back page after
+  every front page, laid out mirrored about the page centre line so each back
+  lands behind its own card once the printer turns the sheet over; **gutterfold**
+  puts fronts and backs on one page either side of a dashed fold line, with the
+  backs upside down, for anyone without a duplex printer. Backs come from a
+  folder under `workspace/exports` — one image for the whole set, or one per
+  card paired in file order. A **flip edge** setting covers both ways a printer
+  can turn the paper, and a **back shift** in millimetres cancels the register
+  drift every duplex printer has. Documented in
+  [`docs/PRINT.md`](docs/PRINT.md). No new server endpoint.
+- Sheets can be numbered in the bottom margin — project name, sheet number and
+  which side — so a stack of loose double-sided pages can be paired again.
+  Turning on a back mode turns this on with it.
+- Repeated cards are decoded once instead of once per copy, which makes a full
+  page of a single card noticeably faster to build.
+
+### Fixed
+
+- A batch run that could not put the canvas back afterwards — a piece of
+  artwork moved or deleted while the dialog was open would do it — left the
+  history lock held. Undo and redo then did nothing for the rest of the session
+  and no further edits were recorded, with nothing on screen to say why. The
+  same fault was in the batch preview.
+- Opening a project replaced the current card without asking, so unsaved work
+  disappeared. **New** and **load template** have always asked; **Open** now
+  does too.
+- `Ctrl/⌘ + Z` while typing in a Card Fields box rolled back the whole canvas
+  instead of undoing the typing, and left the box showing text the card no
+  longer had. Undo and redo are now left to the field when the caret is in one.
+- Importing a picture without the local server running stored it as a `blob:`
+  URL, which stops existing when the tab closes — the last place in the app
+  where that could happen. It is inlined instead, so the artwork survives a
+  reload and a saved project still finds it.
+- Dismissing the batch dialog with Escape or the ✕ during a run left the run
+  going against a dialog that was no longer on screen and could no longer be
+  stopped. Both now cancel it, as the Close button already did.
+
 ## 0.3.0 — print sheets
 
 - **Print sheets**: lay finished cards out on A4, US Letter, US Legal, A3 or
