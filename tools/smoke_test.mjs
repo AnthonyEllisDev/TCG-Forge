@@ -585,7 +585,7 @@ try {
   /* And the dialog actually writes them. */
   await page.click('[data-action="print-sheet"]');
   await page.waitForTimeout(400);
-  const dialogFit = await page.$$eval('#modalBody .hint', (nodes) => nodes[0].textContent);
+  const dialogFit = await page.$eval('#printFit', (node) => node.textContent);
   for (const button of await page.$$('#modalFoot .btn')) {
     if ((await button.textContent()) === 'Make sheets') { await button.click(); break; }
   }
@@ -762,17 +762,17 @@ try {
   });
   await page.click('[data-action="print-sheet"]');
   await page.waitForTimeout(500);
-  await page.selectOption('#modalBody label.field:has-text("Both sides") select', 'duplex');
-  await page.selectOption('#modalBody label.field:has-text("Backs from") select', 'exports/smoke-backs');
-  await page.selectOption('#modalBody label.field:has-text("Format") select', 'png');
-  await page.fill('#modalBody label.field:has-text("Copies") input', '2');
-  const duplexFit = await page.$$eval('#modalBody .hint', (nodes) => nodes[0].textContent);
+  await page.selectOption('#printBackMode', 'duplex');
+  await page.selectOption('#printBackFolder', 'exports/smoke-backs');
+  await page.selectOption('#printFormat', 'png');
+  await page.fill('#printCopies', '2');
+  const duplexFit = await page.$eval('#printFit', (node) => node.textContent);
   for (const button of await page.$$('#modalFoot .btn')) {
     if ((await button.textContent()) === 'Make sheets') { await button.click(); break; }
   }
   await page.waitForTimeout(7000);
   await page.screenshot({ path: 'smoke-duplex.png' });
-  const duplexStatus = await page.$$eval('#modalBody .hint', (nodes) => nodes[nodes.length - 1].textContent);
+  const duplexStatus = await page.$eval('#printStatus', (node) => node.textContent);
   const duplexFiles = await page.evaluate(async () => {
     const { api } = window.TCGForge;
     const data = await api.request('/api/list?path=exports/print').catch(() => ({ entries: [] }));
@@ -784,6 +784,135 @@ try {
       duplexFiles.some((n) => /-sheet-01(-\d+)?\.png$/.test(n)) &&
       duplexFiles.some((n) => /-sheet-01-back(-\d+)?\.png$/.test(n)),
     JSON.stringify({ duplexFit, duplexStatus, duplexFiles: duplexFiles.slice(0, 6) }));
+
+  /* ---- per-card quantities --------------------------------------------- */
+  /* A deck is four of one card and one of another. The counting is arithmetic,
+     so it is checked as arithmetic first: what a spreadsheet cell may hold,
+     what a manifest may claim, and the ceiling that stops a mistyped count
+     from trying to lay out a million cards. */
+  const deckMath = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const refusal = (fn) => { try { fn(); return null; } catch (err) { return err.message; } };
+    return {
+      expanded: ps.expandByQuantity(['a', 'b', 'c'], [3, 1, 2]).join(''),
+      noCounts: ps.expandByQuantity(['a', 'b'], null).join(''),
+      cells: [ps.readQuantity(''), ps.readQuantity('x'), ps.readQuantity('0'),
+        ps.readQuantity('-4'), ps.readQuantity('2.7'), ps.readQuantity(4)].join(','),
+      // A manifest may only name a file in the folder it was found in.
+      strippedPath: ps.parseDeck({
+        format: 'tcgforge.deck',
+        cards: [{ file: '../../launch.py', qty: 2 }],
+      })[0].file,
+      refused: [
+        refusal(() => ps.parseDeck({ format: 'not-a-deck', cards: [{ file: 'a.png' }] })),
+        refusal(() => ps.parseDeck({ format: 'tcgforge.deck', cards: [] })),
+        refusal(() => ps.expandByQuantity(['a', 'b', 'c'], [9999, 9999, 9999])),
+      ],
+    };
+  });
+  check('a deck list counts copies, and refuses what it cannot count',
+    deckMath.expanded === 'aaabcc' && deckMath.noCounts === 'ab' &&
+      deckMath.cells === '1,1,1,1,2,4' && deckMath.strippedPath === 'launch.py' &&
+      deckMath.refused.every(Boolean) && /2000/.test(deckMath.refused[2]),
+    JSON.stringify(deckMath));
+
+  /* The count has to reach the paper. Three designs in three colours, laid out
+     from a deck list, must appear on the sheet as many times as the list says
+     — read back off the page, not off a number that agrees with itself. */
+  const deckSheet = await page.evaluate(async () => {
+    const ps = await import('/js/core/printSheet.js');
+    const swatch = (colour) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 100;
+      canvas.height = 140;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = colour;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    };
+    const designs = [swatch('#ff0000'), swatch('#00ff00'), swatch('#0000ff')];
+    const urls = ps.expandByQuantity(designs, [3, 1, 2]);
+    const plan = ps.planSheet({ cardWidth: 750, cardHeight: 1050, cardDpi: 300, dpi: 150 });
+    const pages = await ps.buildSheets(urls, plan, { guides: 'none' });
+    const ctx = pages[0].canvas.getContext('2d');
+    const counts = {};
+    for (const slot of plan.slots) {
+      const px = ctx.getImageData(
+        Math.round(slot.left + slot.width / 2),
+        Math.round(slot.top + slot.height / 2), 1, 1).data;
+      const key = `${px[0]},${px[1]},${px[2]}`;
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return { cards: urls.length, pages: pages.length, perPage: plan.perPage, counts };
+  });
+  check('a deck prints as many of each card as the list asks for',
+    deckSheet.cards === 6 && deckSheet.pages === 1 && deckSheet.perPage === 9 &&
+      deckSheet.counts['255,0,0'] === 3 && deckSheet.counts['0,255,0'] === 1 &&
+      deckSheet.counts['0,0,255'] === 2 && deckSheet.counts['255,255,255'] === 3,
+    JSON.stringify(deckSheet));
+
+  /* A run with a quantity column renders each design once and writes the
+     counts beside the images — one file per design, not one per copy. */
+  const deckWrite = await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const batch = await import('/js/core/batch.js');
+    const templates = await import('/js/core/templates.js');
+    await templates.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    const result = await batch.runBatch({
+      rows: [
+        { title: 'Smoke Triple', qty: '3' },
+        { title: 'Smoke Single', qty: '' },   // an empty cell is one, not none
+        { title: 'Smoke Double', qty: '2' },
+      ],
+      mapping: { title: 'title' },
+      options: { multiplier: 1, pattern: '{title}', subfolder: 'smoke-deck', qtyColumn: 'qty' },
+    });
+    const listing = await api.request('/api/list?path=exports/smoke-deck');
+    // A missing list is this check's own failure, not a reason to abandon the run.
+    const deck = await api.readJSON('exports/smoke-deck/deck.json').catch(() => null);
+    return {
+      guessed: batch.guessQtyColumn(['title', 'Qty', 'art']),
+      noColumn: batch.guessQtyColumn(['title', 'art']),
+      rendered: result.rendered.length,
+      deckPath: result.deckPath,
+      images: (listing.entries || []).filter((e) => /\.png$/.test(e.name)).length,
+      counts: (deck?.cards || []).map((card) => card.qty).join(','),
+      total: deck?.total ?? null,
+    };
+  });
+  check('a batch run records how many of each card the deck wants',
+    deckWrite.rendered === 3 && deckWrite.guessed === 'Qty' && deckWrite.noColumn === '' &&
+      deckWrite.deckPath === 'exports/smoke-deck/deck.json' &&
+      deckWrite.counts === '3,1,2' && deckWrite.total === 6 && deckWrite.images === 3,
+    JSON.stringify(deckWrite));
+
+  /* And the dialog finds that list on its own, without being told. */
+  await page.click('[data-action="print-sheet"]');
+  await page.waitForTimeout(500);
+  await page.selectOption('#printSource', 'folder');
+  await page.selectOption('#printFolder', 'exports/smoke-deck');
+  await page.waitForTimeout(600);
+  const deckHint = await page.$eval('#printDeckHint', (node) => node.textContent);
+  const deckToggle = await page.$eval('#printUseQty', (node) => node.checked && !node.disabled);
+  const pressPreview = async () => {
+    for (const button of await page.$$('#modalFoot .btn')) {
+      if ((await button.textContent()) === 'Preview') { await button.click(); break; }
+    }
+    await page.waitForTimeout(3500);
+    return page.$eval('#printStatus', (node) => node.textContent);
+  };
+  const deckStatus = await pressPreview();
+  await page.screenshot({ path: 'smoke-deck.png' });
+  // Set rather than click: with no list found the box is disabled, and this
+  // check has to report that as a failure instead of stalling on it.
+  await page.$eval('#printUseQty', (node) => { node.checked = false; });
+  const plainStatus = await pressPreview();
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check('the print dialog finds the deck list and lays the copies out',
+    /6 cards/.test(deckHint) && /3 designs/.test(deckHint) && deckToggle &&
+      /6 cards from 3 designs/.test(deckStatus) &&
+      /3 cards/.test(plainStatus) && !/designs/.test(plainStatus),
+    JSON.stringify({ deckHint, deckToggle, deckStatus, plainStatus }));
 
   /* ---- bug guards ------------------------------------------------------ */
   /* A batch that cannot put the canvas back must still hand the history lock
@@ -888,6 +1017,71 @@ try {
   check('an import without the backend keeps the picture, not a blob URL',
     offlineImport.returned === 'data:image/' && offlineImport.indexed === 'data:image/',
     JSON.stringify(offlineImport));
+
+  /* Loading a template must not leave Save aimed at the project that was open.
+     The top bar has already swapped to the template's name, so an overwrite
+     there is silent, total, and impossible to see coming. */
+  const templateTarget = await page.evaluate(async () => {
+    const { state, api } = window.TCGForge;
+    const project = await import('/js/core/project.js');
+    const templates = await import('/js/core/templates.js');
+    state.project.path = null;
+    const victim = await project.saveProject({ name: 'Smoke Victim' });
+    const before = (await api.readJSON(victim.path)).name;
+
+    const list = await api.listTemplates();
+    await templates.applyTemplate(await api.readJSON(list[0].path));
+    const pathAfter = state.project.path;
+
+    const saved = await project.saveProject({});          // the user presses Ctrl+S
+    const after = (await api.readJSON(victim.path)).name;
+    await api.trash(victim.path).catch(() => {});
+    if (saved.path !== victim.path) await api.trash(saved.path).catch(() => {});
+    return { victim: victim.path, pathAfter, savedTo: saved.path, before, after };
+  });
+  check('loading a template does not aim Save at the project that was open',
+    templateTarget.pathAfter === null && templateTarget.savedTo !== templateTarget.victim &&
+      templateTarget.after === templateTarget.before,
+    JSON.stringify(templateTarget));
+
+  /* The batch dialog keeps its spreadsheet between openings. A reopened dialog
+     that does not show it looks empty while Render set still holds every row,
+     mapped onto slots this card may no longer have. */
+  const batchReopen = await page.evaluate(async () => {
+    const dialogs = await import('/js/ui/dialogs.js');
+    const panel = await import('/js/ui/batchPanel.js');
+    const { api } = window.TCGForge;
+    const csv = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+    const readBack = () => ({
+      summary: document.querySelector('#batchSummary').textContent,
+      rows: document.querySelectorAll('#modalBody .map-row').length,
+      qty: document.querySelector('#batchQtyColumn')?.value,
+    });
+
+    panel.openBatchDialog();
+    await new Promise((r) => setTimeout(r, 250));
+    const input = document.querySelector('#modalBody input[type=file]');
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([csv], 'sample-set.csv', { type: 'text/csv' }));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 700));
+    const loaded = readBack();
+
+    dialogs.closeModal();
+    panel.openBatchDialog();
+    await new Promise((r) => setTimeout(r, 500));
+    const reopened = readBack();
+    dialogs.closeModal();
+    return { loaded, reopened };
+  });
+  check('a reopened batch dialog shows the spreadsheet it still holds',
+    /6 rows/.test(batchReopen.loaded.summary) && batchReopen.loaded.rows > 0 &&
+      batchReopen.loaded.qty === 'qty' &&
+      batchReopen.reopened.summary === batchReopen.loaded.summary &&
+      batchReopen.reopened.rows === batchReopen.loaded.rows &&
+      batchReopen.reopened.qty === 'qty',
+    JSON.stringify(batchReopen));
 
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();

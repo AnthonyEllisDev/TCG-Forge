@@ -183,6 +183,13 @@ from one card into the next, and the snapshot is restored again in a `finally`
 so a failed row can never leave the user's canvas in a half-edited state.
 History is locked for the duration, so a 200-card run does not flood undo.
 
+A quantity column does not change any of that. Each design is still rendered
+once; the counts are collected as the run goes and written beside the images as
+a `deck.json`, which is the only thing the print sheet builder needs in order to
+lay out a deck rather than a set. Expanding at print time instead of at render
+time is the whole point: four copies of a card are four `drawImage` calls
+against one decoded picture, not four renders and four files.
+
 ### Print sheets
 
 `core/printSheet.js` is the other end of the same pipeline and shares none of
@@ -202,6 +209,15 @@ the front page's own grid painted in `backSlots`, and a gutterfold page is both
 blocks on one canvas with the backs drawn through half a turn. `composeBlocks()`
 paints any number of blocks onto a page; `composePage()` is the one-block case
 every single-sided sheet uses.
+
+Quantities live here too, as arithmetic on lists. `parseDeck()` turns a
+`deck.json` into `{ file, qty }` entries — keeping only each entry's own file
+name, so a list can never reach outside the folder it was found in — and
+`expandByQuantity()` repeats a list by its counts, refusing a run of more than
+2000 cards so a mistyped cell cannot lock the tab up. The dialog expands the
+fronts and, where a folder holds one back per design, the backs by the same
+counts, so "one back per card" keeps meaning one per design and not one per
+copy.
 
 `core/pdf.js` turns the finished sheets into a PDF: a catalogue, a page tree and
 one DCTDecode image per page, about 150 lines. It exists because an image file

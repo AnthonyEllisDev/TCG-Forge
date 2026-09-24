@@ -48,6 +48,16 @@ export const FLIP_EDGES = {
   short: 'Short edge — backs mirrored top to bottom',
 };
 
+/* A deck list is the count beside each card, kept next to the images a batch
+   run produced. It exists because a deck is "four of this, one of that", and
+   the alternative — four identical rows in the spreadsheet — renders the same
+   picture four times and names the copies as if they were different cards. */
+export const DECK_FORMAT = 'tcgforge.deck';
+export const DECK_FILE = 'deck.json';
+
+const MAX_COPIES = 999;      // per card
+const MAX_DECK_CARDS = 2000; // per run, so a mistyped count cannot hang the tab
+
 const mmToInches = (mm) => Number(mm || 0) / MM_PER_INCH;
 
 /* ------------------------------------------------------------------ plan -- */
@@ -343,7 +353,7 @@ function boundsOf(slots) {
 
 const round = (n) => Math.round(n) + 0.5; // sit the hairline on a pixel centre
 
-/* ----------------------------------------------------------------- build -- */
+/* ----------------------------------------------------------------- backs -- */
 
 /**
  * Pair a list of back images with a list of fronts.
@@ -363,6 +373,71 @@ export function pairBacks(backs, count) {
   }
   return list;
 }
+
+/* ------------------------------------------------------------------ deck -- */
+
+/** Read one count, refusing the things a spreadsheet cell can hold instead. */
+export function readQuantity(value, fallback = 1) {
+  const n = Math.floor(Number(String(value ?? '').trim()));
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(n, MAX_COPIES);
+}
+
+/**
+ * Repeat each item by its count.
+ *
+ * The expansion happens here, at lay-out time, rather than in the renderer:
+ * one image is decoded once and painted forty times, which is the whole reason
+ * a count is better than forty rows.
+ */
+export function expandByQuantity(items, quantities) {
+  let total = 0;
+  for (let i = 0; i < items.length; i += 1) total += readQuantity(quantities?.[i]);
+  if (total > MAX_DECK_CARDS) {
+    throw new Error(
+      `${total} cards is more than one run can lay out — the limit is ${MAX_DECK_CARDS}`
+    );
+  }
+  const out = [];
+  items.forEach((item, index) => {
+    for (let n = readQuantity(quantities?.[index]); n > 0; n -= 1) out.push(item);
+  });
+  return out;
+}
+
+/** The manifest a batch run leaves beside its cards. */
+export function buildDeck(name, cards) {
+  const list = cards.map(({ file, qty }) => ({ file, qty: readQuantity(qty) }));
+  return {
+    format: DECK_FORMAT,
+    version: 1,
+    name: name || 'Deck',
+    designs: list.length,
+    total: list.reduce((n, card) => n + card.qty, 0),
+    cards: list,
+  };
+}
+
+/**
+ * Read a deck list into `{ file, qty }` entries.
+ *
+ * Only the file's own name is kept: the folder it is being printed from is the
+ * one the list was found in, and a manifest must not be able to name a path
+ * somewhere else.
+ */
+export function parseDeck(data) {
+  if (!data || data.format !== DECK_FORMAT) throw new Error('not a TCG Forge deck list');
+  const entries = [];
+  for (const card of Array.isArray(data.cards) ? data.cards : []) {
+    const file = String(card?.file || '').replace(/\\/g, '/').split('/').pop();
+    if (!file) continue;
+    entries.push({ file, qty: readQuantity(card?.qty) });
+  }
+  if (!entries.length) throw new Error('the deck list names no cards');
+  return entries;
+}
+
+/* ----------------------------------------------------------------- build -- */
 
 /**
  * Turn a list of image URLs into finished sheets.

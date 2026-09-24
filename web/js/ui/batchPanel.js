@@ -9,12 +9,21 @@ import { el, on, readFileAsText } from '../util/dom.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { collectFields } from '../core/templates.js';
-import { fillPattern, listDataFiles, parseAny, renderRow, runBatch } from '../core/batch.js';
+import {
+  fillPattern,
+  guessQtyColumn,
+  listDataFiles,
+  parseAny,
+  renderRow,
+  runBatch,
+} from '../core/batch.js';
+import { readQuantity } from '../core/printSheet.js';
 import { openModal, toast } from './dialogs.js';
 
 let table = { columns: [], rows: [] };
 let mapping = {};
 let sourceName = '';
+let qtyChoice = '';
 let running = false;
 let cancelRequested = false;
 
@@ -74,7 +83,7 @@ export function openBatchDialog() {
   const workspaceSelect = el('select');
   workspaceSelect.append(el('option', { value: '', text: 'workspace/batch …' }));
 
-  const summary = el('div', { class: 'hint', text: 'No data loaded yet.' });
+  const summary = el('div', { class: 'hint', id: 'batchSummary', text: 'No data loaded yet.' });
 
   const source = el('div', { class: 'stack' }, [
     el('div', { class: 'field-row' }, [
@@ -123,6 +132,7 @@ export function openBatchDialog() {
   }
   scale.value = String(state.settings.lastExportScale || 2);
   const saveProjects = el('input', { type: 'checkbox' });
+  const qtyColumn = el('select', { id: 'batchQtyColumn' });
 
   /* --- progress --- */
   nodes.bar = el('div', { class: 'progress-fill' });
@@ -150,9 +160,16 @@ export function openBatchDialog() {
       el('div', { class: 'field-row' }, [
         el('label', { class: 'field' }, [el('span', { text: 'Format' }), format]),
         el('label', { class: 'field' }, [el('span', { text: 'Resolution' }), scale]),
+        el('label', { class: 'field' }, [el('span', { text: 'Quantity column' }), qtyColumn]),
       ]),
       el('label', { class: 'check' }, [saveProjects, ' Also save an editable project file per card']),
       el('p', { class: 'hint', text: 'Pattern tokens: {column} for any column, {n} for the row number, {n:3} to pad it to 3 digits.' }),
+      el('p', {
+        class: 'hint',
+        text: 'A quantity column says how many of each card the deck wants. Each card is still '
+          + 'rendered once; the counts go into a deck.json beside the images, which the print '
+          + 'sheet builder reads to lay out the right number of copies.',
+      }),
     ]),
     el('div', { class: 'subgroup' }, [
       el('h3', { text: '4 · Render' }),
@@ -178,6 +195,7 @@ export function openBatchDialog() {
     subfolder: subfolder.value.trim(),
     saveProjects: saveProjects.checked,
     toWorkspace: api.online,
+    qtyColumn: qtyColumn.value,
   });
 
   const close = openModal({
@@ -202,7 +220,13 @@ export function openBatchDialog() {
   nodes.renderButton = document.querySelector('#modalFoot .btn.primary');
   nodes.mapTable = mapTable;
   nodes.summary = summary;
+  nodes.qtyColumn = qtyColumn;
   nodes.slots = slots;
+
+  // The spreadsheet outlives the dialog. A reopened dialog that does not show
+  // it again looks empty while Render set still has the whole table behind it
+  // — against a mapping aimed at slots this card may no longer have.
+  showTable(slots);
 
   if (!slots.length) {
     setStatus('The current card has no slots, so there is nothing to fill. Load a template first.', 'warn');
@@ -235,13 +259,61 @@ function loadData(text, filename, slots) {
   sourceName = filename;
   mapping = {};
   for (const column of table.columns) mapping[column] = guessSlot(column, slots);
+  qtyChoice = guessQtyColumn(table.columns);
 
-  nodes.summary.textContent = `${table.rows.length} rows × ${table.columns.length} columns from ${filename}`;
+  showTable(slots);
+}
+
+/**
+ * Draw whatever table is loaded, and say how well it matches this card.
+ *
+ * Called both when a file is read and when the dialog is reopened, because the
+ * module keeps the table between the two.
+ */
+function showTable(slots) {
+  if (!table.rows.length) return;
+
+  // Slots come from the card that is open now, which need not be the one that
+  // was open when the file was read.
+  const available = new Set(slots);
+  for (const column of table.columns) {
+    if (!available.has(mapping[column])) mapping[column] = guessSlot(column, slots);
+  }
+  if (!table.columns.includes(qtyChoice)) qtyChoice = guessQtyColumn(table.columns);
+
+  nodes.summary.textContent =
+    `${table.rows.length} rows × ${table.columns.length} columns from ${sourceName}`;
   renderMapping(slots);
+  renderQtyChoice();
 
   const mapped = Object.values(mapping).filter((s) => s && s !== '-').length;
-  setStatus(`${mapped} of ${table.columns.length} columns matched a slot automatically.`,
-    mapped ? '' : 'warn');
+  const copies = qtyChoice ? totalCopies() : 0;
+  setStatus(
+    `${mapped} of ${table.columns.length} columns matched a slot automatically.` +
+      (qtyChoice ? ` Quantities from “${qtyChoice}”: ${copies} cards in the deck.` : ''),
+    mapped ? '' : 'warn'
+  );
+}
+
+function renderQtyChoice() {
+  const select = nodes.qtyColumn;
+  if (!select) return;
+  select.innerHTML = '';
+  select.append(el('option', { value: '', text: '— one of each —' }));
+  for (const column of table.columns) select.append(el('option', { value: column, text: column }));
+  select.value = qtyChoice || '';
+  select.onchange = () => {
+    qtyChoice = select.value;
+    setStatus(
+      qtyChoice
+        ? `Quantities from “${qtyChoice}”: ${totalCopies()} cards in the deck.`
+        : 'One of each card.'
+    );
+  };
+}
+
+function totalCopies() {
+  return table.rows.reduce((sum, row) => sum + readQuantity(row[qtyChoice]), 0);
 }
 
 function renderMapping(slots) {
@@ -336,8 +408,10 @@ async function start(options) {
     const where = options.toWorkspace
       ? `workspace/exports${options.subfolder ? `/${options.subfolder}` : ''}`
       : 'your downloads folder';
+    const copies = result.rendered.reduce((sum, card) => sum + (card.qty || 1), 0);
     setStatus(
       `${result.rendered.length} cards rendered in ${seconds}s → ${where}` +
+        (result.deckPath ? ` · deck list of ${copies} copies → ${result.deckPath}` : '') +
         (result.failed.length ? ` · ${result.failed.length} failed` : '') +
         (cancelRequested ? ' · cancelled' : ''),
       result.failed.length ? 'warn' : ''

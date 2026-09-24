@@ -14,12 +14,13 @@ it.
   back, mirrored back pages with a choice of flip edge, a millimetre alignment
   shift for printer drift, and fold-over sheets for people without a duplex
   printer. See [`PRINT.md`](PRINT.md).
+- **Per-card quantities** (0.5.0) — a count column in a batch file, recorded in
+  a `deck.json` beside the rendered cards and honoured by the print sheet
+  builder, so a deck is `4 × Lightning Bolt` rather than four duplicated
+  spreadsheet rows. See [`BATCH.md`](BATCH.md).
 
 ## Next
 
-- **Per-card quantities.** A `qty` column in a batch file, honoured by the
-  print sheet builder, so a deck is `4 × Lightning Bolt` rather than four
-  duplicated spreadsheet rows. Every comparable tool has this.
 - **Conditional layers.** A `tcgShowIf` property so an empty spreadsheet cell
   hides the icon badge or divider behind the field, not just its text.
 - **Multi-card projects.** A card list in one file, with a strip of thumbnails to

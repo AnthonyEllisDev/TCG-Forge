@@ -13,9 +13,12 @@ import { editor } from '../core/editor.js';
 import {
   BACK_MODES,
   CUT_GUIDES,
+  DECK_FILE,
   FLIP_EDGES,
   PAGE_SIZES,
   buildSheets,
+  expandByQuantity,
+  parseDeck,
   planSheet,
 } from '../core/printSheet.js';
 import { buildPDF, dataURLToBytes, pdfDataURL } from '../core/pdf.js';
@@ -44,6 +47,20 @@ async function listExportFolders() {
   }
 }
 
+/**
+ * Read the deck list a batch run leaves beside its cards, if there is one.
+ *
+ * Its absence is the normal case and not an error: a folder of images with no
+ * list is simply one of each.
+ */
+async function loadDeck(path) {
+  try {
+    return parseDeck(await api.readJSON(`${path}/${DECK_FILE}`));
+  } catch {
+    return null;
+  }
+}
+
 async function listExportImages(path) {
   const data = await api.request(`/api/list?path=${encodeURIComponent(path)}`);
   return (data.entries || [])
@@ -59,25 +76,27 @@ function num(node, fallback) {
 /* ---------------------------------------------------------------- dialog -- */
 
 export function openPrintDialog() {
-  const source = el('select');
+  /* The dialog's controls are named, so anything driving them — a test, a
+     future preset — can ask for one by what it is. */
+  const source = el('select', { id: 'printSource' });
   source.append(
     el('option', { value: 'card', text: 'The current card, repeated' }),
     el('option', { value: 'folder', text: 'A folder in workspace/exports' })
   );
-  const copies = el('input', { type: 'number', min: '1', max: '500', value: '9' });
-  const folder = el('select');
+  const copies = el('input', { type: 'number', id: 'printCopies', min: '1', max: '500', value: '9' });
+  const folder = el('select', { id: 'printFolder' });
   folder.append(el('option', { value: '', text: 'exports/ …' }));
 
-  const page = el('select');
+  const page = el('select', { id: 'printPage' });
   for (const [key, size] of Object.entries(PAGE_SIZES)) {
     page.append(el('option', { value: key, text: size.label }));
   }
-  const orientation = el('select');
+  const orientation = el('select', { id: 'printOrientation' });
   orientation.append(
     el('option', { value: 'portrait', text: 'Portrait' }),
     el('option', { value: 'landscape', text: 'Landscape' })
   );
-  const guides = el('select');
+  const guides = el('select', { id: 'printGuides' });
   for (const [key, label] of Object.entries(CUT_GUIDES)) {
     guides.append(el('option', { value: key, text: label }));
   }
@@ -91,32 +110,38 @@ export function openPrintDialog() {
   dpi.value = '300';
 
   /* --- backs --- */
-  const backMode = el('select');
+  const backMode = el('select', { id: 'printBackMode' });
   for (const [key, label] of Object.entries(BACK_MODES)) {
     backMode.append(el('option', { value: key, text: label }));
   }
-  const backFolder = el('select');
+  const backFolder = el('select', { id: 'printBackFolder' });
   backFolder.append(el('option', { value: '', text: 'exports/ …' }));
-  const flipEdge = el('select');
+  const flipEdge = el('select', { id: 'printFlipEdge' });
   for (const [key, label] of Object.entries(FLIP_EDGES)) {
     flipEdge.append(el('option', { value: key, text: label }));
   }
   const shiftX = el('input', { type: 'number', min: '-10', max: '10', step: '0.1', value: '0' });
   const shiftY = el('input', { type: 'number', min: '-10', max: '10', step: '0.1', value: '0' });
-  const pageLabels = el('input', { type: 'checkbox' });
+  const pageLabels = el('input', { type: 'checkbox', id: 'printPageLabels' });
 
-  const format = el('select');
+  const format = el('select', { id: 'printFormat' });
   format.append(
     el('option', { value: 'pdf', text: 'PDF — one file, real page size' }),
     el('option', { value: 'png', text: 'PNG — one file per page' })
   );
 
-  const fit = el('div', { class: 'hint' });
-  const status = el('div', { class: 'hint', text: 'Choose a source and press Preview.' });
+  /* Ids so the readouts can be found by what they are rather than by where
+     they happen to sit in the dialog. */
+  const fit = el('div', { class: 'hint', id: 'printFit' });
+  const status = el('div', { class: 'hint', id: 'printStatus', text: 'Choose a source and press Preview.' });
   const preview = el('div', { class: 'batch-preview' });
+
+  const useQty = el('input', { type: 'checkbox', id: 'printUseQty', checked: true });
+  const deckHint = el('p', { class: 'hint', id: 'printDeckHint' });
 
   const folderRow = el('label', { class: 'field' }, [el('span', { text: 'Folder' }), folder]);
   const copiesRow = el('label', { class: 'field' }, [el('span', { text: 'Copies' }), copies]);
+  const qtyRow = el('label', { class: 'check' }, [useQty, ' Repeat each card by its deck quantity']);
   const backFolderRow = el('label', { class: 'field' }, [el('span', { text: 'Backs from' }), backFolder]);
   const flipRow = el('label', { class: 'field' }, [el('span', { text: 'Printer flips on' }), flipEdge]);
   const shiftRow = el('div', { class: 'field-row' }, [
@@ -125,6 +150,30 @@ export function openPrintDialog() {
   ]);
   const backHint = el('p', { class: 'hint' });
 
+  /* The deck list belongs to the folder, so it is looked up when the folder
+     changes rather than when the sheets are built — otherwise the first the
+     user hears of forty cards is forty cards. */
+  let deck = null;
+  let deckToken = 0;
+  async function syncDeck() {
+    const isFolder = source.value === 'folder';
+    qtyRow.hidden = !isFolder;
+    deckHint.hidden = !isFolder;
+    // The listing populating the folder select and the user changing it can
+    // both land here, so a slower lookup must not overwrite a newer one.
+    const token = (deckToken += 1);
+    const found = isFolder && folder.value ? await loadDeck(folder.value) : null;
+    if (token !== deckToken) return;
+    deck = found;
+    useQty.disabled = !deck;
+    if (!isFolder) return;
+    deckHint.textContent = deck
+      ? `${DECK_FILE} in this folder asks for ${deck.reduce((n, c) => n + c.qty, 0)} cards ` +
+        `from ${deck.length} designs. Untick to print one of each instead.`
+      : `No ${DECK_FILE} here — one of each. Map a quantity column in the batch dialog ` +
+        'to have a run write one.';
+  }
+
   const syncSource = () => {
     const isFolder = source.value === 'folder';
     folderRow.hidden = !isFolder;
@@ -132,9 +181,15 @@ export function openPrintDialog() {
   };
   on(source, 'change', () => {
     syncSource();
+    syncDeck();
+    describe();
+  });
+  on(folder, 'change', () => {
+    syncDeck();
     describe();
   });
   syncSource();
+  syncDeck();
 
   const syncBacks = () => {
     const mode = backMode.value;
@@ -205,6 +260,8 @@ export function openPrintDialog() {
         copiesRow,
         folderRow,
       ]),
+      qtyRow,
+      deckHint,
     ]),
     el('div', { class: 'subgroup' }, [
       el('h3', { text: '2 · Page' }),
@@ -275,23 +332,43 @@ export function openPrintDialog() {
       backFolder.append(el('option', { value: entry.path, text: entry.name }));
     }
     if (folders.length) folder.value = folders[0].path;
+    syncDeck();
   });
 
   /* ------------------------------------------------------------------ run */
 
-  async function sourceURLs(plan) {
+  /**
+   * The designs to print, and how many of each.
+   *
+   * `quantities` is null when every card is one of itself, which keeps the
+   * ordinary path exactly as it was.
+   */
+  async function sourceDesigns(plan) {
     if (source.value === 'folder') {
       if (!folder.value) throw new Error('pick a folder of rendered cards first');
       const urls = await listExportImages(folder.value);
       if (!urls.length) throw new Error(`no images in ${folder.value}`);
-      return urls;
+      if (!deck || !useQty.checked) return { urls, quantities: null };
+
+      // The list names files; the folder holds them. Match on the name alone
+      // and print what is actually there, so a card deleted from the folder is
+      // simply missing rather than fatal.
+      const byName = new Map(urls.map((url) => [url.split('/').pop(), url]));
+      const present = deck.filter((card) => byName.has(card.file));
+      if (!present.length) {
+        throw new Error(`${DECK_FILE} in ${folder.value} names none of the images that are there`);
+      }
+      return {
+        urls: present.map((card) => byName.get(card.file)),
+        quantities: present.map((card) => card.qty),
+      };
     }
     // One render of the current card, reused for every copy: the browser
     // caches the decode, and a data URL costs nothing to repeat.
     const multiplier = Number(dpi.value) / (state.card.dpi || 300);
     const url = editor.toDataURL({ multiplier, format: 'png' });
     const count = Math.max(1, Math.min(500, Math.round(num(copies, plan.perPage))));
-    return Array.from({ length: count }, () => url);
+    return { urls: Array.from({ length: count }, () => url), quantities: null };
   }
 
   async function backURLs() {
@@ -313,11 +390,21 @@ export function openPrintDialog() {
         source.value === 'folder' ? folder.value.split('/').pop() : state.project.name,
         'print-sheet'
       );
-      const urls = await sourceURLs(plan);
+      const designs = await sourceDesigns(plan);
       const backs = await backURLs();
 
+      // Backs pair against designs and are then repeated with them, so "one
+      // back per card" keeps meaning one per design rather than one per copy.
+      const urls = designs.quantities
+        ? expandByQuantity(designs.urls, designs.quantities)
+        : designs.urls;
+      const pairedBacks =
+        designs.quantities && backs.length === designs.urls.length
+          ? expandByQuantity(backs, designs.quantities)
+          : backs;
+
       const pages = await buildSheets(urls, plan, {
-        backs,
+        backs: pairedBacks,
         guides: guides.value,
         pageLabel: pageLabels.checked ? stem : '',
         onProgress: ({ loaded, total }) => {
@@ -335,6 +422,7 @@ export function openPrintDialog() {
 
       const summary =
         `${pages.length} page${pages.length === 1 ? '' : 's'} · ${urls.length} cards` +
+        (designs.quantities ? ` from ${designs.urls.length} designs` : '') +
         (plan.backMode === 'duplex' ? ' · fronts and backs interleaved' : '');
 
       if (previewOnly) {

@@ -93,6 +93,11 @@ one per card.
 columns to slots once, and render the set into `workspace/exports/` — with a
 preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
 
+**Decks, not just sets.** A count column in the spreadsheet — `qty`, `copies`,
+whatever you call it — makes a deck out of a set: four of this, one of that.
+Each card is still rendered once, and the print sheet builder repeats it as many
+times as the deck asks for.
+
 ![Six cards generated from one CSV](docs/images/sample-set.png)
 
 **Built for keyboards.** Undo/redo, duplicate, copy/paste, nudge, layer
@@ -146,7 +151,9 @@ API moves it to `workspace/.trash/`.
    page of nine, with crop marks — and a page of backs to go behind them.
 
 Making more than one card? Fill a spreadsheet instead and use **Batch**
-(`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example.
+(`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example, and its
+`qty` column turns those six cards into a playable eighteen when you print
+them.
 
 To make the layout reusable, give the text layers slot names in
 *Properties → Typography → Field slot* and hit **Save current card as

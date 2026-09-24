@@ -27,6 +27,16 @@ This is the other half of the batch generator: render a set with **Batch** into
 `exports/my-set`, then lay `my-set` out here. Sets larger than one page run onto
 as many pages as they need.
 
+**Repeat each card by its deck quantity.** A batch run with a quantity column
+leaves a `deck.json` beside its images saying how many of each card the deck
+wants (see [`BATCH.md`](BATCH.md)). The dialog finds it on its own and says so:
+*deck.json in this folder asks for 60 cards from 23 designs*. Untick the box to
+print one of each instead. A folder with no list is simply one of each, which is
+what every folder used to be.
+
+One image is decoded once and painted as many times as the list asks, so a
+sixty-card deck costs no more to lay out than twenty-three separate cards did.
+
 ## 2 · Page
 
 | Setting | What it means |
@@ -199,13 +209,6 @@ A gutterfold set skips all of that: print, fold on the dashed line, glue, cut.
 
 ---
 
-## What it does not do yet
-
-**Per-card quantities.** A real deck is `4 × Lightning Bolt`, not sixty distinct
-cards; today you repeat rows in the spreadsheet to get copies.
-
----
-
 ## Under the hood
 
 - `web/js/core/printSheet.js` — page geometry and composition. Knows about
@@ -213,10 +216,14 @@ cards; today you repeat rows in the spreadsheet to get copies.
   `planSheet()` returns `backSlots` alongside `slots` when a back mode is on;
   a back slot is its front mirrored about the page centre line, which is the
   fold line too, so gutterfold and short-edge duplex share the arithmetic.
+  `expandByQuantity()` repeats a design by its count, and `parseDeck()` reads a
+  `deck.json` — keeping only each entry's own file name, so a list can never
+  name a file outside the folder it was found in.
 - `web/js/core/pdf.js` — a small PDF writer, one JPEG per page. It exists
   because the standard-library-only rule leaves no room for a PDF dependency,
   and because an image cannot state its physical size.
 - `web/js/ui/printPanel.js` — the dialog.
 
-No server endpoint was added: `/api/list` already finds the images and
-`/api/export` already writes files into `workspace/exports`.
+No server endpoint was added: `/api/list` already finds the images, `/api/read`
+already reads the deck list and `/api/export` already writes files into
+`workspace/exports`.

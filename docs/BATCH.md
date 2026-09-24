@@ -35,7 +35,7 @@ JSON is accepted as an array of objects:
 ```
 
 A worked example ships in `workspace/batch/sample-set.csv` — six cards for the
-*Classic Spell Frame* template.
+*Classic Spell Frame* template, with a `qty` column asking for eighteen.
 
 ## 2 · Mapping
 
@@ -60,10 +60,47 @@ dropdowns, or set a column to *ignore*.
 | Format | PNG (lossless, transparency) or JPEG. |
 | Resolution | 1× to 4× of the card's pixel size. 2× of a 750 × 1050 card is 1500 × 2100. |
 | Save project files | Also writes an editable `.json` per card into `workspace/projects/<subfolder>/`, so any single card can be opened and tweaked afterwards. |
+| Quantity column | How many of each card the deck wants. See below. |
 
 Existing files with the same name are **overwritten** during a batch run — that
 way re-running a set after a template tweak replaces it instead of piling up
 `-2`, `-3` copies. Single exports never overwrite.
+
+## 3a · Quantities
+
+A real deck is four of one card and one of another. Rather than repeating a row
+four times — which renders the same picture four times and names the copies as
+if they were different cards — give the file a count column and point
+**Quantity column** at it:
+
+```
+title,cost,rules,qty
+Ember Wyrm,3,"Flying, haste.",4
+Frostbite Colossus,6,Vigilance.,1
+```
+
+A column called `qty`, `quantity`, `count`, `copies`, `number` or `amount` is
+picked up on its own; anything else you choose from the dropdown. Each card is
+still rendered **once**. The counts are written beside the images as a small
+`deck.json`:
+
+```json
+{
+  "format": "tcgforge.deck",
+  "version": 1,
+  "name": "Sample Set",
+  "designs": 6,
+  "total": 18,
+  "cards": [{ "file": "01-ember-wyrm.png", "qty": 4 }]
+}
+```
+
+The print sheet builder finds that file on its own and lays out the right
+number of copies — see [`PRINT.md`](PRINT.md). A blank, zero or unreadable cell
+counts as one, and a single card is capped at 999 copies.
+
+Leave the dropdown on *one of each* and no list is written, which is the
+behaviour every run had before.
 
 ## 4 · Render
 

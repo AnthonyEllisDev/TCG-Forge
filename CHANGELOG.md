@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.5.0 — deck quantities
+
+- **Per-card quantities**: a batch file can now say how many of each card the
+  deck wants. Point **Quantity column** at a column of counts — one called
+  `qty`, `quantity`, `count`, `copies`, `number` or `amount` is picked up on its
+  own — and the run writes a small `deck.json` beside the rendered images
+  recording what it found. The print sheet builder finds that file by itself and
+  lays out the right number of copies, so a deck is `4 ×` a card rather than four
+  duplicated spreadsheet rows. Each card is still rendered once: the copies are
+  made at lay-out time from one decoded image, which costs almost nothing. Untick
+  **Repeat each card by its deck quantity** in the print dialog to go back to one
+  of each; a folder with no list behaves exactly as it always did. Documented in
+  [`docs/BATCH.md`](docs/BATCH.md) and [`docs/PRINT.md`](docs/PRINT.md). No new
+  server endpoint.
+- Where a folder of card backs holds one per design, the backs are repeated
+  alongside the fronts, so "one back per card" still means one per design.
+- The sample spreadsheet has a `qty` column, which makes its six cards eighteen.
+
+### Fixed
+
+- Loading a template after opening a project left **Save** aimed at that
+  project's file. The top bar had already swapped to the template's name, so
+  the next save quietly wrote the template over a project the user had not
+  touched, with nothing on screen to suggest it was about to happen. Loading a
+  template now starts an unsaved card, as **New** does.
+- Reopening the batch dialog showed "No data loaded yet" and an empty column
+  map while it still held the whole spreadsheet behind them — so **Render set**
+  would render the previous file again, mapped onto slots the current card may
+  no longer have. A reopened dialog now shows the data it is holding, and
+  re-matches any column whose slot has gone.
+
 ## 0.4.0 — card backs
 
 - **Card backs, duplex and gutterfold sheets**: the print sheet builder can now

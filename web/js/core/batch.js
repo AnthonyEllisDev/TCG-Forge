@@ -14,6 +14,7 @@ import { history } from './history.js';
 import { state } from './state.js';
 import { setFieldImage, setFieldText } from './templates.js';
 import { serializeProject } from './project.js';
+import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
 import { downloadURL, slugify } from '../util/dom.js';
 
 /* --------------------------------------------------------------- parsing -- */
@@ -115,6 +116,19 @@ export function parseAny(text, filename = '') {
   return /\.json$/i.test(filename) || String(text).trim().startsWith('[')
     ? parseJSONTable(text)
     : parseTable(text);
+}
+
+/** Column names that mean "how many of this card", in the order tools use them. */
+const QTY_COLUMNS = ['qty', 'quantity', 'count', 'copies', 'number', 'amount'];
+
+/** Pick the quantity column out of a header row, or '' when there is none. */
+export function guessQtyColumn(columns = []) {
+  const normalise = (name) => String(name).trim().toLowerCase().replace(/[\s_-]+/g, '');
+  for (const want of QTY_COLUMNS) {
+    const hit = columns.find((column) => normalise(column) === want);
+    if (hit) return hit;
+  }
+  return '';
 }
 
 /* -------------------------------------------------------------- patterns -- */
@@ -239,6 +253,7 @@ export async function runBatch({
     subfolder = '',
     saveProjects = false,
     toWorkspace = true,
+    qtyColumn = '',
   } = options;
 
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
@@ -246,6 +261,10 @@ export async function runBatch({
   const extension = format === 'jpeg' ? 'jpg' : 'png';
   const rendered = [];
   const failed = [];
+  // A card wanted four times is rendered once and counted four times; the
+  // count travels to the print sheet in a deck list rather than as four
+  // identical files with four different numbers in their names.
+  const deck = [];
 
   history.locked = true;
   editor.canvas.discardActiveObject();
@@ -265,13 +284,16 @@ export async function runBatch({
         const dataURL = editor.toDataURL({ multiplier, format, transparent });
         const filename = `${name}.${extension}`;
 
+        const qty = qtyColumn ? readQuantity(row[qtyColumn]) : 1;
+
         if (toWorkspace && api.online) {
           const res = await api.exportImage({ filename, dataURL, folder: subfolder, overwrite: true });
-          rendered.push({ index, name, path: res.path });
+          rendered.push({ index, name, path: res.path, qty });
         } else {
           downloadURL(dataURL, filename);
-          rendered.push({ index, name, path: null });
+          rendered.push({ index, name, path: null, qty });
         }
+        deck.push({ file: filename, qty });
 
         if (saveProjects && api.online) {
           state.project.name = name;
@@ -297,7 +319,22 @@ export async function runBatch({
     }
   }
 
-  return { rendered, failed, total: rows.length };
+  // Written after the cards, and only where they landed, so the list always
+  // describes a folder that exists. A run without a quantity column writes
+  // nothing: every card is one of itself and the list would say nothing.
+  let deckPath = null;
+  if (qtyColumn && deck.length && toWorkspace && api.online && rendered[0]?.path) {
+    const folder = rendered[0].path.split('/').slice(0, -1).join('/');
+    deckPath = `${folder}/${DECK_FILE}`;
+    try {
+      await api.writeJSON(deckPath, buildDeck(originalName, deck));
+    } catch (err) {
+      console.warn('[batch] could not write the deck list', err);
+      deckPath = null;
+    }
+  }
+
+  return { rendered, failed, total: rows.length, deck, deckPath };
 }
 
 /** List CSV/JSON data files sitting in workspace/batch. */

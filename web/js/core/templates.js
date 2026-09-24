@@ -38,6 +38,11 @@ export async function applyTemplate(data, { keepName = false } = {}) {
   state.project.templateId = data.id || slugify(data.name, 'template');
   state.project.fields = normaliseFields(data.fields, data.canvas);
   if (!keepName) state.project.name = data.name || state.project.name;
+  // A template is somewhere to start, not the project that happened to be open
+  // a moment ago. Left pointing at that project's file, the next Save writes
+  // this layout straight over it — under a name the top bar has already
+  // replaced, so there is nothing on screen to suggest what is about to go.
+  state.project.path = null;
 
   const canvasJSON = JSON.parse(JSON.stringify(data.canvas));
   for (const obj of canvasJSON.objects || []) {
