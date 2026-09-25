@@ -10,6 +10,7 @@ import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
+import { collectFields } from '../core/templates.js';
 import { toast } from './dialogs.js';
 import {
   applyCrop,
@@ -491,6 +492,16 @@ function loadImageElement(url) {
 /* ----------------------------------------------------------------- meta -- */
 
 function bindMeta() {
+  bindInput('pShowIf', (n) => {
+    apply((o) => {
+      o.set('tcgShowIf', n.value || undefined);
+      // The condition was holding the layer out of sight; without one it is
+      // simply a layer again, and a layer nobody hid should be seen.
+      if (!n.value) o.set('visible', true);
+    });
+    // The Visible box changes hands with the condition, so redraw the panel.
+    sync();
+  }, 'change');
   bindInput('pName', (n) => apply((o) => o.set('tcgName', n.value.trim() || undefined), { render: false }), 'change');
   bindInput('pVisible', (n) => apply((o) => o.set('visible', n.checked)), 'change');
   bindInput('pLocked', (n) =>
@@ -663,10 +674,56 @@ export function sync() {
     /* meta */
     setVal('pName', obj.tcgName || labelOf(obj));
     setChecked('pVisible', obj.visible !== false);
+    syncShowIf(obj);
     setChecked('pLocked', obj.selectable === false);
   } finally {
     syncing = false;
   }
+}
+
+/**
+ * Offer every slot on the card, both ways round. A condition naming a slot the
+ * card no longer has is kept in the list rather than silently dropped, so it
+ * can be seen and cleared.
+ */
+function syncShowIf(obj) {
+  const select = el('pShowIf');
+  if (!select) return;
+  const current = obj.tcgShowIf || '';
+  const slots = collectFields().map((f) => f.id).filter((id) => id !== obj.tcgSlot);
+  const values = [''];
+  for (const slot of slots) values.push(slot, `!${slot}`);
+  if (current && !values.includes(current)) values.push(current);
+
+  select.innerHTML = '';
+  for (const value of values) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = showIfLabel(value);
+    select.append(option);
+  }
+  select.value = current;
+  select.disabled = !slots.length && !current;
+
+  // Visibility is the condition's to decide, so a Visible box that the next
+  // keystroke would overrule is not offered.
+  const visible = el('pVisible');
+  if (visible) visible.disabled = !!current;
+  setText(
+    'pShowIfHint',
+    current
+      ? 'Shown and hidden by its field. Every card in a batch run decides for itself.'
+      : slots.length
+        ? 'Tie an ornament to a field: a cost gem that only appears when the card has a cost.'
+        : 'Give a text layer a field slot first; then other layers can follow it.'
+  );
+}
+
+function showIfLabel(value) {
+  if (!value) return 'Always';
+  return value.startsWith('!')
+    ? `Only when “${value.slice(1)}” is empty`
+    : `Only when “${value}” is filled`;
 }
 
 function num(value) {

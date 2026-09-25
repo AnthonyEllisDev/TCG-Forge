@@ -147,6 +147,25 @@ export function fillPattern(pattern, row, index) {
   return slugify(filled, `card-${index + 1}`);
 }
 
+/**
+ * Hand out names that are unique within one run.
+ *
+ * Batch exports overwrite on purpose, so re-running a set replaces it. But two
+ * rows that fill the pattern the same way — `{title}` over two printings of
+ * one card — used to write the same file twice: the first card was gone, and
+ * the deck list then counted the survivor for both. The second of a name gets
+ * `-2`, the third `-3`, skipping anything an earlier row already took.
+ */
+export function uniqueNamer() {
+  const taken = new Set();
+  return (name) => {
+    let candidate = name;
+    for (let n = 2; taken.has(candidate); n += 1) candidate = `${name}-${n}`;
+    taken.add(candidate);
+    return candidate;
+  };
+}
+
 /* ---------------------------------------------------------------- assets -- */
 
 const SEARCH_ORDER = ['art', 'icons', 'frames', 'backgrounds', 'textures'];
@@ -265,6 +284,7 @@ export async function runBatch({
   // count travels to the print sheet in a deck list rather than as four
   // identical files with four different numbers in their names.
   const deck = [];
+  const uniqueName = uniqueNamer();
 
   history.locked = true;
   editor.canvas.discardActiveObject();
@@ -273,7 +293,7 @@ export async function runBatch({
     for (let index = 0; index < rows.length; index += 1) {
       if (shouldCancel()) break;
       const row = rows[index];
-      const name = fillPattern(pattern, row, index);
+      const name = uniqueName(fillPattern(pattern, row, index));
       onProgress({ index, total: rows.length, name, status: 'working' });
 
       try {

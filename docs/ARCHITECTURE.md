@@ -141,11 +141,15 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgUppercase` | force uppercase on field updates |
 | `tcgClip` | clip this layer to the card rectangle |
 | `tcgCardClip` | marks the clipPath `tcgClip` installed, so it can be removed again |
+| `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
 
 > One gotcha worth knowing: serialised Fabric objects use capitalised type names
 > (`"Image"`, `"Textbox"`) while live instances report lower case (`"image"`).
-> Code that walks raw JSON compares case-insensitively.
+> Code that walks raw JSON compares case-insensitively — and walks into groups:
+> `forEachImageJSON()` in `core/objects.js` is the one way to visit every image
+> in saved canvas JSON, so a grouped image is relinked and embedded like any
+> other.
 
 > A second one: this list is passed down into an object's `clipPath` as well, so
 > a marker parked there survives. It is **not** passed into a `fill`, so nothing
@@ -182,6 +186,12 @@ Restoring per row is what stops state (auto-fit font sizes, swapped art) leaking
 from one card into the next, and the snapshot is restored again in a `finally`
 so a failed row can never leave the user's canvas in a half-edited state.
 History is locked for the duration, so a 200-card run does not flood undo.
+
+Conditional layers need nothing from the batch renderer either.
+`editor.applyConditions()` shows or hides every layer carrying a `tcgShowIf` by
+whether its slot holds anything, and `editor.touch()` calls it on every change —
+so the `setFieldText` a row goes through has already settled the ornaments by
+the time the card is rendered, and the snapshot restore puts them back after.
 
 A quantity column does not change any of that. Each design is still rendered
 once; the counts are collected as the run goes and written beside the images as

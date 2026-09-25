@@ -6,12 +6,27 @@ import { saveProject } from '../core/project.js';
 import { openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
-import { toast } from './dialogs.js';
+import { isModalOpen, toast } from './dialogs.js';
+
+/* Keys whose browser default opens something of the browser's own — a save,
+   print or open dialog — on top of ours. */
+const BROWSER_MODIFIER_KEYS = new Set(['s', 'p', 'o']);
 
 export function initShortcuts() {
   window.addEventListener('keydown', async (e) => {
     const mod = e.ctrlKey || e.metaKey;
     const typing = isTypingTarget(e.target) || editor.canvas?.getActiveObject()?.isEditing;
+
+    // A dialog owns the keyboard. Focus usually sits on one of its buttons,
+    // which is not a typing target, so without this Delete removed the layer
+    // selected behind the dialog, the arrows nudged it, and Ctrl+O or Ctrl+B
+    // swapped the dialog for another one — leaving a confirm unanswered or a
+    // running print writing into a dialog that was gone. Escape is handled by
+    // the dialog itself.
+    if (isModalOpen()) {
+      if (mod && BROWSER_MODIFIER_KEYS.has(e.key.toLowerCase())) e.preventDefault();
+      return;
+    }
 
     if (e.key === 'Escape') {
       editor.canvas?.discardActiveObject();

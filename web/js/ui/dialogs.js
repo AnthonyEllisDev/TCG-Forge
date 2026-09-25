@@ -72,6 +72,11 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, onClose
   return closeModal;
 }
 
+/** Whether a dialog is on screen, so the editor's own keys can stand aside. */
+export function isModalOpen() {
+  return !!activeClose;
+}
+
 export function closeModal() {
   const root = $('#modalRoot');
   if (root) root.hidden = true;

@@ -80,6 +80,7 @@ class Editor {
     c.on('object:removed', () => this.touch());
     c.on('text:changed', (e) => {
       if (e.target?.tcgAutoFit) this.autoFitText(e.target);
+      this.applyConditions();
       bus.emit(EVT.OBJECTS, this.objects());
     });
     c.on('text:editing:exited', () => this.touch());
@@ -433,7 +434,7 @@ class Editor {
   }
 
   async duplicate() {
-    const objs = this.selection();
+    const objs = this.memberSelection();
     if (!objs.length) return;
     const clones = [];
     for (const obj of objs) {
@@ -453,9 +454,24 @@ class Editor {
   }
 
   async copy() {
-    const objs = this.selection();
+    const objs = this.memberSelection();
     if (!objs.length) return;
     this.clipboard = await Promise.all(objs.map((o) => o.clone(CUSTOM_PROPS)));
+    if (objs.length > 1) this.select(objs);
+  }
+
+  /**
+   * The selected layers with their positions on the card.
+   *
+   * Members of a multi-layer selection keep `left`/`top` relative to the
+   * selection's centre, so a clone taken from them lands hundreds of pixels
+   * off the card. Dropping the selection hands each member its own card
+   * coordinates back; callers reselect whatever they want selected after.
+   */
+  memberSelection() {
+    const objs = this.selection();
+    if (objs.length > 1) this.canvas.discardActiveObject();
+    return objs;
   }
 
   async paste() {
@@ -623,8 +639,36 @@ class Editor {
     return this.objects().filter((o) => o.tcgSlot === slot);
   }
 
+  /**
+   * Show or hide every layer whose `tcgShowIf` names a slot, by whether that
+   * slot holds anything right now.
+   *
+   * This is what lets a spreadsheet leave a cell blank and lose the ornament
+   * behind it — the gem under a cost, the plate under power and toughness —
+   * rather than only the words. It runs on every change, so the card, the
+   * batch renderer and the export all see the same answer without any of them
+   * having to ask. A conditional layer's visibility belongs to its condition;
+   * the Layers and Properties panels say so instead of offering a toggle that
+   * would be overruled on the next keystroke.
+   */
+  applyConditions() {
+    if (!this.canvas) return false;
+    let changed = false;
+    for (const obj of this.objects()) {
+      const rule = parseShowIf(obj.tcgShowIf);
+      if (!rule) continue;
+      const shown = slotFilled(this.findBySlot(rule.slot)) !== rule.negate;
+      if ((obj.visible !== false) === shown) continue;
+      obj.set('visible', shown);
+      changed = true;
+    }
+    if (changed) this.canvas.requestRenderAll();
+    return changed;
+  }
+
   touch() {
     if (this.suspendEvents) return;
+    this.applyConditions();
     state.setDirty(true);
     bus.emit(EVT.MODIFIED);
     bus.emit(EVT.OBJECTS, this.objects());
@@ -641,6 +685,9 @@ class Editor {
     try {
       await this.canvas.loadFromJSON(json);
       this.canvas.getObjects().forEach((o) => styleObject(o));
+      // A file written by hand, or by an older version, may not agree with
+      // its own conditions; the slots are the truth.
+      this.applyConditions();
       this.applyCardClip();
       this.canvas.requestRenderAll();
       this.emitSelection();
@@ -701,6 +748,28 @@ function nearest(edges, targets, tolerance) {
     }
   }
   return best;
+}
+
+/** `"cost"` → shown while cost is filled; `"!cost"` → shown while it is empty. */
+export function parseShowIf(value) {
+  const raw = String(value ?? '').trim();
+  const negate = raw.startsWith('!');
+  const slot = (negate ? raw.slice(1) : raw).trim();
+  return slot ? { slot, negate } : null;
+}
+
+/**
+ * Whether a slot holds anything. Text counts once it has a visible character;
+ * placed artwork counts; the dashed placeholder a template ships in an empty
+ * art slot does not, and neither does a slot no layer carries.
+ */
+function slotFilled(objects) {
+  return objects.some((o) => {
+    if (o.type === 'textbox' || o.type === 'i-text' || o.type === 'text') {
+      return String(o.text ?? '').trim() !== '';
+    }
+    return o.type === 'image';
+  });
 }
 
 export function isTypingTarget(node) {

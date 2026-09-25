@@ -10,13 +10,24 @@ export function initPanels() {
     const key = panel.dataset.panel;
     if (state.settings.collapsed?.[key]) panel.classList.add('collapsed');
     const head = panel.querySelector('.panel-head');
-    on(head, 'click', () => {
+    // The collapsed state is remembered between sessions, so a header that
+    // only answers the mouse leaves a keyboard user with panels they can see
+    // the names of and never open.
+    head.tabIndex = 0;
+    head.setAttribute('role', 'button');
+    head.setAttribute('aria-expanded', String(!panel.classList.contains('collapsed')));
+    const toggle = () => {
       panel.classList.toggle('collapsed');
-      state.settings.collapsed = {
-        ...state.settings.collapsed,
-        [key]: panel.classList.contains('collapsed'),
-      };
+      const collapsed = panel.classList.contains('collapsed');
+      head.setAttribute('aria-expanded', String(!collapsed));
+      state.settings.collapsed = { ...state.settings.collapsed, [key]: collapsed };
       state.saveSettings();
+    };
+    on(head, 'click', toggle);
+    on(head, 'keydown', (e) => {
+      if (e.target !== head || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      toggle();
     });
   }
 

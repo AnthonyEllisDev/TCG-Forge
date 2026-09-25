@@ -122,7 +122,7 @@ export function openBatchDialog() {
   const mapTable = el('div', { class: 'map-table' });
 
   /* --- output options --- */
-  const pattern = el('input', { type: 'text', value: '{n:3}-{title}', spellcheck: 'false' });
+  const pattern = el('input', { type: 'text', id: 'batchPattern', value: '{n:3}-{title}', spellcheck: 'false' });
   const subfolder = el('input', { type: 'text', value: '', placeholder: 'e.g. core-set', spellcheck: 'false' });
   const format = el('select');
   format.append(el('option', { value: 'png', text: 'PNG' }), el('option', { value: 'jpeg', text: 'JPEG' }));
@@ -137,7 +137,7 @@ export function openBatchDialog() {
   /* --- progress --- */
   nodes.bar = el('div', { class: 'progress-fill' });
   nodes.count = el('span', { class: 'readout' });
-  nodes.status = el('div', { class: 'hint', text: 'Load a spreadsheet to begin.' });
+  nodes.status = el('div', { class: 'hint', id: 'batchStatus', text: 'Load a spreadsheet to begin.' });
   nodes.log = el('div', { class: 'batch-log' });
   nodes.preview = el('div', { class: 'batch-preview' });
 
@@ -176,8 +176,9 @@ export function openBatchDialog() {
       el('div', { class: 'field-row' }, [
         el('button', {
           class: 'btn',
+          id: 'batchPreview',
           text: 'Preview first row',
-          onClick: () => preview(),
+          onClick: () => preview(options().pattern),
         }),
         nodes.count,
       ]),
@@ -343,7 +344,7 @@ function renderMapping(slots) {
 
 /* -------------------------------------------------------------- actions --- */
 
-async function preview() {
+async function preview(pattern) {
   if (!table.rows.length) {
     toast('Load a spreadsheet first.', 'warn');
     return;
@@ -353,7 +354,7 @@ async function preview() {
     const url = await renderRow(table.rows[0], mapping, { multiplier: 1 });
     nodes.preview.innerHTML = '';
     nodes.preview.append(el('img', { src: url, alt: 'First row preview' }));
-    setStatus(`Preview of row 1 → ${fillPattern('{n:3}-{title}', table.rows[0], 0)}`);
+    setStatus(`Preview of row 1 → ${fillPattern(pattern, table.rows[0], 0)}`);
   } catch (err) {
     setStatus(`Preview failed: ${err.message}`, 'warn');
   }

@@ -58,7 +58,10 @@ be dragged onto the canvas too.
 of fields. Load one and the right-hand **Card Fields** panel becomes a form:
 type a name, paste rules text, choose artwork. Art dropped into a slot is scaled
 to cover the slot and clipped to it, so swapping images never breaks the design.
-Any layout you build can be saved as a template.
+Any layout you build can be saved as a template. A layer can follow a field,
+too — a cost gem shown only when the card has a cost, a stats plate that
+disappears from spells — so an empty spreadsheet cell removes the ornament as
+well as the words.
 
 **Real layer effects.** Solid, linear-gradient and radial-gradient fills;
 strokes with dashed and dotted styles and stroke-behind-fill for crisp text;

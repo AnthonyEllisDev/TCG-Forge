@@ -1083,6 +1083,304 @@ try {
       batchReopen.reopened.qty === 'qty',
     JSON.stringify(batchReopen));
 
+  /* ---- layers that follow a field -------------------------------------- */
+  /* The Classic Spell cost gem carries tcgShowIf: 'cost'. Emptying the field
+     has to take the gem off the rendered card — read the pixel, not the flag —
+     and the rule has to survive a save and reload. */
+  const showIf = await page.evaluate(async () => {
+    const { api, editor } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    const gem = () => editor.objects().find((o) => o.tcgName === 'Cost gem');
+    // Sample the gem's rim, clear of the digit painted over its middle.
+    const pixelAtGem = async () => {
+      const g = gem();
+      const url = editor.toDataURL({ multiplier: 1 });
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.src = url; });
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const x = Math.round(g.left + g.radius);
+      const y = Math.round(g.top + g.radius * 0.35);
+      return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)).join(',');
+    };
+
+    const filledPixel = await pixelAtGem();
+    t.setFieldText('cost', '');
+    const emptyVisible = gem().visible;
+    const emptyPixel = await pixelAtGem();
+    t.setFieldText('cost', '   ');
+    const blankVisible = gem().visible;
+    t.setFieldText('cost', '7');
+    const refilledVisible = gem().visible;
+
+    // "!cost" is the other way round.
+    const probe = editor.insert('rect');
+    probe.set('tcgShowIf', '!cost');
+    editor.touch();
+    const negatedWhileFilled = probe.visible;
+    t.setFieldText('cost', '');
+    const negatedWhileEmpty = probe.visible;
+    editor.remove(probe);
+
+    const saved = await p.serializeProject({ embed: false });
+    await p.applyProject(saved);
+    const reloaded = gem();
+    return {
+      filledPixel, emptyPixel, emptyVisible, blankVisible, refilledVisible,
+      negatedWhileFilled, negatedWhileEmpty,
+      reloadedRule: reloaded?.tcgShowIf, reloadedVisible: reloaded?.visible,
+    };
+  });
+  check('a layer tied to a field leaves the card when the field is empty',
+    showIf.emptyVisible === false && showIf.blankVisible === false &&
+      showIf.refilledVisible === true && showIf.filledPixel !== showIf.emptyPixel &&
+      showIf.negatedWhileFilled === false && showIf.negatedWhileEmpty === true &&
+      showIf.reloadedRule === 'cost' && showIf.reloadedVisible === false,
+    JSON.stringify(showIf));
+
+  /* A batch run decides per card: the sorcery with no stats loses its plate,
+     the creature beside it keeps one, and the canvas comes back as it was. */
+  const showIfBatch = await page.evaluate(async () => {
+    const { api, editor } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const b = await import('/js/core/batch.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    const plate = editor.objects().find((o) => o.tcgName === 'Stats plate');
+    // The plate's gold rim, clear of the text painted inside it.
+    const at = { x: Math.round(plate.left + 20), y: Math.round(plate.top + 1) };
+    const res = await b.runBatch({
+      rows: [{ title: 'Beast', stats: '3 / 3' }, { title: 'Spell', stats: '' }],
+      mapping: { title: 'title', stats: 'stats' },
+      options: { multiplier: 1, pattern: '{n:3}', subfolder: 'smoke-showif' },
+    });
+    const sample = async (path) => {
+      if (!path) return null;
+      const img = new Image();
+      await new Promise((r, j) => { img.onload = r; img.onerror = j; img.src = `/files/${path}?t=${Date.now()}`; })
+        .catch(() => null);
+      if (!img.width) return null;
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return Array.from(ctx.getImageData(at.x, at.y, 1, 1).data.slice(0, 3));
+    };
+    const withStats = await sample(res.rendered[0]?.path);
+    const without = await sample(res.rendered[1]?.path);
+    return {
+      rendered: res.rendered.length,
+      withStats, without,
+      plateAfterRun: editor.objects().find((o) => o.tcgName === 'Stats plate')?.visible,
+    };
+  });
+  const brightness = (rgb) => (rgb ? rgb[0] + rgb[1] + rgb[2] : -1);
+  check('a batch run drops the ornament only from the card whose cell is blank',
+    showIfBatch.rendered === 2 && showIfBatch.withStats && showIfBatch.without &&
+      brightness(showIfBatch.withStats) - brightness(showIfBatch.without) > 150 &&
+      showIfBatch.plateAfterRun === true,
+    JSON.stringify(showIfBatch));
+
+  /* The control lives in Properties → Layer, offers every field both ways
+     round, and takes the Visible box away while it is in charge. */
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select(editor.objects().find((o) => o.tcgName === 'Cost gem'));
+  });
+  await page.waitForTimeout(150);
+  const showIfUI = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const select = document.querySelector('#pShowIf');
+    const options = Array.from(select.options).map((o) => o.value);
+    const value = select.value;
+    const visibleLocked = document.querySelector('#pVisible').disabled;
+    const badge = Array.from(document.querySelectorAll('#layerList .layer-cond')).map((n) => n.textContent);
+    const t = await import('/js/core/templates.js');
+    t.setFieldText('cost', '');
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+    const gem = editor.objects().find((o) => o.tcgName === 'Cost gem');
+    return {
+      options: options.filter((o) => /cost/.test(o)),
+      value, visibleLocked, badge,
+      clearedRule: gem.tcgShowIf ?? null,
+      shownAgain: gem.visible,
+    };
+  });
+  check('the properties panel sets the condition and the layer list shows it',
+    showIfUI.options.includes('cost') && showIfUI.options.includes('!cost') &&
+      showIfUI.value === 'cost' && showIfUI.visibleLocked === true &&
+      showIfUI.badge.includes('if cost') &&
+      showIfUI.clearedRule === null && showIfUI.shownAgain === true,
+    JSON.stringify(showIfUI));
+
+  /* ---- 0.6.0 bug guards ------------------------------------------------ */
+  /* A dialog's buttons are not typing targets, so the editor's own keys used
+     to reach straight past it: Delete removed the selected layer. */
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select(editor.objects().find((o) => o.selectable !== false));
+  });
+  const behindBefore = await page.evaluate(() => {
+    const o = window.TCGForge.editor.active();
+    return { count: window.TCGForge.editor.objects().length, left: Math.round(o.left) };
+  });
+  await page.evaluate(async () => (await import('/js/ui/toolbar.js')).openShortcuts());
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('ArrowRight');
+  const behindAfter = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    return {
+      count: editor.objects().length,
+      left: Math.round(editor.active()?.left ?? -1),
+      dialogOpen: !document.querySelector('#modalRoot').hidden,
+    };
+  });
+  await page.keyboard.press('Escape');
+  check('keys pressed in a dialog do not reach the layers behind it',
+    behindAfter.dialogOpen && behindAfter.count === behindBefore.count &&
+      behindAfter.left === behindBefore.left,
+    JSON.stringify({ behindBefore, behindAfter }));
+
+  /* Members of a multi-layer selection hold coordinates relative to the
+     selection, and clones taken from them landed far off the card. */
+  const multiClone = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const a = editor.insert('rect');
+    a.set({ left: 100, top: 100 }); a.setCoords();
+    const b = editor.insert('ellipse');
+    b.set({ left: 400, top: 600 }); b.setCoords();
+    const where = (list) => {
+      editor.canvas.discardActiveObject();
+      return list.map((o) => [Math.round(o.getBoundingRect().left), Math.round(o.getBoundingRect().top)]);
+    };
+    editor.select([a, b]);
+    const n = editor.objects().length;
+    await editor.duplicate();
+    const dup = where(editor.objects().slice(n));
+    editor.select([a, b]);
+    await editor.copy();
+    await editor.paste();
+    const pasted = where(editor.objects().slice(-2));
+    const originals = where([a, b]);
+    editor.remove(editor.objects().slice(n - 2));
+    return { originals, dup, pasted };
+  });
+  const near = (p, q, d) => Math.abs(p[0] - q[0] - d) <= 2 && Math.abs(p[1] - q[1] - d) <= 2;
+  check('a duplicated or pasted multi-layer selection lands beside the originals',
+    near(multiClone.dup[0], multiClone.originals[0], 24) && near(multiClone.dup[1], multiClone.originals[1], 24) &&
+      near(multiClone.pasted[0], multiClone.originals[0], 28) && near(multiClone.pasted[1], multiClone.originals[1], 28),
+    JSON.stringify(multiClone));
+
+  /* Grouped artwork used to keep the absolute URL the browser resolved — the
+     port baked in — and was left out when a project embedded its images. */
+  const grouped = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const p = await import('/js/core/project.js');
+    const img = await editor.addImage('/files/assets/icons/star.svg', { assetPath: 'assets/icons/star.svg' });
+    const r = editor.insert('rect');
+    editor.select([img, r]);
+    editor.toggleGroup();
+    const group = editor.active();
+    const inner = async (embed) => {
+      const data = await p.serializeProject({ embed });
+      const g = data.canvas.objects.find((o) => String(o.type).toLowerCase() === 'group');
+      return g?.objects.find((o) => String(o.type).toLowerCase() === 'image')?.src || '';
+    };
+    const plain = await inner(false);
+    const embedded = await inner(true);
+    editor.remove(group);
+    return { plain, embedded: embedded.slice(0, 26) };
+  });
+  check('grouped artwork is saved by workspace path, and embedded when asked',
+    grouped.plain === '/files/assets/icons/star.svg' && grouped.embedded.startsWith('data:image/'),
+    JSON.stringify(grouped));
+
+  /* Batch exports overwrite on purpose, so two rows filling the pattern the
+     same way used to write one file twice and lose the first card. */
+  const collide = await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const b = await import('/js/core/batch.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    const res = await b.runBatch({
+      rows: [{ title: 'Goblin', qty: '2' }, { title: 'Goblin', qty: '3' }, { title: 'Elf', qty: '1' }],
+      mapping: { title: 'title' },
+      options: { multiplier: 1, pattern: '{title}', subfolder: 'smoke-collide', qtyColumn: 'qty' },
+    });
+    const listing = await api.request('/api/list?path=exports/smoke-collide').catch(() => ({ entries: [] }));
+    const deck = await api.readJSON('exports/smoke-collide/deck.json').catch(() => null);
+    return {
+      files: listing.entries.map((e) => e.name).filter((n) => n.endsWith('.png')).sort(),
+      deck: (deck?.cards || []).map((c) => `${c.file}×${c.qty}`),
+    };
+  });
+  check('two rows that fill the pattern alike both survive a batch run',
+    collide.files.join() === 'elf.png,goblin-2.png,goblin.png' &&
+      collide.deck.join() === 'goblin.png×2,goblin-2.png×3,elf.png×1',
+    JSON.stringify(collide));
+
+  /* The preview told you the default pattern's name whatever you had typed. */
+  const previewName = await page.evaluate(async () => {
+    const dialogs = await import('/js/ui/dialogs.js');
+    const panel = await import('/js/ui/batchPanel.js');
+    panel.openBatchDialog();
+    await new Promise((r) => setTimeout(r, 300));
+    const pattern = document.querySelector('#batchPattern');
+    pattern.value = '{title}-proof';
+    document.querySelector('#batchPreview').click();
+    await new Promise((r) => setTimeout(r, 1500));
+    const status = document.querySelector('#batchStatus')?.textContent || '';
+    dialogs.closeModal();
+    return status;
+  });
+  check('the batch preview names the file the pattern will actually write',
+    /→ ember-wyrm-proof$/.test(previewName), previewName);
+
+  /* The workspace root is not a file. A write to "." put its temporary file
+     beside the workspace folder, outside the sandbox. */
+  const rootWrite = await rawRequest({
+    method: 'POST',
+    path: '/api/write',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: '.', content: 'x' }),
+  });
+  const rootTrash = await rawRequest({
+    method: 'POST',
+    path: '/api/trash',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: './' }),
+  });
+  const rootList = await rawRequest({ path: '/api/list?path=.' });
+  check('the workspace root cannot be written over or thrown away',
+    rootWrite.status === 400 && rootTrash.status === 400 && rootList.status === 200,
+    `write ${rootWrite.status}, trash ${rootTrash.status}, list ${rootList.status}`);
+
+  /* Collapsed panels are remembered between sessions, so a header the
+     keyboard cannot reach is a panel a keyboard user can never open. */
+  const head = page.locator('.panel[data-panel] .panel-head').first();
+  await head.focus().catch(() => {});
+  const headBefore = await page.evaluate(() => {
+    const h = document.querySelector('.panel[data-panel] .panel-head');
+    return { focused: document.activeElement === h, expanded: h.getAttribute('aria-expanded'),
+      collapsed: h.closest('.panel').classList.contains('collapsed') };
+  });
+  await page.keyboard.press('Enter');
+  const headAfter = await page.evaluate(() => {
+    const h = document.querySelector('.panel[data-panel] .panel-head');
+    return { expanded: h.getAttribute('aria-expanded'),
+      collapsed: h.closest('.panel').classList.contains('collapsed') };
+  });
+  if (headAfter.collapsed !== headBefore.collapsed) await page.keyboard.press('Enter');
+  check('panel headers open and close from the keyboard',
+    headBefore.focused && headAfter.collapsed !== headBefore.collapsed &&
+      headAfter.expanded === String(!headAfter.collapsed),
+    JSON.stringify({ headBefore, headAfter }));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

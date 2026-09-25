@@ -2,7 +2,7 @@
 
 import { $, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
-import { editor } from '../core/editor.js';
+import { editor, parseShowIf } from '../core/editor.js';
 import { kindOf, labelOf } from '../core/objects.js';
 
 const KIND_BADGE = {
@@ -68,12 +68,23 @@ function render() {
     row.append(nameEl);
 
     if (obj.tcgSlot) row.append(el('span', { class: 'layer-slot', text: obj.tcgSlot }));
+    const rule = parseShowIf(obj.tcgShowIf);
+    if (rule) {
+      row.append(el('span', {
+        class: 'layer-slot layer-cond',
+        text: `${rule.negate ? 'unless' : 'if'} ${rule.slot}`,
+        title: `Shown only when “${rule.slot}” is ${rule.negate ? 'empty' : 'filled'}`,
+      }));
+    }
 
     row.append(
       el('button', {
         class: `layer-btn${obj.visible === false ? ' on' : ''}`,
         text: obj.visible === false ? '◌' : '◉',
-        title: 'Show / hide layer',
+        // A conditional layer's visibility follows its field; a toggle here
+        // would be undone by the very next edit.
+        title: rule ? 'Shown and hidden by its field — change it in Properties → Layer' : 'Show / hide layer',
+        disabled: !!rule,
         onClick: (e) => {
           e.stopPropagation();
           obj.set('visible', obj.visible === false);

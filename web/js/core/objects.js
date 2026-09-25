@@ -13,6 +13,8 @@
  *               option off again knows which clip is ours. Fabric passes
  *               propertiesToInclude down into a clipPath, so this round-trips
  *               — but only because it is listed below.
+ *   tcgShowIf - a slot name: the layer is shown only while that slot holds
+ *               something ("!slot" inverts it). See editor.applyConditions().
  *   _baseWidth/_baseHeight - natural pixel size of an image, for cropping
  */
 
@@ -31,6 +33,7 @@ export const CUSTOM_PROPS = [
   'tcgArtBox',
   'tcgFitHeight',
   'tcgFitSize',
+  'tcgShowIf',
   '_baseWidth',
   '_baseHeight',
   'selectable',
@@ -88,6 +91,30 @@ export function labelOf(obj) {
     group: 'Group',
   };
   return map[obj.type] || 'Layer';
+}
+
+/* -------------------------------------------------------- serialised images */
+
+/* Serialised Fabric objects report capitalised types ("Image"); live instances
+   report lower case ("image"). Compare case-insensitively. */
+export const isImageJSON = (obj) => String(obj?.type || '').toLowerCase() === 'image';
+
+/**
+ * Visit every image in serialised canvas JSON, including those inside groups.
+ *
+ * Walking only the top level misses grouped artwork, and a grouped image keeps
+ * the absolute URL the browser resolved — port and all — so it breaks the
+ * first time the launcher picks a different port, and "embed images" quietly
+ * leaves it out.
+ */
+export function forEachImageJSON(canvasJSON, visit) {
+  const walk = (list) => {
+    for (const obj of list || []) {
+      if (isImageJSON(obj)) visit(obj);
+      else if (Array.isArray(obj?.objects)) walk(obj.objects);
+    }
+  };
+  walk(canvasJSON?.objects);
 }
 
 /* ---------------------------------------------------------------- factories */

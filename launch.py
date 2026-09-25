@@ -36,7 +36,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -91,7 +91,10 @@ def safe_join(rel: str) -> str:
         raise ValueError("path traversal rejected")
     full = os.path.abspath(os.path.join(WORKSPACE, *rel.split("/")))
     root = os.path.abspath(WORKSPACE)
-    if full != root and not full.startswith(root + os.sep):
+    # The root itself is not a file anyone may name. A write to "." used to put
+    # its temporary file beside the workspace folder rather than inside it, and
+    # a trash of "." tried to move the whole workspace into its own bin.
+    if not full.startswith(root + os.sep):
         raise ValueError("path escapes workspace")
     return full
 
@@ -368,7 +371,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
 
         if route == "list":
             rel = (query.get("path") or ["."])[0]
-            full = WORKSPACE if rel in (".", "") else safe_join(rel)
+            full = WORKSPACE if rel.strip("/") in (".", "") else safe_join(rel)
             if not os.path.isdir(full):
                 raise FileNotFoundError(rel)
             entries = []
@@ -400,13 +403,21 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             if not isinstance(content, str):
                 raise ValueError("content must be a string")
             full = safe_join(rel)
+            if os.path.isdir(full):
+                raise ValueError("path is a folder, not a file")
             os.makedirs(os.path.dirname(full), exist_ok=True)
             if body.get("backup") and os.path.exists(full):
                 shutil.copy2(full, full + ".bak")
             tmp = full + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as fh:
-                fh.write(content)
-            os.replace(tmp, full)
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+                os.replace(tmp, full)
+            finally:
+                # Only reachable with the temp file still there if the write or
+                # the rename failed; either way it is not the user's file.
+                if os.path.exists(tmp):
+                    os.remove(tmp)
             return self._send_json({"ok": True, "path": rel_path(full),
                                     "bytes": len(content.encode("utf-8"))})
 

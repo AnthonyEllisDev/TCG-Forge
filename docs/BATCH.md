@@ -66,6 +66,12 @@ Existing files with the same name are **overwritten** during a batch run — tha
 way re-running a set after a template tweak replaces it instead of piling up
 `-2`, `-3` copies. Single exports never overwrite.
 
+Within one run, though, every card gets its own file. If two rows fill the
+pattern the same way — `{title}` over two printings of the same card — the
+second is written as `goblin-2.png`, the third as `goblin-3.png`, and the deck
+list counts each one separately. Put `{n}` in the pattern if you would rather
+the numbering came from the spreadsheet.
+
 ## 3a · Quantities
 
 A real deck is four of one card and one of another. Rather than repeating a row

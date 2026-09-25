@@ -9,7 +9,8 @@ Every response is JSON with an `ok` boolean. Errors return
 
 All `path` values are **workspace-relative** (`templates/foo.json`,
 `assets/icons/fire.svg`). Anything that resolves outside the workspace is
-rejected.
+rejected, and so is the workspace folder itself — only `GET /api/list` accepts
+`.` for the top level.
 
 **Who may call it.** A request carrying an `Origin` header that does not match
 the host it was sent to is refused with `403`, as is one whose `Host` names
@@ -85,8 +86,9 @@ All take a JSON body.
 { "path": "projects/my-card.json", "content": "{…}", "backup": true }
 ```
 
-Writes atomically (temp file + rename). With `backup: true` an existing file is
-copied to `<name>.bak` first. Returns the path and byte count.
+Writes atomically (temp file + rename); a write that fails leaves no temp file
+behind, and a path naming a folder is refused. With `backup: true` an existing
+file is copied to `<name>.bak` first. Returns the path and byte count.
 
 ### `POST /api/upload`
 

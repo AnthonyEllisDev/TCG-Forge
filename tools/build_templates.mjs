@@ -26,7 +26,8 @@ await page.waitForFunction(() => !!window.TCGForge);
 await page.waitForTimeout(600);
 
 const written = await page.evaluate(async () => {
-  const { editor, state } = window.TCGForge;
+  const { editor, state, api } = window.TCGForge;
+  const { forEachImageJSON } = await import('/js/core/objects.js');
   const W = 750;
   const H = 1050;
 
@@ -52,6 +53,7 @@ const written = await page.evaluate(async () => {
     );
 
   const addRect = (o) => editor.canvas.add(new fabric.Rect({ ...controls, ...o }));
+  const addCircle = (o) => editor.canvas.add(new fabric.Circle({ ...controls, ...o }));
 
   const addImage = async (path, o) => {
     const img = await fabric.FabricImage.fromURL(`/files/${path}`, { crossOrigin: 'anonymous' });
@@ -71,6 +73,13 @@ const written = await page.evaluate(async () => {
   };
 
   const save = async (meta) => {
+    // The browser resolves an image's src to an absolute URL, port included;
+    // a template has to name the workspace path instead or it only works on
+    // the port it happened to be built on.
+    const canvas = editor.toJSON();
+    forEachImageJSON(canvas, (obj) => {
+      if (obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
+    });
     const template = {
       format: 'tcgforge.template',
       version: 1,
@@ -81,7 +90,7 @@ const written = await page.evaluate(async () => {
       tags: meta.tags,
       card: { ...state.card },
       fields: meta.fields,
-      canvas: editor.toJSON(),
+      canvas,
     };
     const res = await fetch('/api/write', {
       method: 'POST',
@@ -133,8 +142,15 @@ const written = await page.evaluate(async () => {
       left: 70, top: 42, width: 520, fontSize: 44, fontWeight: 'bold',
       fill: '#f6e7c1', tcgSlot: 'title', tcgName: 'Title',
     });
+    // The gem and the plate below follow their fields: a card with no cost or
+    // no stats loses the ornament along with the number.
+    addCircle({
+      left: 616, top: 31, radius: 36,
+      fill: '#5a1d12', stroke: '#e0b765', strokeWidth: 3,
+      tcgKind: 'shape', tcgName: 'Cost gem', tcgShowIf: 'cost',
+    });
     addText('3', {
-      left: 596, top: 40, width: 90, fontSize: 46, fontWeight: 'bold', textAlign: 'right',
+      left: 616, top: 40, width: 72, fontSize: 46, fontWeight: 'bold', textAlign: 'center',
       fill: '#f6e7c1', tcgSlot: 'cost', tcgName: 'Cost',
     });
     addText('Creature — Dragon', {
@@ -153,8 +169,13 @@ const written = await page.evaluate(async () => {
       left: 80, top: 812, width: 592, fontSize: 20, fontStyle: 'italic',
       fill: '#d9c69a', tcgSlot: 'flavor', tcgName: 'Flavour text',
     });
+    addRect({
+      left: 510, top: 892, width: 170, height: 64, rx: 12, ry: 12,
+      fill: 'rgba(14,8,6,0.72)', stroke: '#c9a45c', strokeWidth: 2,
+      tcgKind: 'shape', tcgName: 'Stats plate', tcgShowIf: 'stats',
+    });
     addText('4 / 4', {
-      left: 470, top: 900, width: 200, fontSize: 44, fontWeight: 'bold', textAlign: 'right',
+      left: 510, top: 900, width: 170, fontSize: 44, fontWeight: 'bold', textAlign: 'center',
       fill: '#f6e7c1', tcgSlot: 'stats', tcgName: 'Power / toughness',
     });
     addText('TCG Forge · Starter Set · 001', {

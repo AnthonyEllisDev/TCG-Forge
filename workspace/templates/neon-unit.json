@@ -111,7 +111,7 @@
         "globalCompositeOperation": "source-over",
         "skewX": 0,
         "skewY": 0,
-        "src": "http://127.0.0.1:7870/files/assets/backgrounds/starfield.svg",
+        "src": "/files/assets/backgrounds/starfield.svg",
         "crossOrigin": "anonymous",
         "filters": []
       },
@@ -208,7 +208,7 @@
         "globalCompositeOperation": "source-over",
         "skewX": 0,
         "skewY": 0,
-        "src": "http://127.0.0.1:7870/files/assets/frames/tech-neon.svg",
+        "src": "/files/assets/frames/tech-neon.svg",
         "crossOrigin": "anonymous",
         "filters": []
       },
@@ -324,7 +324,7 @@
         "globalCompositeOperation": "source-over",
         "skewX": 0,
         "skewY": 0,
-        "src": "http://127.0.0.1:7870/files/assets/icons/element-dark.svg",
+        "src": "/files/assets/icons/element-dark.svg",
         "crossOrigin": "anonymous",
         "filters": []
       },

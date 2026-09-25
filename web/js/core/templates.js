@@ -11,14 +11,11 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { makeImage } from './objects.js';
+import { forEachImageJSON, isImageJSON, makeImage } from './objects.js';
 import { fitImage } from './effects.js';
 import { slugify } from '../util/dom.js';
 
 export const TEMPLATE_FORMAT = 'tcgforge.template';
-
-/* Serialised objects report "Image"; live instances report "image". */
-const isImageJSON = (obj) => String(obj?.type || '').toLowerCase() === 'image';
 
 export async function listTemplates() {
   if (!api.online) return [];
@@ -45,9 +42,7 @@ export async function applyTemplate(data, { keepName = false } = {}) {
   state.project.path = null;
 
   const canvasJSON = JSON.parse(JSON.stringify(data.canvas));
-  for (const obj of canvasJSON.objects || []) {
-    if (isImageJSON(obj) && obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
-  }
+  relinkImages(canvasJSON);
 
   editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
   await editor.loadJSON(canvasJSON);
@@ -61,6 +56,13 @@ export async function applyTemplate(data, { keepName = false } = {}) {
   bus.emit(EVT.OBJECTS, editor.objects());
   history.reset();
   state.setDirty(true);
+}
+
+/** Point every workspace image at its path, so no port is baked into the file. */
+function relinkImages(canvasJSON) {
+  forEachImageJSON(canvasJSON, (obj) => {
+    if (obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
+  });
 }
 
 /** Build a field list from explicit definitions plus any slots found on objects. */
@@ -181,9 +183,7 @@ function boundsOf(obj) {
 
 export function buildTemplate({ name, description = '', author = '', tags = [] }) {
   const canvas = editor.toJSON();
-  for (const obj of canvas.objects || []) {
-    if (isImageJSON(obj) && obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
-  }
+  relinkImages(canvas);
   const fields = collectFields();
   return {
     format: TEMPLATE_FORMAT,

@@ -18,11 +18,13 @@ it.
   a `deck.json` beside the rendered cards and honoured by the print sheet
   builder, so a deck is `4 × Lightning Bolt` rather than four duplicated
   spreadsheet rows. See [`BATCH.md`](BATCH.md).
+- **Conditional layers** (0.6.0) — a layer tied to a field is shown only while
+  that field is filled (or only while it is empty), so an empty spreadsheet cell
+  hides the ornament behind a field and not just its text. See
+  [`TEMPLATES.md`](TEMPLATES.md).
 
 ## Next
 
-- **Conditional layers.** A `tcgShowIf` property so an empty spreadsheet cell
-  hides the icon badge or divider behind the field, not just its text.
 - **Multi-card projects.** A card list in one file, with a strip of thumbnails to
   switch between them — the natural home for set-wide edits.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.

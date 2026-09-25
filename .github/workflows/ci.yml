@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.8', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Byte-compile the launcher and tools
+        run: python -m compileall -q launch.py tools/
+
+      - name: Parse every ES module
+        run: |
+          for f in $(find web/js -name '*.js') tools/*.mjs; do
+            cp "$f" /tmp/check.mjs
+            node --check /tmp/check.mjs || { echo "syntax error in $f"; exit 1; }
+          done
+
+      - name: No remote URLs under web/
+        run: |
+          if grep -rIn 'https\?://' web/ --include='*.html' --include='*.js' --include='*.css' \
+               | grep -v '^web/vendor/' | grep -v 'www.w3.org'; then
+            echo "remote URL found under web/"; exit 1
+          fi
+
+      - name: run.sh keeps LF line endings
+        run: |
+          if grep -q $'\r' run.sh; then echo "run.sh has CRLF line endings"; exit 1; fi
+
+      - name: Every template field is backed by a slot
+        run: |
+          python - <<'PY'
+          import glob, json, sys
+          bad = []
+          for path in sorted(glob.glob('workspace/templates/*.json')):
+              data = json.load(open(path, encoding='utf-8'))
+              slots = set()
+              def walk(objects):
+                  for o in objects or []:
+                      if o.get('tcgSlot'):
+                          slots.add(o['tcgSlot'])
+                      walk(o.get('objects'))
+              walk(data['canvas']['objects'])
+              for field in data.get('fields', []):
+                  if field['id'] not in slots:
+                      bad.append(f"{path}: field '{field['id']}' has no layer")
+              for o in data['canvas']['objects']:
+                  rule = (o.get('tcgShowIf') or '').lstrip('!')
+                  if rule and rule not in slots:
+                      bad.append(f"{path}: layer shown if '{rule}', which no layer carries")
+          print('\n'.join(bad) or 'templates ok')
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Boot the launcher and probe the API
+        run: |
+          python launch.py --no-browser --port 7870 > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:7870/api/status && break; sleep 0.5; done
+          echo
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code 'http://127.0.0.1:7870/api/read?path=../launch.py')" = 400
+          test "$(code -X POST -H 'Content-Type: application/json' \
+            -H 'Origin: https://evil.example' \
+            -d '{"path":"projects/x.json","content":"{}"}' http://127.0.0.1:7870/api/write)" = 403
+          test "$(code -H 'Host: cards.evil.example' http://127.0.0.1:7870/api/status)" = 403
+          test "$(code -X POST -H 'Content-Type: application/json' \
+            -d '{"path":".","content":"x"}' http://127.0.0.1:7870/api/write)" = 400
+          if curl -sI http://127.0.0.1:7870/files/assets/icons/star.svg | grep -qi 'access-control-allow-origin'; then
+            echo "CORS header on /files/"; exit 1
+          fi
+          echo "API probes ok"
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright and Chromium
+        run: |
+          npm i playwright
+          npx playwright install --with-deps chromium
+      - name: Run the smoke suite
+        run: |
+          python launch.py --no-browser --port 7870 > /tmp/server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:7870/api/status && break; sleep 0.5; done
+          node tools/smoke_test.mjs http://127.0.0.1:7870

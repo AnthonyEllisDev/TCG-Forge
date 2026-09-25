@@ -8,11 +8,8 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
+import { forEachImageJSON } from './objects.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
-
-/* Serialised Fabric objects use capitalised type names ("Image"), runtime
-   instances use lower case ("image") — compare case-insensitively. */
-const isImageJSON = (obj) => String(obj?.type || '').toLowerCase() === 'image';
 
 export const PROJECT_FORMAT = 'tcgforge.project';
 export const PROJECT_VERSION = 1;
@@ -42,15 +39,17 @@ export async function serializeProject({ embed = state.settings.embedImages } = 
 
 /** Replace base64 image data with the workspace path it came from. */
 function dereferenceImages(canvasJSON) {
-  for (const obj of canvasJSON.objects || []) {
-    if (isImageJSON(obj) && obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
-  }
+  forEachImageJSON(canvasJSON, (obj) => {
+    if (obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
+  });
 }
 
 /** Inline every image as a data URL so the project file is self-contained. */
 async function embedImageSources(canvasJSON) {
-  for (const obj of canvasJSON.objects || []) {
-    if (!isImageJSON(obj) || !obj.src || obj.src.startsWith('data:')) continue;
+  const images = [];
+  forEachImageJSON(canvasJSON, (obj) => images.push(obj));
+  for (const obj of images) {
+    if (!obj.src || obj.src.startsWith('data:')) continue;
     try {
       const res = await fetch(obj.src);
       const blob = await res.blob();
@@ -99,11 +98,11 @@ export async function applyProject(data) {
 }
 
 function restoreImagePaths(canvasJSON) {
-  for (const obj of canvasJSON.objects || []) {
-    if (isImageJSON(obj) && obj.tcgAsset && !String(obj.src || '').startsWith('data:')) {
+  forEachImageJSON(canvasJSON, (obj) => {
+    if (obj.tcgAsset && !String(obj.src || '').startsWith('data:')) {
       obj.src = api.fileURL(obj.tcgAsset);
     }
-  }
+  });
 }
 
 /* ----------------------------------------------------------------- save -- */

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.6.0 — conditional layers
+
+- **Layers that follow a field**: any layer can now be tied to a field with
+  **Properties → Layer → Show this layer**, and is then shown only while that
+  field holds something — or, the other way round, only while it is empty. An
+  empty spreadsheet cell now takes the ornament behind a field off the card as
+  well as the words: the cost gem on a land, the power/toughness plate on a
+  spell. It is worked out on every change, so the editor, the batch renderer,
+  exports and print sheets all agree without being told. A conditional layer is
+  marked `if cost` (or `unless cost`) in the Layers panel, and its visibility
+  toggle is handed to the condition. Stored as `tcgShowIf` on the layer;
+  documented in [`docs/TEMPLATES.md`](docs/TEMPLATES.md).
+- The Classic Spell template has a cost gem and a stats plate that follow their
+  fields, and the sample set's sorcery now leaves its stats blank to show it.
+- Shipped templates refer to their images by workspace path rather than by a
+  URL with the builder's port in it.
+
+### Fixed
+
+- Keyboard shortcuts reached through open dialogs. With focus on a dialog's
+  button, **Delete** removed the layer selected behind it, the arrow keys nudged
+  it, and **Ctrl/⌘ + O** or **B** swapped the dialog for another — leaving a
+  confirmation unanswered or a print run writing into a dialog that had gone.
+  The editor's keys now stand aside while a dialog is open.
+- **Duplicate** and **copy/paste** of several layers at once put the copies
+  hundreds of pixels off the card, because a multi-layer selection holds its
+  members' positions relative to itself.
+- Images inside a group were saved with the full address the browser had
+  resolved, port included, so grouped artwork broke whenever the launcher came
+  up on a different port — and **Embed images in project file** skipped them.
+  Grouped images are now handled like every other image.
+- Two batch rows that filled the filename pattern the same way — `{title}` over
+  two printings of one card — wrote the same file twice. The first card was
+  lost and the deck list counted the survivor for both. Repeated names now get
+  `-2`, `-3` and so on within a run.
+- The batch preview reported the default pattern's filename whatever pattern
+  was typed.
+- `POST /api/write` with the path `.` wrote a temporary file beside the
+  workspace folder rather than inside it, and `/api/trash` would try to bin the
+  whole workspace. The workspace root is no longer a path either will accept,
+  and a failed write no longer leaves its temporary file behind.
+- Panel headers could only be opened and closed with the mouse, so a panel left
+  collapsed was out of reach from the keyboard. They are now focusable buttons
+  that answer Enter and Space and report `aria-expanded`.
+
 ## 0.5.0 — deck quantities
 
 - **Per-card quantities**: a batch file can now say how many of each card the

@@ -28,6 +28,7 @@
   --accent-hover:  #4a6bf0;
   --accent-soft:   rgba(91, 124, 250, 0.16);
   --gold:          #f0a53a;
+  --gold-soft:     rgba(240, 165, 58, 0.14);
   --danger:        #ef4d5a;
   --ok:            #3ecf8e;
   --warn:          #f0a53a;
@@ -250,3 +251,4 @@ input[type="checkbox"]:checked::after {
   white-space: nowrap;
 }
 .check:hover { color: var(--text); }
+.check:has(input:disabled) { opacity: 0.5; cursor: default; }

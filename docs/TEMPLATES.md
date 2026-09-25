@@ -20,6 +20,32 @@ slot** (text) — or set it while authoring a template. Common names, used by th
 starter templates: `title`, `cost`, `type`, `rules`, `flavor`, `stats`, `icon`,
 `art`, `footer`.
 
+## Conditional layers
+
+A layer can follow a field. Select it and choose **Properties → Layer → Show this
+layer**:
+
+- **Only when “cost” is filled** — the layer is on the card while the `cost`
+  field holds any visible text or placed artwork, and gone while it is empty.
+  This is the cost gem that should not appear on a card with no cost, or the
+  stats plate that should not appear on a spell.
+- **Only when “cost” is empty** — the reverse: a "no cost" marker, or a
+  decorative filler for a card with nothing in that box.
+
+It is stored as `tcgShowIf` on the layer: the slot's name, or the name with a
+leading `!` for the reverse. Whitespace alone counts as empty, and so does an
+art slot still holding the template's placeholder box. The condition is
+re-checked on every change, so typing in a field, loading a project, and every
+row of a batch run each decide for themselves — a batch file only has to leave a
+cell blank.
+
+A conditional layer's visibility belongs to its condition. The Layers panel
+marks it `if cost` or `unless cost` and greys out its eye toggle; set the
+condition back to **Always** to hide or show it by hand again.
+
+The Classic Spell template uses both kinds of ornament: its cost gem follows
+`cost` and its stats plate follows `stats`.
+
 ## Template file
 
 `workspace/templates/<id>.json`
@@ -51,7 +77,7 @@ starter templates: `title`, `cost`, `type`, `rules`, `flavor`, `stats`, `icon`,
 | `id` | filename stem; must be unique |
 | `card` | geometry applied when the template loads |
 | `fields` | form definition. `type` is `text`, `multiline` or `image`; `order` sorts the panel |
-| `canvas` | exactly what `canvas.toObject()` produced, including the `tcg*` properties |
+| `canvas` | exactly what `canvas.toObject()` produced, including the `tcg*` properties. Images name their file by workspace path (`tcgAsset`, with `src` under `/files/`), never by a full URL |
 
 Any layer carrying a `tcgSlot` that is *not* listed in `fields` is still picked
 up automatically and appended to the form — `fields` exists so you can control
