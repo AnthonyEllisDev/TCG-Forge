@@ -6,6 +6,7 @@ import { saveProject } from '../core/project.js';
 import { openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
+import { stepCard } from './cardStrip.js';
 import { isModalOpen, toast } from './dialogs.js';
 
 /* Keys whose browser default opens something of the browser's own — a save,
@@ -134,6 +135,12 @@ export function initShortcuts() {
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       editor.remove();
+      return;
+    }
+
+    if (e.key === 'PageUp' || e.key === 'PageDown') {
+      e.preventDefault();
+      stepCard(e.key === 'PageUp' ? -1 : 1);
       return;
     }
 

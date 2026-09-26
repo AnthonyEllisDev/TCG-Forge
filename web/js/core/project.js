@@ -9,17 +9,22 @@ import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
 import { forEachImageJSON } from './objects.js';
+import { loadCards, resetCards, serializeCards, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
 
 export const PROJECT_FORMAT = 'tcgforge.project';
-export const PROJECT_VERSION = 1;
+/* 2 (0.7.0) added `cards` and `activeCard`. A version-1 file has neither and
+   opens as a project of one card; `canvas` means the same in both. */
+export const PROJECT_VERSION = 2;
 
 /* ------------------------------------------------------------ serialise -- */
 
-export async function serializeProject({ embed = state.settings.embedImages } = {}) {
+export async function serializeProject({ embed = state.settings.embedImages, onlyActive = false } = {}) {
   const canvas = editor.toJSON();
   if (embed) await embedImageSources(canvas);
   else dereferenceImages(canvas);
+  const { cards, activeCard } = serializeCards({ onlyActive });
+  if (embed) await embedCardImages(cards);
 
   return {
     format: PROJECT_FORMAT,
@@ -29,6 +34,8 @@ export async function serializeProject({ embed = state.settings.embedImages } = 
     card: { ...state.card },
     fields: state.project.fields || [],
     canvas,
+    cards,
+    activeCard,
     meta: {
       app: 'TCG Forge',
       embedded: !!embed,
@@ -60,6 +67,24 @@ async function embedImageSources(canvasJSON) {
   }
 }
 
+/** The same for the artwork the other cards name, which is not on the canvas. */
+async function embedCardImages(cards) {
+  const imageSlots = [...slotKinds()].filter(([, kind]) => kind === 'image').map(([slot]) => slot);
+  for (const card of cards) {
+    for (const slot of imageSlots) {
+      const value = card.values[slot];
+      if (!value || String(value).startsWith('data:')) continue;
+      try {
+        const res = await fetch(api.fileURL(value));
+        if (!res.ok) throw new Error(`${res.status}`);
+        card.values[slot] = await blobToDataURL(await res.blob());
+      } catch (err) {
+        console.warn('[project] could not embed image', value, err);
+      }
+    }
+  }
+}
+
 function blobToDataURL(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -76,7 +101,10 @@ export async function applyProject(data) {
   if (data.format && data.format !== PROJECT_FORMAT && data.format !== 'tcgforge.template') {
     throw new Error(`Unsupported file format: ${data.format}`);
   }
+  return editor.replaceCard(() => loadProject(data));
+}
 
+async function loadProject(data) {
   Object.assign(state.card, data.card || {});
   state.project.name = data.name || state.project.name;
   state.project.templateId = data.templateId || data.id || null;
@@ -90,6 +118,7 @@ export async function applyProject(data) {
   editor.canvas.backgroundColor = canvasJSON.background ?? state.card.background;
   editor.applyCardClip();
   editor.fitToWindow();
+  loadCards(data);
 
   bus.emit(EVT.CARD, state.card);
   bus.emit(EVT.PROJECT, state.project);
@@ -159,6 +188,7 @@ export async function newProject({ width, height, dpi, radius, background, prese
   editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
   editor.applyCardClip();
   editor.fitToWindow();
+  resetCards();
 
   bus.emit(EVT.CARD, state.card);
   bus.emit(EVT.PROJECT, state.project);

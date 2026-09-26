@@ -96,6 +96,12 @@ one per card.
 columns to slots once, and render the set into `workspace/exports/` — with a
 preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
 
+**A whole set in one project.** A strip of cards under the canvas: every card
+shares the layout and keeps its own words and artwork, so a set-wide change is
+one edit. Add, duplicate, reorder and delete cards, turn a spreadsheet into
+cards you can go on editing, and export or print every card at once. See
+[`docs/CARDS.md`](docs/CARDS.md).
+
 **Decks, not just sets.** A count column in the spreadsheet — `qty`, `copies`,
 whatever you call it — makes a deck out of a set: four of this, one of that.
 Each card is still rendered once, and the print sheet builder repeats it as many
@@ -124,7 +130,7 @@ workspace/
 │   ├── textures/      overlays: foil, grain, hatching
 │   └── fonts/         .ttf / .otf / .woff / .woff2
 ├── templates/         reusable layouts (.json)
-├── projects/          saved cards (.json)
+├── projects/          saved projects — one card or a whole set (.json)
 ├── batch/             spreadsheets for batch generation (.csv / .json)
 └── exports/           rendered PNG / JPEG
 ```
@@ -153,7 +159,9 @@ API moves it to `workspace/.trash/`.
    `workspace/exports`. Ready to print? **Print** (`Ctrl/⌘ + P`) turns it into a
    page of nine, with crop marks — and a page of backs to go behind them.
 
-Making more than one card? Fill a spreadsheet instead and use **Batch**
+Making more than one card? **+ Card** in the strip under the canvas adds
+another card to the same project, sharing the layout. Or fill a spreadsheet
+and use **Batch**
 (`Ctrl/⌘ + B`) — `workspace/batch/sample-set.csv` is a working example, and its
 `qty` column turns those six cards into a playable eighteen when you print
 them.
@@ -170,6 +178,7 @@ template…**. Your slots become that template's form fields.
 | --- | --- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app is put together, module by module |
 | [`docs/TEMPLATES.md`](docs/TEMPLATES.md) | Template and project file format, slot system |
+| [`docs/CARDS.md`](docs/CARDS.md) | Multi-card projects: one layout, a list of cards |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |
 | [`docs/API.md`](docs/API.md) | The local HTTP API exposed by `launch.py` |

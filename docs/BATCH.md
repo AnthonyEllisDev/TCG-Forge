@@ -113,6 +113,11 @@ behaviour every run had before.
 **Preview first row** renders row 1 without saving anything, so you can check
 the mapping before committing to 200 cards.
 
+**Add rows as cards** does not render anything: it adds every row to the open
+project as a card, through the same mapping, so the set can be edited card by
+card in the editor and rendered later with **Export → Every card in this
+project**. See [`CARDS.md`](CARDS.md).
+
 **Render set** runs the whole file with a progress bar and a per-card log. The
 button becomes **Cancel** while it runs; cancelling stops after the current card
 and still restores your canvas.

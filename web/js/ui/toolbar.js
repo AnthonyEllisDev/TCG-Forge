@@ -2,7 +2,7 @@
  * Top bar, card setup, insert tools, view toolbar and status bar wiring.
  */
 
-import { $, $$, el, isHex, on, toHex } from '../util/dom.js';
+import { $, $$, el, isHex, on, slugify, toHex } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { assets } from '../core/assets.js';
@@ -16,6 +16,7 @@ import {
   openProjectPath,
   saveProject,
 } from '../core/project.js';
+import { cardList, exportCards } from '../core/cards.js';
 import { confirmDialog, openModal, promptDialog, toast } from './dialogs.js';
 
 export function initToolbar() {
@@ -190,11 +191,27 @@ export function openExportDialog() {
   const toWorkspace = el('input', { type: 'checkbox', checked: api.online });
   toWorkspace.disabled = !api.online;
 
+  const cardCount = cardList().length;
+  const everyCard = el('input', { type: 'checkbox', id: 'exportEveryCard' });
+  const folderName = slugify(state.project.name, 'cards');
+  const everyRow = el('label', { class: 'check' }, [
+    everyCard,
+    api.online
+      ? ` Every card in this project (${cardCount}) into workspace/exports/${folderName}`
+      : ` Every card in this project (${cardCount}), one download each`,
+  ]);
+  everyRow.hidden = cardCount < 2;
+  const syncEvery = () => {
+    toWorkspace.disabled = !api.online || everyCard.checked;
+  };
+  on(everyCard, 'change', syncEvery);
+
   const body = el('div', { class: 'stack' }, [
     el('label', { class: 'field' }, [el('span', { text: 'Resolution' }), scale]),
     el('label', { class: 'field' }, [el('span', { text: 'Format' }), format]),
     el('label', { class: 'check' }, [transparent, ' Transparent background']),
     el('label', { class: 'check' }, [toWorkspace, api.online ? ' Also save into workspace/exports' : ' Save to workspace (needs the local server)']),
+    everyRow,
     el('p', { class: 'hint', text: 'Print tip: 300 dpi at 2.5 × 3.5 in is 750 × 1050 px. Export at 1× if your card is already sized for print.' }),
   ]);
 
@@ -209,6 +226,15 @@ export function openExportDialog() {
         onClick: async (close) => {
           try {
             state.set('lastExportScale', Number(scale.value));
+            if (everyCard.checked) {
+              await exportEveryCard({
+                multiplier: Number(scale.value),
+                format: format.value,
+                transparent: transparent.checked,
+              });
+              close();
+              return;
+            }
             const res = await exportImage({
               multiplier: Number(scale.value),
               format: format.value,
@@ -228,6 +254,32 @@ export function openExportDialog() {
       },
     ],
   });
+}
+
+/** Render the whole project — the other end of it is the print dialog's folder source. */
+async function exportEveryCard(options) {
+  const status = $('#statusMsg');
+  let done = 0;
+  let result;
+  try {
+    result = await exportCards({
+      ...options,
+      onProgress: ({ status: step, total }) => {
+        if (step !== 'done' && step !== 'failed') return;
+        done += 1;
+        if (status) status.textContent = `Exporting cards… ${done} / ${total}`;
+      },
+    });
+  } finally {
+    if (status) status.textContent = 'Ready.';
+  }
+  const where = result.rendered[0]?.path?.split('/').slice(0, -1).join('/');
+  const failed = result.failed.length ? ` · ${result.failed.length} failed: ${result.failed[0].error}` : '';
+  toast(
+    `Exported ${result.rendered.length} of ${result.total} cards${where ? ` to ${where}` : ''}${failed}`,
+    result.failed.length ? 'warn' : 'ok',
+    5200
+  );
 }
 
 /* -------------------------------------------------------------- insert -- */
@@ -438,6 +490,7 @@ export function openShortcuts() {
     ['Delete / Backspace', 'Delete selection'],
     ['Arrow keys', 'Nudge 1 px (Shift = 10 px)'],
     ['[ / ]', 'Send backward / bring forward'],
+    ['Page Up / Down', 'Previous / next card'],
     ['Ctrl/⌘ + 0', 'Fit card to window'],
     ['Ctrl/⌘ + + / −', 'Zoom in / out'],
     ['Ctrl/⌘ + wheel', 'Zoom at pointer'],

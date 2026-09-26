@@ -25,6 +25,7 @@ import { initTemplatePanel, refresh as refreshTemplates } from './ui/templatePan
 import { initFieldsPanel } from './ui/fieldsPanel.js';
 import { initBatchPanel } from './ui/batchPanel.js';
 import { initPrintPanel } from './ui/printPanel.js';
+import { initCardStrip } from './ui/cardStrip.js';
 import { initShortcuts } from './ui/shortcuts.js';
 
 async function boot() {
@@ -52,6 +53,7 @@ async function boot() {
   initFieldsPanel();
   initBatchPanel();
   initPrintPanel();
+  initCardStrip();
   initShortcuts();
   history.attach();
 

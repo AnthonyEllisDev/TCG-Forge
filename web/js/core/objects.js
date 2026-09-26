@@ -15,6 +15,10 @@
  *               — but only because it is listed below.
  *   tcgShowIf - a slot name: the layer is shown only while that slot holds
  *               something ("!slot" inverts it). See editor.applyConditions().
+ *   tcgPlaceholder - on artwork placed into a slot, the serialised layer it
+ *               replaced (usually the dashed art box), so the slot can be
+ *               emptied again — which is what switching to a card with no art
+ *               in that slot does. See templates.clearFieldImage().
  *   _baseWidth/_baseHeight - natural pixel size of an image, for cropping
  */
 
@@ -34,6 +38,7 @@ export const CUSTOM_PROPS = [
   'tcgFitHeight',
   'tcgFitSize',
   'tcgShowIf',
+  'tcgPlaceholder',
   '_baseWidth',
   '_baseHeight',
   'selectable',
@@ -112,6 +117,9 @@ export function forEachImageJSON(canvasJSON, visit) {
     for (const obj of list || []) {
       if (isImageJSON(obj)) visit(obj);
       else if (Array.isArray(obj?.objects)) walk(obj.objects);
+      // The layer a slot will go back to is stored whole, and it can be an
+      // image too: it needs the same relinking as everything else.
+      if (obj?.tcgPlaceholder) walk([obj.tcgPlaceholder]);
     }
   };
   walk(canvasJSON?.objects);

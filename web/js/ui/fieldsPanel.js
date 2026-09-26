@@ -10,7 +10,14 @@ import { bus, EVT } from '../util/bus.js';
 import { assets } from '../core/assets.js';
 import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
-import { collectFields, fieldValue, setFieldImage, setFieldText } from '../core/templates.js';
+import {
+  clearFieldImage,
+  collectFields,
+  fieldValue,
+  isPlacedArt,
+  setFieldImage,
+  setFieldText,
+} from '../core/templates.js';
 import { toast } from './dialogs.js';
 
 let signature = '';
@@ -73,9 +80,17 @@ function render(force) {
           text: 'Select layer',
           onClick: () => editor.select(editor.findBySlot(field.id)[0]),
         }),
+        el('button', {
+          class: 'btn tiny',
+          text: 'Clear',
+          title: 'Take the artwork out and put the placeholder back',
+          disabled: !isPlacedArt(objs[0]),
+          dataset: { clearSlot: field.id },
+          onClick: () => clearFieldImage(field.id),
+        }),
       ]);
       item.append(row);
-      item.append(el('div', { class: 'hint', text: current ? current : 'Drop art from the Asset Library, or use Choose image.' }));
+      item.append(el('div', { class: 'hint', id: `ffh_${field.id}`, text: artHint(current) }));
     } else if (field.type === 'multiline') {
       const area = el('textarea', { id: `ff_${field.id}`, rows: '3', placeholder: field.placeholder || '' });
       area.value = fieldValue(field.id);
@@ -92,9 +107,20 @@ function render(force) {
   }
 }
 
+const artHint = (path) => path || 'Drop art from the Asset Library, or use Choose image.';
+
 function syncValues(fields) {
   for (const field of fields) {
-    if (field.type === 'image') continue;
+    if (field.type === 'image') {
+      // Placing, clearing and switching cards all change what is in the slot
+      // without changing which fields there are.
+      const target = editor.findBySlot(field.id)[0];
+      const hint = document.getElementById(`ffh_${field.id}`);
+      if (hint) hint.textContent = artHint(target?.tcgAsset);
+      const clear = document.querySelector(`[data-clear-slot="${CSS.escape(field.id)}"]`);
+      if (clear) clear.disabled = !isPlacedArt(target);
+      continue;
+    }
     const node = document.getElementById(`ff_${field.id}`);
     if (!node || node === document.activeElement) continue;
     const value = fieldValue(field.id);

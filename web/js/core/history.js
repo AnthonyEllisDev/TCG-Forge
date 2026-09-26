@@ -6,7 +6,6 @@
  */
 
 import { bus, EVT } from '../util/bus.js';
-import { debounce } from '../util/dom.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 
@@ -16,12 +15,29 @@ class History {
     this.index = -1;
     this.limit = limit;
     this.locked = false;
+    this._pending = null;   // the debounced record not yet taken
   }
 
   attach() {
-    const record = debounce(() => this.record(), 260);
-    bus.on(EVT.MODIFIED, record);
+    bus.on(EVT.MODIFIED, () => {
+      clearTimeout(this._pending);
+      this._pending = setTimeout(() => this.flush(), 260);
+    });
     this.reset();
+  }
+
+  /**
+   * Record whatever is still waiting out the debounce.
+   *
+   * An edit made less than a debounce ago is on screen but not yet on the
+   * stack, so an undo that ignored it stepped back past it to the edit before,
+   * and the one after it could never be redone. Undo and redo flush first.
+   */
+  flush() {
+    if (!this._pending) return;
+    clearTimeout(this._pending);
+    this._pending = null;
+    this.record();
   }
 
   snapshot() {
@@ -29,6 +45,10 @@ class History {
   }
 
   reset() {
+    // A record still waiting from the previous canvas must not land on top of
+    // the new one's first step.
+    clearTimeout(this._pending);
+    this._pending = null;
     this.stack = [this.snapshot()];
     this.index = 0;
     bus.emit(EVT.HISTORY, this.status());
@@ -70,6 +90,7 @@ class History {
   }
 
   async undo() {
+    this.flush();
     if (this.index <= 0) return false;
     this.index -= 1;
     await this.apply(this.stack[this.index]);
@@ -77,6 +98,7 @@ class History {
   }
 
   async redo() {
+    this.flush();
     if (this.index >= this.stack.length - 1) return false;
     this.index += 1;
     await this.apply(this.stack[this.index]);

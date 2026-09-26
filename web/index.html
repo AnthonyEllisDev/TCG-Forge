@@ -192,6 +192,22 @@
           <canvas id="cardCanvas"></canvas>
         </div>
       </div>
+
+      <section id="cardStrip" aria-label="Cards in this project">
+        <div class="strip-bar">
+          <button class="btn tiny" data-card-action="prev" title="Previous card (Page Up)" aria-label="Previous card">‹</button>
+          <span id="cardCount" class="readout" aria-live="polite">1 / 1</span>
+          <button class="btn tiny" data-card-action="next" title="Next card (Page Down)" aria-label="Next card">›</button>
+          <span class="strip-sep"></span>
+          <button class="btn tiny" data-card-action="add" title="Add an empty card after this one">+ Card</button>
+          <button class="btn tiny" data-card-action="copy" title="Add a copy of this card after it">Duplicate</button>
+          <button class="btn tiny" data-card-action="left" title="Move this card earlier" aria-label="Move this card earlier">⇠</button>
+          <button class="btn tiny" data-card-action="right" title="Move this card later" aria-label="Move this card later">⇢</button>
+          <button class="btn tiny" data-card-action="delete" title="Delete this card">Delete</button>
+          <span class="hint strip-hint">Every card shares the layout; only the Card Fields differ.</span>
+        </div>
+        <div id="cardTiles" class="strip-tiles" role="group" aria-label="Cards"></div>
+      </section>
     </main>
 
     <div class="splitter" id="splitRight" title="Drag to resize"></div>

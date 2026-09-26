@@ -40,5 +40,6 @@ export const EVT = {
   TEMPLATE_APPLIED: 'templates:applied',
   FONTS: 'fonts:changed',
   PROJECT: 'project:changed',
+  CARDS: 'project:cards',             // card list, or which card is showing
   STATUS: 'ui:status',
 };

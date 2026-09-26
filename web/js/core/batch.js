@@ -12,7 +12,7 @@ import { assets } from './assets.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
 import { state } from './state.js';
-import { setFieldImage, setFieldText } from './templates.js';
+import { clearFieldImage, isImageSlot, setFieldImage, setFieldText } from './templates.js';
 import { serializeProject } from './project.js';
 import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
 import { downloadURL, slugify } from '../util/dom.js';
@@ -218,15 +218,21 @@ export async function applyRow(row, mapping) {
     const targets = editor.findBySlot(slot);
     if (!targets.length) continue;
 
-    if (targets[0].type === 'image' || targets[0].tcgKind === 'art' || targets[0].tcgKind === 'icon') {
-      // An empty image cell leaves the template's placeholder in place.
+    if (isImageSlot(targets)) {
+      // An empty image cell leaves the layout's placeholder in place. A card
+      // in a project says "no art" with null, and means it: whatever another
+      // card put in the slot has to come out again.
+      if (value === null) {
+        await clearFieldImage(slot);
+        continue;
+      }
       if (value === '') continue;
       const asset = resolveAsset(value);
       if (asset) await setFieldImage(slot, asset.url, { assetPath: asset.path });
     } else {
       // An empty text cell clears the field — otherwise the template's
       // placeholder copy would leak into the finished card.
-      setFieldText(slot, value);
+      setFieldText(slot, value ?? '');
     }
   }
 }
@@ -234,6 +240,7 @@ export async function applyRow(row, mapping) {
 /** Render a single row to a data URL without saving anything — used for preview. */
 export async function renderRow(row, mapping, { multiplier = 1, format = 'png', transparent = false } = {}) {
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
+  const wasDirty = state.dirty;
   history.locked = true;
   editor.canvas.discardActiveObject();
   try {
@@ -249,6 +256,10 @@ export async function renderRow(row, mapping, { multiplier = 1, format = 'png', 
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;
+      // Writing the row into the slots marked the card edited, but the canvas
+      // is back as it was: a project saved a moment ago is still saved, and
+      // saying otherwise makes New and Open ask about changes that do not exist.
+      state.setDirty(wasDirty);
     }
   }
 }
@@ -273,6 +284,9 @@ export async function runBatch({
     saveProjects = false,
     toWorkspace = true,
     qtyColumn = '',
+    // Given, every image goes here instead of to disk: the print sheet uses
+    // this to lay out a project's cards without writing them anywhere first.
+    sink = null,
   } = options;
 
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
@@ -286,6 +300,7 @@ export async function runBatch({
   const deck = [];
   const uniqueName = uniqueNamer();
 
+  const wasDirty = state.dirty;
   history.locked = true;
   editor.canvas.discardActiveObject();
 
@@ -306,7 +321,10 @@ export async function runBatch({
 
         const qty = qtyColumn ? readQuantity(row[qtyColumn]) : 1;
 
-        if (toWorkspace && api.online) {
+        if (sink) {
+          sink(dataURL, filename);
+          rendered.push({ index, name, path: null, qty });
+        } else if (toWorkspace && api.online) {
           const res = await api.exportImage({ filename, dataURL, folder: subfolder, overwrite: true });
           rendered.push({ index, name, path: res.path, qty });
         } else {
@@ -315,9 +333,9 @@ export async function runBatch({
         }
         deck.push({ file: filename, qty });
 
-        if (saveProjects && api.online) {
+        if (saveProjects && api.online && !sink) {
           state.project.name = name;
-          const project = await serializeProject();
+          const project = await serializeProject({ onlyActive: true });
           const folder = subfolder ? `${slugify(subfolder)}/` : '';
           await api.writeJSON(`projects/${folder}${name}.json`, project);
         }
@@ -336,6 +354,7 @@ export async function runBatch({
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;
+      state.setDirty(wasDirty);
     }
   }
 

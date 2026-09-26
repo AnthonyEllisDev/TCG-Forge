@@ -1381,6 +1381,387 @@ try {
       headAfter.expanded === String(!headAfter.collapsed),
     JSON.stringify({ headBefore, headAfter }));
 
+  /* ---- 0.7.0 bug guards ------------------------------------------------- */
+
+  /* An edit made less than a debounce before Ctrl+Z was not on the stack yet,
+     so undo stepped back past it and it could never be redone. Real keys. */
+  const fastUndo = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const r = editor.insert('rect');
+    r.set({ left: 100, top: 100 }); r.setCoords(); editor.touch();
+    editor.select(r);
+    await new Promise((res) => setTimeout(res, 500));
+    window.__fastUndo = r;
+    return r.left;
+  });
+  await page.mouse.move(5, 5);
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(150);
+  const fastUndoAfter = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const tcgId = window.__fastUndo.tcgId;
+    return editor.objects().find((o) => o.tcgId === tcgId)?.left;
+  });
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForTimeout(150);
+  const fastRedo = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const obj = editor.objects().find((o) => o.tcgId === window.__fastUndo.tcgId);
+    const left = obj?.left;
+    if (obj) editor.remove(obj);
+    return left;
+  });
+  check('undo straight after an edit steps back one edit, and redo brings it back',
+    fastUndoAfter === fastUndo + 1 && fastRedo === fastUndo + 2,
+    JSON.stringify({ start: fastUndo, afterUndo: fastUndoAfter, afterRedo: fastRedo }));
+
+  /* A preview or a run writes into the slots, then puts the canvas back; the
+     project it started from was saved and still is. */
+  const batchDirty = await page.evaluate(async () => {
+    try {
+      const { state } = window.TCGForge;
+      const batch = await import('/js/core/batch.js');
+      const p = await import('/js/core/project.js');
+      await p.saveProject({ name: 'Smoke Clean', path: null });
+      const saved = state.dirty;
+      await batch.renderRow({ title: 'Preview Only' }, { title: 'title' });
+      const afterPreview = state.dirty;
+      await batch.runBatch({ rows: [{ title: 'A' }], mapping: { title: 'title' }, options: { subfolder: 'smoke-clean' } });
+      return { saved, afterPreview, afterRun: state.dirty };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a batch preview or run leaves a saved project saved',
+    batchDirty.saved === false && batchDirty.afterPreview === false && batchDirty.afterRun === false,
+    JSON.stringify(batchDirty));
+
+  /* A project that cannot open (an image it names has gone) used to resize and
+     rename the card behind the error and leave it marked saved, so the next
+     Save wrote that over the project that was open. */
+  const brokenOpen = await page.evaluate(async () => {
+    try {
+      const { state, editor, api } = window.TCGForge;
+      const p = await import('/js/core/project.js');
+      await p.saveProject({ name: 'Smoke Keeper', path: null });
+      const keeper = state.project.path;
+      const layers = editor.objects().length;
+      await api.writeJSON('projects/smoke-broken.json', {
+        format: 'tcgforge.project', version: 1, name: 'Broken One', templateId: 'other',
+        card: { width: 500, height: 500, dpi: 150, radius: 0, background: '#ff0000', preset: 'square' },
+        fields: [],
+        canvas: { objects: [{ type: 'Image', src: '/files/assets/art/smoke-gone.png', tcgAsset: 'assets/art/smoke-gone.png', width: 10, height: 10 }] },
+      });
+      let error = null;
+      await p.openProjectPath('projects/smoke-broken.json').catch((e) => { error = e.message; });
+      const after = { name: state.project.name, width: state.card.width, path: state.project.path,
+        dirty: state.dirty, layers: editor.objects().length, canvasWidth: editor.canvas.getWidth() / editor.zoom };
+      await p.saveProject({});
+      const written = await api.readJSON(keeper).catch(() => null);
+      await api.trash('projects/smoke-broken.json').catch(() => {});
+      return { error: !!error, keeper, layers, after, writtenName: written?.name, writtenWidth: written?.card?.width };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a project that fails to open leaves the open card exactly as it was',
+    brokenOpen.error === true && brokenOpen.after?.name === 'Smoke Keeper' && brokenOpen.after.width === 750 &&
+      brokenOpen.after.path === brokenOpen.keeper && brokenOpen.after.dirty === false &&
+      brokenOpen.after.layers === brokenOpen.layers && Math.abs(brokenOpen.after.canvasWidth - 750) < 2 &&
+      brokenOpen.writtenName === 'Smoke Keeper' && brokenOpen.writtenWidth === 750,
+    JSON.stringify(brokenOpen));
+
+  /* The size box raised the font; the next keystroke in the text put it back. */
+  const fitSize = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const t = editor.insert('text');
+    // A box with room to spare, so the fit has no reason to shrink anything
+    // and whatever size the text ends at is the cap's doing.
+    t.set({ text: 'Hi', tcgFitHeight: 600 });
+    editor.select(t);
+    const auto = document.getElementById('pAutoFit');
+    auto.checked = true;
+    auto.dispatchEvent(new Event('change', { bubbles: true }));
+    const size = document.getElementById('pFontSize');
+    size.value = String(Math.round(t.fontSize) + 6);
+    size.dispatchEvent(new Event('input', { bubbles: true }));
+    const asked = Number(size.value);
+    const text = document.getElementById('pText');
+    text.value = 'Hi!';
+    text.dispatchEvent(new Event('input', { bubbles: true }));
+    const result = { asked, afterEdit: t.fontSize, cap: t.tcgFitSize };
+    editor.remove(t);
+    return result;
+  });
+  check('a font size set on an auto-fit layer survives the next edit of its text',
+    fitSize.afterEdit === fitSize.asked && fitSize.cap === fitSize.asked, JSON.stringify(fitSize));
+
+  /* Replacing a big picture with a small one kept the old scale, so the new
+     one landed at a fraction of the room the old one took. */
+  const replaceBefore = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const c = document.createElement('canvas');
+    c.width = 3000; c.height = 2000;
+    c.getContext('2d').fillRect(0, 0, 3000, 2000);
+    const img = await editor.addImage(c.toDataURL('image/png'), { tcgName: 'Smoke big' });
+    editor.select(img);
+    window.__replaceTarget = img;
+    return { w: Math.round(img.getScaledWidth()), h: Math.round(img.getScaledHeight()) };
+  });
+  const smallPng = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 400; c.height = 400;
+    c.getContext('2d').fillRect(0, 0, 400, 400);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+    page.click('[data-action="img-replace"]').catch(() => null),
+  ]);
+  if (chooser) {
+    await chooser.setFiles({ name: 'smoke-small.png', mimeType: 'image/png', buffer: Buffer.from(smallPng, 'base64') });
+  }
+  await page.waitForTimeout(800);
+  const replaceAfter = await page.evaluate(async () => {
+    const { editor, api } = window.TCGForge;
+    const img = window.__replaceTarget;
+    const out = { w: Math.round(img.getScaledWidth()), h: Math.round(img.getScaledHeight()), natural: img.width, asset: img.tcgAsset };
+    editor.remove(img);
+    if (img.tcgAsset) await api.trash(img.tcgAsset).catch(() => {});
+    return out;
+  });
+  check('a replaced picture takes the room the old one had',
+    !!chooser && replaceAfter.natural === 400 && replaceAfter.h === replaceBefore.h && replaceAfter.w === replaceBefore.h,
+    JSON.stringify({ before: replaceBefore, after: replaceAfter }));
+
+  /* Changing from one back mode to another re-ticked sheet numbering that the
+     user had just unticked. */
+  await page.keyboard.press('Control+p');
+  await page.waitForSelector('#printBackMode');
+  await page.selectOption('#printBackMode', 'duplex');
+  const labelsOn = await page.isChecked('#printPageLabels');
+  await page.evaluate(() => {
+    const box = document.getElementById('printPageLabels');
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await page.selectOption('#printBackMode', 'gutterfold');
+  const labelsKept = await page.isChecked('#printPageLabels');
+  await page.keyboard.press('Escape');
+  check('sheet numbering stays off when switching between back modes',
+    labelsOn === true && labelsKept === false, JSON.stringify({ labelsOn, labelsKept }));
+
+  /* ---- multi-card projects --------------------------------------------- */
+
+  /* A project from before 0.7.0 is one card, opens as one, and is not
+     rewritten on disk until it is saved. */
+  const v1 = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      const tpl = await api.readJSON('templates/classic-spell.json');
+      const legacy = { format: 'tcgforge.project', version: 1, name: 'Smoke Legacy', templateId: 'classic-spell',
+        card: tpl.card, fields: tpl.fields, canvas: tpl.canvas, meta: { app: 'TCG Forge' } };
+      const text = JSON.stringify(legacy, null, 2);
+      await api.request('/api/write', { method: 'POST', body: JSON.stringify({ path: 'projects/smoke-legacy.json', content: text }) });
+      await p.openProjectPath('projects/smoke-legacy.json');
+      const onDisk = (await api.request('/api/read?path=projects/smoke-legacy.json')).content;
+      const opened = { cards: cards.cardList().length, title: editor.findBySlot('title')[0]?.text, untouched: onDisk === text };
+      await p.saveProject({});
+      const saved = await api.readJSON('projects/smoke-legacy.json');
+      await api.trash('projects/smoke-legacy.json').catch(() => {});
+      await api.trash('projects/smoke-legacy.json.bak').catch(() => {});
+      return { ...opened, savedVersion: saved.version, savedCards: saved.cards?.length,
+        savedTitle: saved.cards?.[0]?.values?.title, activeCard: saved.activeCard };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a version-1 project opens as one card and is only rewritten when saved',
+    v1.cards === 1 && v1.untouched === true && v1.savedVersion === 2 && v1.savedCards === 1 &&
+      v1.savedTitle === v1.title && v1.activeCard === 0,
+    JSON.stringify(v1));
+
+  /* The point of the feature: slots are per card, everything else is shared.
+     Art comes and goes with its card, the placeholder comes back for a card
+     with none, a frame moved on one card has moved on all of them, and the
+     whole list survives a save and reopen — pixels, not labels. */
+  const multi = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const art = () => editor.findBySlot('art')[0];
+      const pixel = () => {
+        const { left, top, width, height } = art().getBoundingRect();
+        const url = editor.toDataURL({ multiplier: 1 });
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const c = document.createElement('canvas');
+            c.width = img.width; c.height = img.height;
+            const ctx = c.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            resolve(Array.from(ctx.getImageData(Math.round(left + width / 2), Math.round(top + height / 2), 1, 1).data.slice(0, 3)).join(','));
+          };
+          img.src = url;
+        });
+      };
+      const emptyArt = await pixel();
+      t.setFieldText('title', 'Card One');
+      await t.setFieldImage('art', '/files/assets/backgrounds/ember.svg', { assetPath: 'assets/backgrounds/ember.svg' });
+      const oneArt = await pixel();
+      await cards.addCard();
+      t.setFieldText('title', 'Card Two');
+      const two = { title: editor.findBySlot('title')[0].text, artType: art().type, pixel: await pixel() };
+      const frame = editor.objects().find((o) => !o.tcgSlot && !o.tcgShowIf && o.selectable !== false);
+      frame.set('left', frame.left + 7); frame.setCoords(); editor.touch();
+      const frameLeft = frame.left;
+      const frameId = frame.tcgId;
+      await cards.switchCard(0);
+      const one = { title: editor.findBySlot('title')[0].text, asset: art().tcgAsset, pixel: await pixel(),
+        frameLeft: editor.objects().find((o) => o.tcgId === frameId)?.left };
+      await p.saveProject({ name: 'Smoke Multi', path: null });
+      const saved = await api.readJSON(state.project.path);
+      await cards.switchCard(1);
+      await p.saveProject({});
+      await p.openProjectPath(state.project.path);
+      const reopened = { cards: cards.cardList().length, active: cards.activeIndex(),
+        title: editor.findBySlot('title')[0].text, artType: art().type };
+      await cards.switchCard(0);
+      reopened.firstTitle = editor.findBySlot('title')[0].text;
+      reopened.firstAsset = art().tcgAsset;
+      reopened.firstPixel = await pixel();
+      await api.trash(state.project.path).catch(() => {});
+      await api.trash(`${state.project.path}.bak`).catch(() => {});
+      return { emptyArt, oneArt, two, one, frameLeft, reopened,
+        savedValues: saved.cards.map((c) => [c.values.title, c.values.art]), savedVersion: saved.version };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('each card keeps its own fields and art while the layout is shared',
+    multi.two?.title === 'Card Two' && multi.two.artType !== 'image' && multi.two.pixel === multi.emptyArt &&
+      multi.oneArt !== multi.emptyArt && multi.one.title === 'Card One' &&
+      multi.one.asset === 'assets/backgrounds/ember.svg' && multi.one.pixel === multi.oneArt &&
+      multi.one.frameLeft === multi.frameLeft &&
+      JSON.stringify(multi.savedValues) === JSON.stringify([['Card One', 'assets/backgrounds/ember.svg'], ['Card Two', null]]),
+    JSON.stringify(multi));
+  check('a multi-card project reopens on the card it was saved on, with every card intact',
+    multi.reopened?.cards === 2 && multi.reopened.active === 1 && multi.reopened.title === 'Card Two' &&
+      multi.reopened.artType !== 'image' && multi.reopened.firstTitle === 'Card One' &&
+      multi.reopened.firstAsset === 'assets/backgrounds/ember.svg' && multi.reopened.firstPixel === multi.oneArt,
+    JSON.stringify(multi.reopened));
+
+  /* Rows become cards without rendering anything, and the project renders
+     back out as one image per card — each with its own art, not the one on
+     screen. */
+  const rowsAndExport = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      state.project.name = 'Smoke Rows';
+      const text = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+      const table = batch.parseAny(text, 'sample-set.csv');
+      const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
+      const before = cards.cardList().length;
+      const added = cards.addRows(table.rows, mapping, batch.resolveAsset);
+      await cards.removeCard(0);
+      const titles = cards.cardList().map((c) => c.values.title);
+      await cards.switchCard(2);
+      const shown = { title: editor.findBySlot('title')[0].text, art: editor.findBySlot('art')[0].tcgAsset || null };
+      const urls = await cards.renderCards({ multiplier: 0.25 });
+      const result = await cards.exportCards({ multiplier: 0.25 });
+      const folder = result.rendered[0]?.path?.split('/').slice(0, -1).join('/');
+      const listed = folder ? (await api.request(`/api/list?path=${folder}`)).entries.map((e) => e.name) : [];
+      return { before, added: added.added, missing: added.missing, titles, expected: table.rows.map((r) => r.title),
+        expectedArt: table.rows[2].art, shown, distinct: new Set(urls).size, rendered: urls.length,
+        folder, listed, activeAfter: cards.activeIndex(), titleAfter: editor.findBySlot('title')[0].text };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('spreadsheet rows become cards in the project, each opening with its own values',
+    rowsAndExport.added === rowsAndExport.expected?.length && rowsAndExport.missing?.length === 0 &&
+      JSON.stringify(rowsAndExport.titles) === JSON.stringify(rowsAndExport.expected) &&
+      rowsAndExport.shown.title === rowsAndExport.expected[2] && !!rowsAndExport.shown.art &&
+      rowsAndExport.shown.art.includes(rowsAndExport.expectedArt),
+    JSON.stringify(rowsAndExport));
+  check('every card in a project renders and exports as its own image',
+    rowsAndExport.rendered === rowsAndExport.expected?.length && rowsAndExport.distinct === rowsAndExport.rendered &&
+      rowsAndExport.folder === 'exports/smoke-rows' && rowsAndExport.listed.length === rowsAndExport.rendered &&
+      rowsAndExport.activeAfter === 2 && rowsAndExport.titleAfter === rowsAndExport.expected[2],
+    JSON.stringify({ rendered: rowsAndExport.rendered, distinct: rowsAndExport.distinct, folder: rowsAndExport.folder, listed: rowsAndExport.listed }));
+
+  /* The strip itself, driven the way a person drives it. */
+  await page.click('[data-card-action="add"]');
+  await page.waitForTimeout(400);
+  const stripAdded = await page.evaluate(() => ({
+    tiles: document.querySelectorAll('#cardTiles .card-tile').length,
+    active: [...document.querySelectorAll('#cardTiles .card-tile')].findIndex((t) => t.classList.contains('active')),
+    count: document.getElementById('cardCount').textContent,
+  }));
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('PageUp');
+  await page.waitForTimeout(400);
+  const afterPageUp = await page.evaluate(() => window.TCGForge.editor.findBySlot('title')[0].text);
+  await page.click('[data-card-action="delete"]');
+  await page.click('#modalFoot .btn.danger');
+  await page.waitForTimeout(400);
+  const stripDeleted = await page.evaluate(() => ({
+    tiles: document.querySelectorAll('#cardTiles .card-tile').length,
+    thumbs: document.querySelectorAll('#cardTiles .card-tile img').length,
+  }));
+  check('the card strip adds, steps through and deletes cards',
+    stripAdded.tiles === 7 && stripAdded.active === 3 && stripAdded.count === '4 / 7' &&
+      afterPageUp === rowsAndExport.expected?.[2] && stripDeleted.tiles === 6 && stripDeleted.thumbs >= 1,
+    JSON.stringify({ stripAdded, afterPageUp, stripDeleted }));
+
+  /* A card only glimpsed on the way past still gets its picture. The capture
+     used to be skipped while a switch was starting, and it cancelled the one
+     waiting to be taken, so stepping quickly left blank tiles behind. */
+  const passing = await page.evaluate(() => window.TCGForge.state.project.activeCard + 1);
+  const total = await page.evaluate(() => window.TCGForge.state.project.cards.length);
+  await page.keyboard.press('PageDown');
+  // Straight on as soon as the strip says the first step has landed — well
+  // inside the pause the after-edit capture waits for.
+  await page.waitForFunction((want) => document.getElementById('cardCount').textContent === want,
+    `${passing + 1} / ${total}`, { timeout: 5000 }).catch(() => {});
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(600);
+  const glimpsed = await page.evaluate((index) => {
+    const tile = document.querySelectorAll('#cardTiles .card-tile')[index];
+    return { index, thumb: !!tile?.querySelector('img'), active: window.TCGForge.state.project.activeCard };
+  }, passing);
+  check('a card stepped past quickly keeps its thumbnail',
+    glimpsed.thumb && glimpsed.active === passing + 1, JSON.stringify(glimpsed));
+
+  /* Print straight from the project, one of each card. */
+  await page.keyboard.press('Control+p');
+  await page.waitForSelector('#printSource');
+  const hasProject = await page.$eval('#printSource', (s) => [...s.options].some((o) => o.value === 'project'));
+  if (hasProject) await page.selectOption('#printSource', 'project');
+  for (const button of await page.$$('#modalFoot .btn')) {
+    if ((await button.textContent()) === 'Preview') { await button.click(); break; }
+  }
+  await page.waitForFunction(() => /cards/.test(document.getElementById('printStatus')?.textContent || '') &&
+    !/Drawing|Loading/.test(document.getElementById('printStatus').textContent), null, { timeout: 30000 }).catch(() => {});
+  const projectPrint = await page.$eval('#printStatus', (n) => n.textContent).catch(() => '');
+  await page.keyboard.press('Escape');
+  check('the print dialog lays out every card in the project',
+    hasProject && /\b6 cards\b/.test(projectPrint), projectPrint);
+
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

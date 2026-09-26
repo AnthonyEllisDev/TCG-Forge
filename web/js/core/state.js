@@ -61,6 +61,8 @@ export const state = {
     path: null,        // workspace-relative path once saved
     templateId: null,
     fields: [],        // template field definitions currently in play
+    cards: null,       // [{id, values}] — built from the canvas when first asked for
+    activeCard: 0,     // which of them the canvas is showing
   },
 
   settings: loadSettings(),

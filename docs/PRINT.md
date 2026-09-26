@@ -27,6 +27,11 @@ This is the other half of the batch generator: render a set with **Batch** into
 `exports/my-set`, then lay `my-set` out here. Sets larger than one page run onto
 as many pages as they need.
 
+**Every card in this project.** Offered when the project holds more than one
+card (see [`CARDS.md`](CARDS.md)): each card is drawn once, in list order, and
+laid straight onto the sheets without writing a folder first. Use **Export →
+Every card in this project** as well when the images are wanted on disk.
+
 **Repeat each card by its deck quantity.** A batch run with a quantity column
 leaves a `deck.json` beside its images saying how many of each card the deck
 wants (see [`BATCH.md`](BATCH.md)). The dialog finds it on its own and says so:

@@ -10,6 +10,7 @@ import { downloadURL, el, on, slugify } from '../util/dom.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { editor } from '../core/editor.js';
+import { cardList, renderCards } from '../core/cards.js';
 import {
   BACK_MODES,
   CUT_GUIDES,
@@ -83,6 +84,10 @@ export function openPrintDialog() {
     el('option', { value: 'card', text: 'The current card, repeated' }),
     el('option', { value: 'folder', text: 'A folder in workspace/exports' })
   );
+  const cardCount = cardList().length;
+  if (cardCount > 1) {
+    source.append(el('option', { value: 'project', text: `Every card in this project (${cardCount})` }));
+  }
   const copies = el('input', { type: 'number', id: 'printCopies', min: '1', max: '500', value: '9' });
   const folder = el('select', { id: 'printFolder' });
   folder.append(el('option', { value: '', text: 'exports/ …' }));
@@ -177,7 +182,7 @@ export function openPrintDialog() {
   const syncSource = () => {
     const isFolder = source.value === 'folder';
     folderRow.hidden = !isFolder;
-    copiesRow.hidden = isFolder;
+    copiesRow.hidden = source.value !== 'card';
   };
   on(source, 'change', () => {
     syncSource();
@@ -191,6 +196,7 @@ export function openPrintDialog() {
   syncSource();
   syncDeck();
 
+  let lastBackMode = backMode.value;
   const syncBacks = () => {
     const mode = backMode.value;
     const duplex = mode === 'duplex';
@@ -201,8 +207,11 @@ export function openPrintDialog() {
     backHint.textContent = duplex
       ? 'Print the pages in order, both sides. If the backs land on the wrong cards the printer flips on the other edge; if they are a millimetre or two out, nudge them with the shift boxes.'
       : 'Fronts print below the fold and backs above it, upside down. Fold on the dashed line, glue the halves together, then cut — backs line up every time, at half the cards per sheet.';
-    // One sheet of paper now carries two pages of output, so say which is which.
-    if (mode !== 'off') pageLabels.checked = true;
+    // One sheet of paper now carries two pages of output, so say which is
+    // which — once, on the way in. Going from duplex to gutterfold is not a
+    // reason to overrule someone who has just unticked it.
+    if (mode !== 'off' && lastBackMode === 'off') pageLabels.checked = true;
+    lastBackMode = mode;
   };
   on(backMode, 'change', () => {
     syncBacks();
@@ -363,9 +372,20 @@ export function openPrintDialog() {
         quantities: present.map((card) => card.qty),
       };
     }
+    const multiplier = Number(dpi.value) / (state.card.dpi || 300);
+    if (source.value === 'project') {
+      // Drawn straight onto the sheet, one of each, without writing a folder
+      // first; export the project when the images are wanted on disk too.
+      const urls = await renderCards({
+        multiplier,
+        onProgress: ({ index, total }) => {
+          status.textContent = `Drawing cards… ${index + 1} / ${total}`;
+        },
+      });
+      return { urls, quantities: null };
+    }
     // One render of the current card, reused for every copy: the browser
     // caches the decode, and a data URL costs nothing to repeat.
-    const multiplier = Number(dpi.value) / (state.card.dpi || 300);
     const url = editor.toDataURL({ multiplier, format: 'png' });
     const count = Math.max(1, Math.min(500, Math.round(num(copies, plan.perPage))));
     return { urls: Array.from({ length: count }, () => url), quantities: null };

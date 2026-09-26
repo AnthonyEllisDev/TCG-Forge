@@ -15,8 +15,10 @@ import {
   listDataFiles,
   parseAny,
   renderRow,
+  resolveAsset,
   runBatch,
 } from '../core/batch.js';
+import { addRows, cardList } from '../core/cards.js';
 import { readQuantity } from '../core/printSheet.js';
 import { openModal, toast } from './dialogs.js';
 
@@ -179,6 +181,13 @@ export function openBatchDialog() {
           id: 'batchPreview',
           text: 'Preview first row',
           onClick: () => preview(options().pattern),
+        }),
+        el('button', {
+          class: 'btn',
+          id: 'batchAddCards',
+          text: 'Add rows as cards',
+          title: 'Add every row to this project as a card you can go on editing, without rendering anything',
+          onClick: () => addAsCards(),
         }),
         nodes.count,
       ]),
@@ -357,6 +366,34 @@ async function preview(pattern) {
     setStatus(`Preview of row 1 → ${fillPattern(pattern, table.rows[0], 0)}`);
   } catch (err) {
     setStatus(`Preview failed: ${err.message}`, 'warn');
+  }
+}
+
+/**
+ * Turn the table into cards in this project. Nothing is drawn, so this is
+ * instant, and the set can then be edited card by card and rendered with
+ * Export → every card.
+ */
+function addAsCards() {
+  if (running) return;
+  if (!table.rows.length) {
+    toast('Load a spreadsheet first.', 'warn');
+    return;
+  }
+  if (!Object.values(mapping).some((s) => s && s !== '-')) {
+    toast('Map at least one column to a slot.', 'warn');
+    return;
+  }
+  try {
+    const { added, missing } = addRows(table.rows, mapping, resolveAsset);
+    setStatus(
+      `Added ${added} cards to this project — it now holds ${cardList().length}. ` +
+        'Switch between them in the strip under the card.' +
+        (missing.length ? ` No asset named ${missing.map((m) => `"${m}"`).join(', ')}; those slots were left empty.` : ''),
+      missing.length ? 'warn' : ''
+    );
+  } catch (err) {
+    setStatus(`Could not add the rows: ${err.message}`, 'warn');
   }
 }
 

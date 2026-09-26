@@ -22,11 +22,17 @@ it.
   that field is filled (or only while it is empty), so an empty spreadsheet cell
   hides the ornament behind a field and not just its text. See
   [`TEMPLATES.md`](TEMPLATES.md).
+- **Multi-card projects** (0.7.0) — one layout and a list of cards in a single
+  project file, with a card strip to switch between them, spreadsheet rows
+  added as editable cards, and export or print of every card at once. See
+  [`CARDS.md`](CARDS.md).
 
 ## Next
 
-- **Multi-card projects.** A card list in one file, with a strip of thumbnails to
-  switch between them — the natural home for set-wide edits.
+- **Per-card layout overrides.** A card that moves or restyles one layer
+  without changing the layout for the rest of the set.
+- **Per-card quantities in a project.** A count on each card, honoured by the
+  print dialog as `deck.json` already is.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
 - **Alignment and distribution.** Distribute spacing, match sizes, align to a
   chosen key object.

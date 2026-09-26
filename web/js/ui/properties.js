@@ -309,7 +309,19 @@ function bindText() {
   );
 
   bindInput('pFontFamily', (n) => apply((o) => o.set('fontFamily', n.value)), 'change');
-  bindInput('pFontSize', (n) => apply((o) => o.set('fontSize', clamp(num(n.value), 4, 400))));
+  bindInput('pFontSize', (n) =>
+    apply((o) => {
+      const size = clamp(num(n.value), 4, 400);
+      o.set('fontSize', size);
+      // Auto-fit never grows text past tcgFitSize, so a size typed here that
+      // did not move the cap was taken back by the next keystroke in the text.
+      // The size asked for here is the new design size; fit to it at once.
+      if (isText(o) && o.tcgAutoFit) {
+        o.set('tcgFitSize', size);
+        editor.autoFitText(o);
+      }
+    })
+  );
   bindInput('pLineHeight', (n) => apply((o) => o.set('lineHeight', num(n.value) || 1.16)));
   bindInput('pCharSpacing', (n) => apply((o) => o.set('charSpacing', num(n.value))));
 
@@ -457,6 +469,15 @@ function openReplaceDialog(img) {
       // short-lived blob: URL.
       const source = await assets.sourceForFile(file, 'art');
       const element = await loadImageElement(source.url);
+      // Art that did not come in through a slot has no window of its own; the
+      // room it takes on the card now is the window. Keeping the old scale
+      // instead made a 3000 px picture's replacement land at a tenth of the size.
+      const footprint = target.tcgArtBox || {
+        left: target.left,
+        top: target.top,
+        width: target.getScaledWidth(),
+        height: target.getScaledHeight(),
+      };
       target.setElement(element);
       target.set({
         _baseWidth: element.naturalWidth,
@@ -467,7 +488,7 @@ function openReplaceDialog(img) {
         cropY: 0,
         tcgAsset: source.path,
       });
-      if (target.tcgArtBox) fitImage(target, target.tcgArtBox, 'cover');
+      fitImage(target, footprint, target.tcgArtBox ? 'cover' : 'contain');
       target.setCoords();
       editor.canvas.requestRenderAll();
       editor.touch();

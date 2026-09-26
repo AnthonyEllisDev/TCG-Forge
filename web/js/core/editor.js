@@ -699,6 +699,45 @@ class Editor {
     }
   }
 
+  /**
+   * Run something that replaces the card — opening a project, applying a
+   * template — and put everything back if it throws.
+   *
+   * Those paths set the card size, name and fields first and load the layers
+   * last, and the load is the part that fails (an image the file names has
+   * gone). Fabric leaves the old layers up when it does, so what the user saw
+   * afterwards was their own card, resized and renamed after a file that never
+   * opened, still marked saved — and the next Save wrote that over their
+   * project.
+   */
+  async replaceCard(load) {
+    const card = { ...state.card };
+    const project = { ...state.project };
+    const dirty = state.dirty;
+    const background = this.canvas.backgroundColor;
+    const layers = this.objects().slice();
+    const json = JSON.stringify(this.toJSON());
+    try {
+      return await load();
+    } catch (err) {
+      Object.assign(state.card, card);
+      Object.assign(state.project, project);
+      const current = this.objects();
+      if (current.length !== layers.length || current.some((o, i) => o !== layers[i])) {
+        await this.loadJSON(JSON.parse(json)).catch((e) => console.error('[editor] could not put the card back', e));
+      }
+      this.canvas.backgroundColor = background;
+      this.applyCardClip();
+      this.applyZoom();
+      state.dirty = dirty;
+      bus.emit(EVT.CARD, state.card);
+      bus.emit(EVT.PROJECT, state.project);
+      bus.emit(EVT.CARDS, state.project.cards);
+      bus.emit(EVT.OBJECTS, this.objects());
+      throw err;
+    }
+  }
+
   clear() {
     this.suspendEvents = true;
     this.canvas.clear();
@@ -707,6 +746,27 @@ class Editor {
     this.canvas.requestRenderAll();
     this.suspendEvents = false;
     this.emitSelection();
+  }
+
+  /**
+   * A small picture of the card for the card strip.
+   *
+   * Unlike an export this leaves the selection alone — it runs after every
+   * edit, and dropping the selection each time would make the canvas
+   * impossible to work on.
+   */
+  thumbnail(width = 96) {
+    this.exporting = true;
+    try {
+      return this.canvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.8,
+        multiplier: width / state.card.width / this.zoom,
+        enableRetinaScaling: false,
+      });
+    } finally {
+      this.exporting = false;
+    }
   }
 
   /** Render the card to a data URL at the requested multiplier. */

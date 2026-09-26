@@ -11,7 +11,14 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { forEachImageJSON, isImageJSON, makeImage } from './objects.js';
+import {
+  CUSTOM_PROPS,
+  forEachImageJSON,
+  isImageJSON,
+  makeArtBox,
+  makeImage,
+  styleObject,
+} from './objects.js';
 import { fitImage } from './effects.js';
 import { slugify } from '../util/dom.js';
 
@@ -30,7 +37,10 @@ export async function loadTemplateFile(path) {
 
 export async function applyTemplate(data, { keepName = false } = {}) {
   if (!data?.canvas) throw new Error('Template has no canvas data.');
+  return editor.replaceCard(() => loadTemplate(data, { keepName }));
+}
 
+async function loadTemplate(data, { keepName }) {
   Object.assign(state.card, data.card || {});
   state.project.templateId = data.id || slugify(data.name, 'template');
   state.project.fields = normaliseFields(data.fields, data.canvas);
@@ -40,6 +50,10 @@ export async function applyTemplate(data, { keepName = false } = {}) {
   // this layout straight over it — under a name the top bar has already
   // replaced, so there is nothing on screen to suggest what is about to go.
   state.project.path = null;
+  // One card, whatever the project had: the card list is rebuilt from the
+  // canvas the first time anything asks for it.
+  state.project.cards = null;
+  state.project.activeCard = 0;
 
   const canvasJSON = JSON.parse(JSON.stringify(data.canvas));
   relinkImages(canvasJSON);
@@ -124,6 +138,15 @@ export function setFieldText(slot, value) {
   return true;
 }
 
+/** Whether a slot's layers take artwork rather than words. */
+export function isImageSlot(targets) {
+  const first = targets[0];
+  return !!first && (first.type === 'image' || first.tcgKind === 'art' || first.tcgKind === 'icon');
+}
+
+/** Artwork that was put into a slot, as opposed to a layer the layout ships. */
+export const isPlacedArt = (obj) => obj?.type === 'image' && !!obj.tcgArtBox;
+
 /**
  * Drop artwork into a slot. The target's bounds become the art window: the
  * image is scaled to cover it and clipped to it, so swapping art never breaks
@@ -150,6 +173,7 @@ export async function setFieldImage(slot, url, { assetPath = null } = {}) {
     tcgKind: 'art',
     tcgName: target?.tcgName || `Art: ${slot}`,
     tcgArtBox: box,
+    tcgPlaceholder: placeholderFor(target),
   });
 
   fitImage(img, box, 'cover');
@@ -172,6 +196,56 @@ export async function setFieldImage(slot, url, { assetPath = null } = {}) {
   editor.touch();
   bus.emit(EVT.OBJECTS, editor.objects());
   return img;
+}
+
+/**
+ * Take artwork out of a slot and put back the layer it replaced.
+ *
+ * Artwork remembers that layer when it is placed. Art placed by a version that
+ * did not has only its window to go on, so it gets a plain art box there.
+ * Returns false when there is nothing placed to take out.
+ */
+export async function clearFieldImage(slot) {
+  const target = editor.findBySlot(slot)[0];
+  if (!isPlacedArt(target)) return false;
+
+  let layer;
+  if (target.tcgPlaceholder) {
+    [layer] = await fabric.util.enlivenObjects([target.tcgPlaceholder]);
+  } else {
+    const box = target.tcgArtBox;
+    layer = makeArtBox({
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.height,
+      tcgName: target.tcgName,
+      tcgSlot: slot,
+    });
+  }
+  styleObject(layer);
+
+  const canvas = editor.canvas;
+  const index = canvas.getObjects().indexOf(target);
+  if (canvas.getActiveObject() === target) canvas.discardActiveObject();
+  canvas.remove(target);
+  canvas.add(layer);
+  canvas.moveObjectTo(layer, Math.max(0, index));
+  canvas.requestRenderAll();
+  editor.touch();
+  return true;
+}
+
+/** The layer that artwork dropped on `target` will hand the slot back to. */
+function placeholderFor(target) {
+  if (!target) return undefined;
+  // Replacing art with art keeps the original placeholder, not the old art.
+  if (isPlacedArt(target)) return target.tcgPlaceholder;
+  const json = target.toObject(CUSTOM_PROPS);
+  // An image the layout ships in a slot would otherwise keep the absolute URL
+  // the browser resolved, port and all.
+  if (isImageJSON(json) && json.tcgAsset) json.src = api.fileURL(json.tcgAsset);
+  return json;
 }
 
 function boundsOf(obj) {

@@ -80,6 +80,7 @@ web/
     │   ├── effects.js  fills, strokes, shadows, filters, crop
     │   ├── assets.js   asset index and font registration
     │   ├── templates.js template load/save and the slot system
+    │   ├── cards.js    multi-card projects: the card list and switching
     │   ├── batch.js    spreadsheet parsing and set rendering
     │   ├── printSheet.js page geometry and sheet composition
     │   ├── pdf.js      a small one-JPEG-per-page PDF writer
@@ -94,6 +95,7 @@ web/
         ├── fieldsPanel.js the form view of a template
         ├── batchPanel.js  the batch generator dialog
         ├── printPanel.js  the print sheet dialog
+        ├── cardStrip.js   the card list under the canvas
         ├── shortcuts.js   keyboard map
         └── dialogs.js     modal + toasts
 ```
@@ -118,6 +120,7 @@ second view of the same document, without rewriting panels.
 | `assets:changed` / `fonts:changed` | library rescanned |
 | `templates:applied` | a template was loaded |
 | `project:changed` | project name / path / dirty flag |
+| `project:cards` | the card list changed, or another card is on screen |
 | `ui:status` | backend went online or offline |
 
 **State lives in one place.** `core/state.js` holds the card geometry, the
@@ -142,6 +145,7 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgClip` | clip this layer to the card rectangle |
 | `tcgCardClip` | marks the clipPath `tcgClip` installed, so it can be removed again |
 | `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
+| `tcgPlaceholder` | on art placed in a slot: the serialised layer it replaced, so the slot can be emptied again |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
 
 > One gotcha worth knowing: serialised Fabric objects use capitalised type names
@@ -173,7 +177,9 @@ hook straight onto the canvas context. An `exporting` flag suppresses them while
 ### History
 
 `core/history.js` snapshots `{card, canvas}` as a JSON string on a debounced
-`editor:modified`, capped at 80 steps. Restoring re-applies the card geometry
+`editor:modified`, capped at 80 steps. Undo and redo take any snapshot still
+waiting out the debounce first, so an edit made a moment before Ctrl+Z is the
+one that is undone. Restoring re-applies the card geometry
 and calls `canvas.loadFromJSON`. Snapshots are strings so no live object can be
 mutated out from under a step.
 
@@ -199,6 +205,33 @@ a `deck.json`, which is the only thing the print sheet builder needs in order to
 lay out a deck rather than a set. Expanding at print time instead of at render
 time is the whole point: four copies of a card are four `drawImage` calls
 against one decoded picture, not four renders and four files.
+
+### Multi-card projects
+
+`core/cards.js` keeps a card as the values in its slots —
+`{ title: 'Ember Wyrm', art: 'assets/art/wyrm.png' }` — never as a canvas. The
+canvas is the layout with the active card's values in it, which is why
+everything that is not a slot is shared by every card for free.
+
+Switching cards is `applyRow()` from the batch renderer pointed at the project:
+the card on screen is read back out of its slots, then every slot is written
+from the next card. *Every* slot, so a value one card lacks is emptied rather
+than left over from the previous card; an art slot with no art of its own goes
+back to the layer the art replaced, which placed art carries as
+`tcgPlaceholder`. The canvas is the truth for the card on screen: its record in
+the list is only brought up to date on a switch or a save. History starts
+afresh on each switch, since a snapshot from one card restored onto another
+would carry its words across.
+
+Exporting or printing every card turns the list back into batch rows with an
+identity mapping and hands them to `runBatch()`, whose `sink` option collects
+the images for the print sheet instead of writing them. Nothing about cards
+reaches `printSheet.js`.
+
+A project that cannot be loaded — an image it names has gone — must not leave
+anything behind. `editor.replaceCard()` wraps opening a project and applying a
+template: it keeps the card setup, the project state and the layers, and puts
+them all back if the load throws.
 
 ### Print sheets
 

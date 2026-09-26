@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.7.0 — multi-card projects
+
+- **A whole set in one project.** A strip under the canvas lists every card in
+  the project; click a card, or press **Page Up** / **Page Down**, to put it on
+  the canvas. A card is the values in its Card Fields — its words and its
+  artwork — and everything else is the layout, which every card shares, so
+  moving the frame or changing a font is one edit for the whole set. **+ Card**
+  adds an empty card, **Duplicate** a copy of the one on screen; cards can be
+  moved along the list and deleted. Documented in
+  [`docs/CARDS.md`](docs/CARDS.md).
+- **Spreadsheet rows as cards.** The batch dialog's **Add rows as cards** adds
+  every row to the project as a card you can go on editing, using the same
+  column mapping and asset lookup as a batch run, without rendering anything.
+- **Export every card** into `workspace/exports/<project>/`, and **print every
+  card** straight onto sheets from the print dialog.
+- **Clear** in Card Fields takes artwork out of a slot and puts the placeholder
+  it replaced back.
+- The project file is now version 2, with a `cards` list and `activeCard`.
+  Version-1 projects open as a project of one card and are not rewritten until
+  saved; `canvas` means the same in both, so an older version still opens a new
+  file as its active card.
+
+### Fixed
+
+- **A project that failed to open could be saved over the one that was open.**
+  Opening a file whose artwork had gone from the workspace showed an error, but
+  the open card had already been resized and renamed after the file that never
+  opened, and was still marked saved — so the next **Save** wrote that into the
+  project that was open. A project or template that fails to load now leaves
+  everything as it was.
+- An undo pressed within a quarter of a second of an edit skipped that edit and
+  went back to the one before, and the skipped edit could never be redone.
+- A batch preview or run marked a project that had just been saved as unsaved,
+  though the card is put back exactly as it was afterwards.
+- A font size set in Properties on an auto-fit text layer was taken back the
+  next time the text was edited. The size set there is now the size the layer
+  fits to.
+- **Replace…** on a picture that had not come in through an art slot kept the
+  old picture's scale, so a small replacement for a large picture landed at a
+  fraction of the size. It now takes the room the old picture had.
+- In the print dialog, switching between double-sided and gutterfold ticked
+  **Number the sheets** again after it had been unticked.
+
 ## 0.6.0 — conditional layers
 
 - **Layers that follow a field**: any layer can now be tied to a field with

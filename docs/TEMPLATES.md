@@ -90,23 +90,31 @@ labels and ordering.
 ```json
 {
   "format": "tcgforge.project",
-  "version": 1,
+  "version": 2,
   "name": "Ember Wyrm",
   "templateId": "classic-spell",
   "card": { "...": "same shape as above" },
   "fields": [ "...inherited from the template..." ],
-  "canvas": { "...": "..." },
+  "canvas": { "...": "the layout, showing the active card" },
+  "cards": [ { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png" } } ],
+  "activeCard": 0,
   "meta": { "app": "TCG Forge", "embedded": false, "modified": "2026-01-01T00:00:00.000Z" }
 }
 ```
+
+`version` is `2` from 0.7.0, which added `cards` and `activeCard`: the values
+each card puts into the layout's slots, and which of them `canvas` is showing.
+A version-1 file has neither and opens as a project of one card. See
+[`CARDS.md`](CARDS.md).
 
 `meta.embedded` records how images were stored:
 
 - **`false` (default)** — image layers keep `tcgAsset` (a workspace-relative
   path) and their `src` points at `/files/…`. Small files; share the whole
   workspace folder and everything resolves.
-- **`true`** — every image is inlined as a base64 data URL. One self-contained
-  file, much larger, portable anywhere.
+- **`true`** — every image is inlined as a base64 data URL, including the
+  artwork the other cards in `cards` name. One self-contained file, much
+  larger, portable anywhere.
 
 Toggle it with **Insert → Embed images in project file**.
 
