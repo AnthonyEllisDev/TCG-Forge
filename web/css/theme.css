@@ -29,6 +29,7 @@
   --accent-soft:   rgba(91, 124, 250, 0.16);
   --gold:          #f0a53a;
   --gold-soft:     rgba(240, 165, 58, 0.14);
+  --on-gold:       #1a1206;   /* text on a gold badge, either theme */
   --danger:        #ef4d5a;
   --ok:            #3ecf8e;
   --warn:          #f0a53a;

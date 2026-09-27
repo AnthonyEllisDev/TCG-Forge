@@ -26,13 +26,14 @@ it.
   project file, with a card strip to switch between them, spreadsheet rows
   added as editable cards, and export or print of every card at once. See
   [`CARDS.md`](CARDS.md).
+- **Copies per card in a project** (0.8.0) — a count on each card, honoured by
+  printing every card and written as a `deck.json` by exporting every card. See
+  [`CARDS.md`](CARDS.md).
 
 ## Next
 
 - **Per-card layout overrides.** A card that moves or restyles one layer
   without changing the layout for the rest of the set.
-- **Per-card quantities in a project.** A count on each card, honoured by the
-  print dialog as `deck.json` already is.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
 - **Alignment and distribution.** Distribute spacing, match sizes, align to a
   chosen key object.

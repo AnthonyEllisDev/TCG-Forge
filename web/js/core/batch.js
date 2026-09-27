@@ -198,6 +198,23 @@ export function resolveAsset(value) {
 const nextFrame = () =>
   new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
+/*
+ * One run at a time. A run borrows the canvas: it snapshots it, writes rows
+ * into it and puts the snapshot back at the end. A second run started inside
+ * the first takes its snapshot of a spreadsheet row, releases the history lock
+ * the first one is relying on, and restores that row over the user's card when
+ * it finishes.
+ */
+let rendering = false;
+
+/** Whether a batch, export or print run has the canvas right now. */
+export const isRendering = () => rendering;
+
+function claimCanvas() {
+  if (rendering) throw new Error('another set is still rendering — wait for it to finish');
+  rendering = true;
+}
+
 async function restoreSnapshot(snapshot) {
   const data = JSON.parse(snapshot);
   Object.assign(state.card, data.card);
@@ -219,14 +236,14 @@ export async function applyRow(row, mapping) {
     if (!targets.length) continue;
 
     if (isImageSlot(targets)) {
-      // An empty image cell leaves the layout's placeholder in place. A card
-      // in a project says "no art" with null, and means it: whatever another
-      // card put in the slot has to come out again.
-      if (value === null) {
+      // An empty cell and a card's null both mean "the layout's own art
+      // layer". A batch run starts each row from the canvas as it stands, and
+      // since a project's art belongs to the card on screen, skipping the cell
+      // printed that card's picture on every row that left it blank.
+      if (value === null || String(value).trim() === '') {
         await clearFieldImage(slot);
         continue;
       }
-      if (value === '') continue;
       const asset = resolveAsset(value);
       if (asset) await setFieldImage(slot, asset.url, { assetPath: asset.path });
     } else {
@@ -241,6 +258,7 @@ export async function applyRow(row, mapping) {
 export async function renderRow(row, mapping, { multiplier = 1, format = 'png', transparent = false } = {}) {
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
   const wasDirty = state.dirty;
+  claimCanvas();
   history.locked = true;
   editor.canvas.discardActiveObject();
   try {
@@ -256,6 +274,7 @@ export async function renderRow(row, mapping, { multiplier = 1, format = 'png', 
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;
+      rendering = false;
       // Writing the row into the slots marked the card edited, but the canvas
       // is back as it was: a project saved a moment ago is still saved, and
       // saying otherwise makes New and Open ask about changes that do not exist.
@@ -301,6 +320,7 @@ export async function runBatch({
   const uniqueName = uniqueNamer();
 
   const wasDirty = state.dirty;
+  claimCanvas();
   history.locked = true;
   editor.canvas.discardActiveObject();
 
@@ -354,6 +374,7 @@ export async function runBatch({
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;
+      rendering = false;
       state.setDirty(wasDirty);
     }
   }

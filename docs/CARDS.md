@@ -36,6 +36,7 @@ to one card's art is not stored with that card.
 | **Duplicate** | a copy of this card after it — the quickest way to start a card that shares most of its words (a footer, a type line) |
 | **⇠ / ⇢** | move this card earlier or later in the list |
 | **Delete** | remove this card, after asking. The last card cannot be deleted |
+| **Copies** | how many of this card the deck wants — see below |
 
 Tiles show a thumbnail once a card has been on screen this session, and the
 card's first words either way. Thumbnails are not saved in the project file:
@@ -49,6 +50,31 @@ Art slots now have a **Clear** button in Card Fields, which takes the artwork ou
 and puts back the layer it replaced (usually the dashed art box). Artwork
 remembers that layer when it is placed (`tcgPlaceholder`); art placed before
 0.7.0 gets a plain art box in its window instead.
+
+## Copies
+
+A deck usually wants more than one of some cards. **Copies** in the strip sets
+that number for the card on screen (1 to 999); a tile with more than one shows
+`×3`, and the strip shows the deck's total whenever it is not simply one of
+each.
+
+A card with three copies is still one card: it is edited once, drawn once and
+exported as one image. The count only matters where cards are laid out or
+listed:
+
+- **Print → Every card in this project** lays each card out as many times as its
+  count. Untick *Repeat each card by its deck quantity* to print one of each.
+- **Export → Every card in this project** writes a `deck.json` beside the images
+  with each file's count, the same list a batch run with a quantity column
+  writes — so printing that folder later gives the same deck. The list is
+  rewritten on every export, including one where every card is back to one
+  copy, so it can never describe counts the project no longer has.
+- **Add rows as cards** takes each card's count from the batch dialog's
+  *Quantity column*, if one is chosen.
+- **Duplicate** copies the count; **+ Card** starts at one.
+
+This is the same rule as 0.5.0's batch quantities: the count is expanded when
+the page is laid out, never by drawing the card several times.
 
 ## Filling a project from a spreadsheet
 
@@ -68,7 +94,7 @@ project of one card, so a fresh set from a spreadsheet is: load the template,
   `workspace/exports/<project-name>/`, named `001-<first words>.png` and so on.
   That folder is then a source in the print dialog like any batch run.
 - **Print → Every card in this project** lays the cards straight onto sheets,
-  one of each, without writing a folder first.
+  by their copies, without writing a folder first.
 
 Both go through the batch renderer, so a card is drawn exactly as a spreadsheet
 row with the same values would be.
@@ -83,7 +109,7 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   "version": 2,
   "canvas": { "...": "the layout, showing the active card" },
   "cards": [
-    { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png", "stats": "4 / 4" } },
+    { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png", "stats": "4 / 4" }, "qty": 3 },
     { "id": "card_p0q7m1c", "values": { "title": "Ashfall Ritual", "art": null, "stats": "" } }
   ],
   "activeCard": 0
@@ -95,6 +121,10 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   `null` for "no art of its own".
 - A slot a card has no value for is shown empty, never with the previous card's
   value.
+- `qty` (0.8.0) is the card's copies. It is written only when it is more than
+  one; a card without it is one copy, which is every card saved before 0.8.0.
+  The file stays version 2 — an older TCG Forge ignores the key (and drops it
+  if it saves the file).
 - `canvas` is exactly what it was in version 1, so an older TCG Forge opens a
   version-2 file as its active card. (Saving it from that older version keeps
   only that card.)

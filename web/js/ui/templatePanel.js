@@ -1,6 +1,6 @@
 /* Template browser: list, load, and save the current card as a template. */
 
-import { $, el, on } from '../util/dom.js';
+import { $, activatable, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
@@ -43,6 +43,9 @@ export async function refresh() {
 function render() {
   const list = $('#templateList');
   if (!list) return;
+  // Loading a template redraws this list; a keyboard user who loaded it from
+  // here should still be on its row afterwards, not back at the top of the page.
+  const focused = list.contains(document.activeElement) ? document.activeElement.dataset.path : null;
   list.innerHTML = '';
 
   const items = templates.filter(
@@ -70,6 +73,7 @@ function render() {
       // templateId is a slug and need not be the slug of the display name
       // ("classic-spell" vs "Classic Spell Frame"), so match on the id.
       class: `list-item${state.project.templateId && templateIdOf(tpl) === state.project.templateId ? ' active' : ''}`,
+      dataset: { path: tpl.path },
     }, [
       el('div', { class: 'li-title', text: tpl.name }),
       el('div', {
@@ -82,8 +86,10 @@ function render() {
       item.append(el('div', { class: 'li-tags' }, tpl.tags.map((t) => el('span', { class: 'tag', text: t }))));
     }
     on(item, 'click', () => load(tpl));
+    activatable(item, () => load(tpl), { label: `Load template ${tpl.name}` });
     list.append(item);
   }
+  if (focused) list.querySelector(`[data-path="${CSS.escape(focused)}"]`)?.focus();
 }
 
 function templateIdOf(tpl) {

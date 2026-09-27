@@ -2,7 +2,7 @@
  * Top bar, card setup, insert tools, view toolbar and status bar wiring.
  */
 
-import { $, $$, el, isHex, on, slugify, toHex } from '../util/dom.js';
+import { $, $$, activatable, el, isHex, on, slugify, toHex } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { assets } from '../core/assets.js';
@@ -17,6 +17,7 @@ import {
   saveProject,
 } from '../core/project.js';
 import { cardList, exportCards } from '../core/cards.js';
+import { isRendering } from '../core/batch.js';
 import { confirmDialog, openModal, promptDialog, toast } from './dialogs.js';
 
 export function initToolbar() {
@@ -47,11 +48,22 @@ function bindActions() {
     }
   });
 
-  const nameInput = $('#projectName');
-  on(nameInput, 'change', () => {
-    state.project.name = nameInput.value.trim() || 'Untitled Card';
-    state.setDirty(true);
-  });
+  on($('#projectName'), 'change', commitProjectName);
+}
+
+/**
+ * Take the name box's text into the project. The box only reports on
+ * `change`, which fires when it loses focus, so a save started from the
+ * keyboard while the caret is still in it has to take the name itself — or
+ * the file goes out under the name the box had before.
+ */
+function commitProjectName() {
+  const input = $('#projectName');
+  if (!input) return;
+  const name = input.value.trim() || 'Untitled Card';
+  if (name === state.project.name) return;
+  state.project.name = name;
+  state.setDirty(true);
 }
 
 async function handleNew() {
@@ -68,7 +80,8 @@ async function handleNew() {
   toast('New card ready.', 'ok');
 }
 
-async function handleSave() {
+export async function handleSave() {
+  commitProjectName();
   try {
     const res = await saveProject({});
     toast(res.saved === 'workspace' ? `Saved to ${res.path}` : 'Downloaded project file.', 'ok');
@@ -157,7 +170,7 @@ export async function openProjectDialog() {
         el('div', { class: 'li-title', text: project.name }),
         el('div', { class: 'li-sub', text: `${project.path} · ${project.modified.replace('T', ' ').replace('+00:00', ' UTC')}` }),
       ]);
-      on(item, 'click', async () => {
+      const open = async () => {
         try {
           await openProjectPath(project.path);
           $('#projectName').value = state.project.name;
@@ -166,7 +179,9 @@ export async function openProjectDialog() {
         } catch (err) {
           toast(`Could not open: ${err.message}`, 'err');
         }
-      });
+      };
+      on(item, 'click', open);
+      activatable(item, open, { label: `Open ${project.name}` });
       list.append(item);
     }
   } catch (err) {
@@ -218,6 +233,8 @@ export function openExportDialog() {
   openModal({
     title: 'Export card',
     body,
+    // Rendering every card borrows the canvas; let the run finish first.
+    canClose: () => !isRendering(),
     buttons: [
       { label: 'Cancel', onClick: (close) => close() },
       {

@@ -1,6 +1,6 @@
 /* Layers panel: ordering, visibility, locking, renaming, drag-and-drop. */
 
-import { $, el, on } from '../util/dom.js';
+import { $, activatable, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { editor, parseShowIf } from '../core/editor.js';
 import { kindOf, labelOf } from '../core/objects.js';
@@ -17,6 +17,7 @@ const KIND_BADGE = {
 
 let listEl = null;
 let dragIndex = null;
+let shown = [];   // the layer list as it was last drawn, by row index
 
 export function initLayers() {
   listEl = $('#layerList');
@@ -44,6 +45,12 @@ function render() {
   if (!listEl) return;
   const objects = editor.objects();
   const active = editor.selection();
+  // Choosing a layer from the keyboard redraws the list; keep the keyboard on
+  // the row it chose rather than dropping it back to the page.
+  const focused = document.activeElement?.classList?.contains('layer-row') && listEl.contains(document.activeElement)
+    ? shown[Number(document.activeElement.dataset.index)]
+    : null;
+  shown = objects.slice();
   listEl.innerHTML = '';
 
   if (!objects.length) {
@@ -108,8 +115,7 @@ function render() {
       })
     );
 
-    row.addEventListener('click', (e) => {
-      if (e.target.closest('.layer-btn')) return;
+    const pick = (e) => {
       if (e.shiftKey || e.ctrlKey || e.metaKey) {
         const next = new Set(editor.selection());
         next.has(obj) ? next.delete(obj) : next.add(obj);
@@ -117,7 +123,15 @@ function render() {
       } else {
         editor.select(obj);
       }
+    };
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.layer-btn')) return;
+      pick(e);
     });
+    // Not role="button": the row holds buttons of its own, and a button inside
+    // a button is announced as nonsense. It is a focusable row that selects.
+    activatable(row, pick, { role: null, label: `Layer ${labelOf(obj)}` });
+    if (active.includes(obj)) row.setAttribute('aria-current', 'true');
 
     nameEl.addEventListener('dblclick', (e) => {
       e.stopPropagation();
@@ -146,6 +160,9 @@ function render() {
     });
 
     listEl.append(row);
+  }
+  if (focused) {
+    listEl.querySelector(`.layer-row[data-index="${objects.indexOf(focused)}"]`)?.focus();
   }
 
   updateCount(objects.length);

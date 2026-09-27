@@ -29,6 +29,24 @@ export const on = (target, type, handler, opts) => {
   return () => target.removeEventListener(type, handler, opts);
 };
 
+/**
+ * Let the keyboard reach something that is not a button: a list row, a grid
+ * cell. It joins the Tab order and answers Enter and Space the way a click
+ * would. Keys pressed on a control inside it — a row's own buttons — are left
+ * to that control.
+ */
+export function activatable(node, handler, { role = 'button', label = null } = {}) {
+  node.tabIndex = 0;
+  if (role) node.setAttribute('role', role);
+  if (label) node.setAttribute('aria-label', label);
+  node.addEventListener('keydown', (e) => {
+    if (e.target !== node || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    handler(e);
+  });
+  return node;
+}
+
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
 export const round = (value, places = 2) => {

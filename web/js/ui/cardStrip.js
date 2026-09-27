@@ -17,7 +17,9 @@ import {
   cardList,
   captureValues,
   moveCard,
+  qtyOf,
   removeCard,
+  setCardQty,
   slotKinds,
   switchCard,
 } from '../core/cards.js';
@@ -31,6 +33,17 @@ export function initCardStrip() {
   on(document, 'click', (e) => {
     const action = e.target.closest('[data-card-action]')?.dataset.cardAction;
     if (action) runAction(action);
+  });
+
+  // Taken on every keystroke, not on change: change waits for the box to lose
+  // focus, and a Ctrl+S typed before that would save the old count. A box
+  // emptied to retype it is left alone until it holds a number again.
+  const qty = $('#cardQty');
+  on(qty, 'input', () => {
+    if (qty.value.trim() !== '') setCardQty(activeIndex(), qty.value);
+  });
+  on(qty, 'change', () => {
+    qty.value = String(qtyOf(cardList()[activeIndex()]));
   });
 
   bus.on(EVT.CARDS, render);
@@ -147,7 +160,8 @@ function render() {
         // Plain buttons, not listbox options: a listbox promises arrow-key
         // movement, and here Tab and Page Up / Down are the keys.
         'aria-current': index === active ? 'true' : null,
-        'aria-label': `Card ${index + 1} of ${cards.length}: ${label}`,
+        'aria-label': `Card ${index + 1} of ${cards.length}: ${label}` +
+          (qtyOf(card) > 1 ? `, ${qtyOf(card)} copies` : ''),
         title: label,
         dataset: { cardId: card.id },
         onClick: () => goTo(index),
@@ -157,6 +171,7 @@ function render() {
           ? el('img', { src: thumb, alt: '' })
           : el('span', { class: 'tile-blank', text: String(index + 1) }),
         el('span', { class: 'tile-label', text: `${index + 1}. ${label}` }),
+        qtyOf(card) > 1 ? el('span', { class: 'tile-qty', text: `×${qtyOf(card)}`, 'aria-hidden': 'true' }) : null,
       ]
     );
     host.append(tile);
@@ -164,6 +179,12 @@ function render() {
 
   const count = $('#cardCount');
   if (count) count.textContent = `${active + 1} / ${cards.length}`;
+  const qty = $('#cardQty');
+  if (qty && document.activeElement !== qty) qty.value = String(qtyOf(cards[active]));
+  // The deck only needs saying when it is not simply one of each.
+  const copies = cards.reduce((sum, card) => sum + qtyOf(card), 0);
+  const total = $('#cardDeckTotal');
+  if (total) total.textContent = copies === cards.length ? '' : `${copies} in the deck`;
   const single = cards.length <= 1;
   for (const [action, disabled] of [
     ['delete', single],

@@ -226,7 +226,18 @@ would carry its words across.
 Exporting or printing every card turns the list back into batch rows with an
 identity mapping and hands them to `runBatch()`, whose `sink` option collects
 the images for the print sheet instead of writing them. Nothing about cards
-reaches `printSheet.js`.
+reaches `printSheet.js`. A card's copies (`qty`, 0.8.0) travel the same way the
+batch quantity column does: as a `_qty` column in those rows, so an export
+writes the same `deck.json` a spreadsheet run would, and the print dialog hands
+the counts to `expandByQuantity()` like a deck list's.
+
+**One run has the canvas at a time.** A run snapshots the canvas, writes rows
+into it and restores the snapshot when it ends, so anything else that touches
+the canvas meanwhile is overwritten. `runBatch()` and `renderRow()` refuse to
+start while another is going (`isRendering()`), and the dialogs that start a run
+pass `canClose` to `openModal()`, which Escape and ✕ ask before they dismiss —
+a dialog left open is what keeps the editor out of reach until the canvas is
+back.
 
 A project that cannot be loaded — an image it names has gone — must not leave
 anything behind. `editor.replaceCard()` wraps opening a project and applying a

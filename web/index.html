@@ -204,6 +204,11 @@
           <button class="btn tiny" data-card-action="left" title="Move this card earlier" aria-label="Move this card earlier">⇠</button>
           <button class="btn tiny" data-card-action="right" title="Move this card later" aria-label="Move this card later">⇢</button>
           <button class="btn tiny" data-card-action="delete" title="Delete this card">Delete</button>
+          <span class="strip-sep"></span>
+          <label class="strip-qty" title="How many of this card the deck wants. Print and Export → every card use it; the card is still drawn once.">
+            Copies <input id="cardQty" type="number" min="1" max="999" step="1" value="1">
+          </label>
+          <span id="cardDeckTotal" class="readout" aria-live="polite"></span>
           <span class="hint strip-hint">Every card shares the layout; only the Card Fields differ.</span>
         </div>
         <div id="cardTiles" class="strip-tiles" role="group" aria-label="Cards"></div>
@@ -451,7 +456,7 @@
 <div id="modalRoot" class="modal-root" hidden>
   <div class="modal-backdrop" data-close></div>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <header class="modal-head"><h2 id="modalTitle">Dialog</h2><button class="btn ghost" data-close>✕</button></header>
+    <header class="modal-head"><h2 id="modalTitle">Dialog</h2><button class="btn ghost" data-close aria-label="Close dialog">✕</button></header>
     <div class="modal-body" id="modalBody"></div>
     <footer class="modal-foot" id="modalFoot"></footer>
   </div>

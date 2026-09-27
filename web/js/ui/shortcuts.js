@@ -2,19 +2,18 @@
 
 import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
-import { saveProject } from '../core/project.js';
-import { openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
+import { handleSave, openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
 import { stepCard } from './cardStrip.js';
-import { isModalOpen, toast } from './dialogs.js';
+import { isModalOpen } from './dialogs.js';
 
 /* Keys whose browser default opens something of the browser's own — a save,
    print or open dialog — on top of ours. */
 const BROWSER_MODIFIER_KEYS = new Set(['s', 'p', 'o']);
 
 export function initShortcuts() {
-  window.addEventListener('keydown', async (e) => {
+  window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     const typing = isTypingTarget(e.target) || editor.canvas?.getActiveObject()?.isEditing;
 
@@ -59,12 +58,7 @@ export function initShortcuts() {
           return;
         case 's':
           e.preventDefault();
-          try {
-            const res = await saveProject({});
-            toast(res.saved === 'workspace' ? `Saved to ${res.path}` : 'Downloaded project file.', 'ok');
-          } catch (err) {
-            toast(`Save failed: ${err.message}`, 'err');
-          }
+          handleSave();
           return;
         case 'e':
           e.preventDefault();

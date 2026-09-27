@@ -19,6 +19,7 @@ export function toast(message, kind = 'info', duration = 2800) {
 
 let activeClose = null;
 let activeDismiss = null;
+let activeGuard = null;
 let lastFocus = null;
 
 const FOCUSABLE =
@@ -33,7 +34,14 @@ function focusables() {
   );
 }
 
-export function openModal({ title = '', body = '', buttons = [], onOpen, onClosed, wide = false } = {}) {
+/**
+ * Show the dialog. `canClose` is asked before Escape or the ✕ dismiss it; a
+ * dialog whose work has borrowed the canvas answers no until the work is done,
+ * because closing it hands the editor back while the run is still going to put
+ * its snapshot over whatever is typed next. The buttons' own `close` is never
+ * asked — they know what they are doing.
+ */
+export function openModal({ title = '', body = '', buttons = [], onOpen, onClosed, canClose, wide = false } = {}) {
   const root = $('#modalRoot');
   const bodyEl = $('#modalBody');
   const footEl = $('#modalFoot');
@@ -60,6 +68,7 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, onClose
   lastFocus = document.activeElement;
   activeClose = closeModal;
   activeDismiss = onClosed || null;
+  activeGuard = canClose || null;
   onOpen?.(bodyEl);
 
   const firstInput = bodyEl.querySelector('input, textarea, select');
@@ -77,10 +86,19 @@ export function isModalOpen() {
   return !!activeClose;
 }
 
+/** Escape and the ✕: close unless the dialog says it cannot be left yet. */
+export function dismissModal() {
+  if (!activeClose) return false;
+  if (activeGuard && activeGuard() === false) return false;
+  closeModal();
+  return true;
+}
+
 export function closeModal() {
   const root = $('#modalRoot');
   if (root) root.hidden = true;
   activeClose = null;
+  activeGuard = null;
   // Whatever opened the dialog gets the keyboard back; otherwise focus is left
   // on a button that no longer exists and the next Tab restarts from the top.
   const restore = lastFocus;
@@ -143,12 +161,12 @@ export function promptDialog({ title = 'Enter a value', label = '', value = '', 
 
 export function initDialogs() {
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[data-close]')) closeModal();
+    if (e.target.closest('[data-close]')) dismissModal();
   });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && activeClose) {
       e.preventDefault();
-      closeModal();
+      dismissModal();
       return;
     }
     // aria-modal only marks the rest of the page inert for assistive tech; it

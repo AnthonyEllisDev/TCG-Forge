@@ -20,6 +20,7 @@ import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
 import { applyRow, runBatch } from './batch.js';
+import { readQuantity } from './printSheet.js';
 import { collectFields, isImageSlot, isPlacedArt } from './templates.js';
 import { slugify, uid } from '../util/dom.js';
 
@@ -40,6 +41,30 @@ export function cardList() {
 }
 
 export const activeIndex = () => (cardList(), state.project.activeCard);
+
+/**
+ * How many copies of a card the deck wants. A card is still one design, drawn
+ * once; the count only matters where cards are laid out or listed — the print
+ * sheet and the deck list an export writes beside its images. A record with no
+ * count is one of itself, which is every card saved before counts existed.
+ */
+export const qtyOf = (card) => readQuantity(card?.qty);
+
+/** Every card's count, in order. */
+export const cardQuantities = () => cardList().map(qtyOf);
+
+/** Set how many of a card the deck wants. Returns the count it settled on. */
+export function setCardQty(index, value) {
+  const cards = cardList();
+  const card = cards[index];
+  if (!card) return 1;
+  const qty = readQuantity(value);
+  if (qtyOf(card) === qty) return qty;
+  card.qty = qty;
+  state.setDirty(true);
+  bus.emit(EVT.CARDS, cards);
+  return qty;
+}
 
 /** Every slot on the layout, and whether it takes words or artwork. */
 export function slotKinds() {
@@ -185,8 +210,9 @@ export async function addCard({ copy = false } = {}) {
   const cards = syncActive();
   if (cards.length >= MAX_CARDS) throw new Error(`a project holds at most ${MAX_CARDS} cards`);
   const at = state.project.activeCard + 1;
-  const values = copy ? { ...cards[state.project.activeCard].values } : {};
-  cards.splice(at, 0, { id: uid('card'), values });
+  const source = cards[state.project.activeCard];
+  const values = copy ? { ...source.values } : {};
+  cards.splice(at, 0, { id: uid('card'), values, qty: copy ? qtyOf(source) : 1 });
   // The copy is the card the list now points at, so leave the pointer where it
   // was and let the switch do the work.
   await switchCard(at);
@@ -228,8 +254,9 @@ export function moveCard(index, delta) {
 /**
  * Append spreadsheet rows as cards. Nothing is rendered: a row becomes the
  * same values a card holds, so the set can be edited card by card afterwards.
+ * A quantity column, when there is one, becomes each card's count.
  */
-export function addRows(rows, mapping, resolve) {
+export function addRows(rows, mapping, resolve, { qtyColumn = '' } = {}) {
   const cards = syncActive();
   if (cards.length + rows.length > MAX_CARDS) {
     throw new Error(`that would make ${cards.length + rows.length} cards — a project holds at most ${MAX_CARDS}`);
@@ -253,7 +280,7 @@ export function addRows(rows, mapping, resolve) {
         }
       }
     }
-    cards.push({ id: uid('card'), values });
+    cards.push({ id: uid('card'), values, qty: qtyColumn ? readQuantity(row[qtyColumn]) : 1 });
   }
   state.setDirty(true);
   bus.emit(EVT.CARDS, cards);
@@ -264,14 +291,15 @@ export function addRows(rows, mapping, resolve) {
 
 /**
  * Every card as a batch row, so the batch renderer can draw the set. The
- * `_card` column carries each card's label for the file-name pattern.
+ * `_card` column carries each card's label for the file-name pattern, and
+ * `_qty` its count for the deck list.
  */
 function cardRows() {
   const cards = syncActive();
   const kinds = slotKinds();
   const mapping = Object.fromEntries([...kinds.keys()].map((slot) => [slot, slot]));
   const rows = cards.map((card, index) => {
-    const row = { _card: cardLabel(card, index, kinds) };
+    const row = { _card: cardLabel(card, index, kinds), _qty: qtyOf(card) };
     for (const [slot, kind] of kinds) {
       const value = card.values?.[slot];
       row[slot] = kind === 'image' ? value || null : value ?? '';
@@ -281,7 +309,13 @@ function cardRows() {
   return { rows, mapping };
 }
 
-/** Render every card into a folder under workspace/exports. */
+/**
+ * Render every card into a folder under workspace/exports.
+ *
+ * The deck list is written every time, even when every card is one copy:
+ * the folder is overwritten on each export, and a list left from an export
+ * whose counts have since changed would print the old deck.
+ */
 export function exportCards({ multiplier = 2, format = 'png', transparent = false, onProgress } = {}) {
   const { rows, mapping } = cardRows();
   const subfolder = slugify(state.project.name, 'cards');
@@ -296,6 +330,7 @@ export function exportCards({ multiplier = 2, format = 'png', transparent = fals
       subfolder,
       pattern: '{n:3}-{_card}',
       toWorkspace: api.online,
+      qtyColumn: '_qty',
     },
   });
 }
@@ -328,7 +363,13 @@ export function serializeCards({ onlyActive = false } = {}) {
   if (onlyActive) return { cards: [{ id: uid('card'), values: captureValues() }], activeCard: 0 };
   const cards = syncActive();
   return {
-    cards: cards.map(({ id, values }) => ({ id, values: { ...values } })),
+    // A count is written only where it says something, so a set of singles
+    // saves exactly as it did before counts existed.
+    cards: cards.map((card) => {
+      const out = { id: card.id, values: { ...card.values } };
+      if (qtyOf(card) !== 1) out.qty = qtyOf(card);
+      return out;
+    }),
     activeCard: state.project.activeCard,
   };
 }
@@ -345,6 +386,7 @@ export function loadCards(data) {
     ? list.map((card) => ({
         id: typeof card?.id === 'string' ? card.id : uid('card'),
         values: card?.values && typeof card.values === 'object' ? { ...card.values } : {},
+        qty: readQuantity(card?.qty),
       }))
     : null;
   state.project.activeCard = Number.isInteger(data?.activeCard) ? data.activeCard : 0;

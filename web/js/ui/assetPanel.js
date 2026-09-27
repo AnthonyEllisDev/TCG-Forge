@@ -3,7 +3,7 @@
  * with click-to-place, drag-to-canvas and file import.
  */
 
-import { $, $$, bytes, el, on } from '../util/dom.js';
+import { $, $$, activatable, bytes, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { assets } from '../core/assets.js';
@@ -98,6 +98,9 @@ function render() {
     cell.append(el('span', { class: 'cell-name', text: item.name }));
 
     cell.addEventListener('click', () => placeAsset(item));
+    activatable(cell, () => placeAsset(item), {
+      label: category === 'fonts' ? `Use font ${item.name}` : `Place ${item.name}`,
+    });
     cell.addEventListener('mouseenter', () => updateMeta(items.length, item));
     cell.addEventListener('dragstart', (e) => {
       e.dataTransfer.setData(

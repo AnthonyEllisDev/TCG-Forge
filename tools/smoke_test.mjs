@@ -1699,7 +1699,8 @@ try {
     JSON.stringify(rowsAndExport));
   check('every card in a project renders and exports as its own image',
     rowsAndExport.rendered === rowsAndExport.expected?.length && rowsAndExport.distinct === rowsAndExport.rendered &&
-      rowsAndExport.folder === 'exports/smoke-rows' && rowsAndExport.listed.length === rowsAndExport.rendered &&
+      rowsAndExport.folder === 'exports/smoke-rows' &&
+      rowsAndExport.listed.filter((name) => name.endsWith('.png')).length === rowsAndExport.rendered &&
       rowsAndExport.activeAfter === 2 && rowsAndExport.titleAfter === rowsAndExport.expected[2],
     JSON.stringify({ rendered: rowsAndExport.rendered, distinct: rowsAndExport.distinct, folder: rowsAndExport.folder, listed: rowsAndExport.listed }));
 
@@ -1761,6 +1762,345 @@ try {
   check('the print dialog lays out every card in the project',
     hasProject && /\b6 cards\b/.test(projectPrint), projectPrint);
 
+
+  /* ---- per-card copies (0.8.0) ---------------------------------------- */
+
+  /* A count lives on the card record: saved only where it is not one, read
+     back on open, carried by Duplicate, and one for any card that has none. */
+  const counts = await page.evaluate(async () => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Counted');
+      await cards.addCard();
+      t.setFieldText('title', 'Single');
+      const settled = cards.setCardQty(0, '3');
+      const clamped = cards.setCardQty(1, '0');
+      await p.saveProject({ name: 'Smoke Counts', path: null });
+      const saved = await api.readJSON(state.project.path);
+      await p.openProjectPath(state.project.path);
+      const reopened = cards.cardQuantities();
+      await cards.switchCard(0);
+      await cards.addCard({ copy: true });
+      const afterCopy = cards.cardQuantities();
+      await api.trash(state.project.path).catch(() => {});
+      await api.trash(`${state.project.path}.bak`).catch(() => {});
+      // A file from before counts existed.
+      await p.openProjectData({ ...saved, cards: saved.cards.map(({ id, values }) => ({ id, values })) });
+      const legacy = cards.cardQuantities();
+      return { settled, clamped, savedQty: saved.cards.map((c) => c.qty ?? null), reopened, afterCopy, legacy };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('each card keeps its own number of copies through save, reopen and Duplicate',
+    counts.settled === 3 && counts.clamped === 1 &&
+      JSON.stringify(counts.savedQty) === JSON.stringify([3, null]) &&
+      JSON.stringify(counts.reopened) === JSON.stringify([3, 1]) &&
+      JSON.stringify(counts.afterCopy) === JSON.stringify([3, 3, 1]) &&
+      JSON.stringify(counts.legacy) === JSON.stringify([1, 1]),
+    JSON.stringify(counts));
+
+  /* Rows added as cards take their counts from the quantity column; the
+     project then exports a deck list saying so, and a later export with the
+     counts changed rewrites the list rather than leaving the old one. */
+  const deckOut = await page.evaluate(async () => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      const cards = await import('/js/core/cards.js');
+      const sheet = await import('/js/core/printSheet.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      state.project.name = 'Smoke Deck Cards';
+      const text = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+      const table = batch.parseAny(text, 'sample-set.csv');
+      const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
+      const qtyColumn = batch.guessQtyColumn(table.columns);
+      cards.addRows(table.rows, mapping, batch.resolveAsset, { qtyColumn });
+      await cards.removeCard(0);
+      const wanted = table.rows.map((row) => sheet.readQuantity(row[qtyColumn]));
+      const got = cards.cardQuantities();
+      const first = await cards.exportCards({ multiplier: 0.2 });
+      const listOne = await api.readJSON(first.deckPath).catch(() => null);
+      cards.cardList().forEach((_, i) => cards.setCardQty(i, 1));
+      const second = await cards.exportCards({ multiplier: 0.2 });
+      const listTwo = await api.readJSON(second.deckPath).catch(() => null);
+      const folder = first.rendered[0]?.path?.split('/').slice(0, -1).join('/');
+      if (folder) await api.trash(folder).catch(() => {});
+      return { qtyColumn, wanted, got, deckPath: first.deckPath,
+        firstQty: listOne?.cards?.map((c) => c.qty), firstFiles: listOne?.cards?.map((c) => c.file),
+        rendered: first.rendered.map((r) => r.path.split('/').pop()),
+        secondQty: listTwo?.cards?.map((c) => c.qty) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('rows added as cards take their copies from the quantity column',
+    deckOut.qtyColumn === 'qty' && deckOut.wanted?.some((n) => n > 1) &&
+      JSON.stringify(deckOut.got) === JSON.stringify(deckOut.wanted),
+    JSON.stringify({ wanted: deckOut.wanted, got: deckOut.got, error: deckOut.error }));
+  check('exporting every card writes a deck list of each card\'s copies, and rewrites it when they change',
+    /smoke-deck-cards\/deck\.json$/.test(deckOut.deckPath || '') &&
+      JSON.stringify(deckOut.firstQty) === JSON.stringify(deckOut.wanted) &&
+      JSON.stringify(deckOut.firstFiles) === JSON.stringify(deckOut.rendered) &&
+      deckOut.secondQty?.length === deckOut.wanted.length && deckOut.secondQty.every((n) => n === 1),
+    JSON.stringify(deckOut));
+
+  /* The strip's Copies box, typed into like a person would, and the print
+     dialog laying the project out by those counts. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'Strip One');
+    await cards.addCard();
+    t.setFieldText('title', 'Strip Two');
+    await cards.addCard();
+    t.setFieldText('title', 'Strip Three');
+    await cards.switchCard(1);
+    state.setDirty(false);
+  });
+  await page.fill('#cardQty', '4');
+  await page.waitForTimeout(200);
+  const strip = await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    const tile = document.querySelectorAll('#cardTiles .card-tile')[1];
+    return { qty: cards.cardQuantities(), badge: tile?.querySelector('.tile-qty')?.textContent || '',
+      total: document.getElementById('cardDeckTotal')?.textContent || '',
+      dirty: window.TCGForge.state.dirty };
+  });
+  check('the Copies box in the card strip sets the card on screen, and the strip says so',
+    JSON.stringify(strip.qty) === JSON.stringify([1, 4, 1]) && strip.badge === '×4' &&
+      strip.total === '6 in the deck' && strip.dirty === true,
+    JSON.stringify(strip));
+
+  const printCounts = async () => {
+    for (const button of await page.$$('#modalFoot .btn')) {
+      if ((await button.textContent()) === 'Preview') { await button.click(); break; }
+    }
+    await page.waitForFunction(() => /cards/.test(document.getElementById('printStatus')?.textContent || '') &&
+      !/Drawing|Loading/.test(document.getElementById('printStatus').textContent), null, { timeout: 30000 }).catch(() => {});
+    return page.$eval('#printStatus', (n) => n.textContent).catch(() => '');
+  };
+  // Ctrl+P is left to the browser while a box has the caret.
+  await page.$eval('#cardQty', (n) => n.blur());
+  await page.keyboard.press('Control+p');
+  await page.waitForSelector('#printSource', { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#printSource', 'project', { timeout: 5000 }).catch(() => {});
+  const byCount = await printCounts();
+  const hint = await page.$eval('#printDeckHint', (n) => (n.hidden ? '' : n.textContent)).catch(() => '');
+  await page.$eval('#printUseQty', (n) => { n.checked = false; n.dispatchEvent(new Event('change')); }).catch(() => {});
+  const oneEach = await printCounts();
+  await page.keyboard.press('Escape');
+  check('printing every card lays each one out as many times as its Copies say',
+    /\b6 cards from 3 designs\b/.test(byCount) && /\b3 cards\b/.test(oneEach) && !/designs/.test(oneEach) &&
+      /6 copies of 3 designs/.test(hint),
+    JSON.stringify({ byCount, oneEach, hint }));
+
+  /* ---- 0.8.0 bug guards ------------------------------------------------- */
+
+  /* A blank art cell in a batch row gets the layout's own art window, not the
+     picture on the card that happens to be on screen. Read from the pixels. */
+  const blankArt = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const box = editor.findBySlot('art')[0].getBoundingRect();
+      const at = (url) => new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width; c.height = img.height;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          resolve(Array.from(ctx.getImageData(Math.round(box.left + box.width / 2),
+            Math.round(box.top + box.height / 2), 1, 1).data.slice(0, 3)).join(','));
+        };
+        img.src = url;
+      });
+      const empty = await at(editor.toDataURL({ multiplier: 1 }));
+      await t.setFieldImage('art', api.fileURL('assets/backgrounds/ember.svg'), { assetPath: 'assets/backgrounds/ember.svg' });
+      const placed = await at(editor.toDataURL({ multiplier: 1 }));
+      const urls = [];
+      await batch.runBatch({
+        rows: [{ title: 'Blank art', art: '' }, { title: 'Spaces', art: '  ' }],
+        mapping: { title: 'title', art: 'art' },
+        options: { multiplier: 1, sink: (url) => urls.push(url) },
+      });
+      const rows = [];
+      for (const url of urls) rows.push(await at(url));
+      return { empty, placed, rows, after: editor.findBySlot('art')[0].tcgAsset || null };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a blank art cell in a batch row renders the layout\'s art window, not the art on screen',
+    blankArt.placed !== blankArt.empty && blankArt.rows?.length === 2 &&
+      blankArt.rows.every((px) => px === blankArt.empty) && blankArt.after === 'assets/backgrounds/ember.svg',
+    JSON.stringify(blankArt));
+
+  const forgot = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      await cards.addCard();
+      cards.cardList()[0].values = { title: 'Ghost', art: 'assets/art/smoke-missing-wyrm.png' };
+      const failed = await cards.switchCard(0);
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const saved = await p.serializeProject({ embed: false });
+      return { failed, art: saved.cards[0].values.art, cards: saved.cards.length };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('loading a template forgets artwork the previous project could not load',
+    forgot.failed?.length === 1 && forgot.art === null && forgot.cards === 1, JSON.stringify(forgot));
+
+  /* One run at a time: a preview started inside a run is refused, and the
+     run keeps history locked the whole way through. */
+  const oneRun = await page.evaluate(async () => {
+    try {
+      const { api, history, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Mine');
+      const locks = [];
+      const rows = Array.from({ length: 5 }, (_, i) => ({ title: `Row ${i}` }));
+      const run = batch.runBatch({ rows, mapping: { title: 'title' },
+        options: { multiplier: 0.2, sink: () => locks.push(history.locked) } });
+      await new Promise((r) => setTimeout(r, 20));
+      const during = batch.isRendering();
+      const preview = await batch.renderRow({ title: 'Preview' }, { title: 'title' }).then(() => 'rendered', (e) => e.message);
+      await run;
+      return { during, preview, locks, after: batch.isRendering(), title: editor.findBySlot('title')[0].text,
+        unlocked: history.locked === false };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a preview cannot start inside a run, and the run keeps history locked throughout',
+    oneRun.during === true && /still rendering/.test(oneRun.preview || '') && oneRun.locks?.length === 5 &&
+      oneRun.locks.every(Boolean) && oneRun.after === false && oneRun.unlocked && oneRun.title === 'Mine',
+    JSON.stringify(oneRun));
+
+  /* Escape on the export dialog while every card is rendering must not hand
+     the editor back: the run would put its snapshot over whatever came next. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await cards.addCard();
+    await cards.addCard();
+    await cards.switchCard(0);
+    state.setDirty(false);
+    window.__realExport = api.exportImage;
+    window.__realWrite = api.writeJSON;
+    api.exportImage = ({ filename }) => new Promise((resolve) =>
+      setTimeout(() => resolve({ path: `exports/smoke-stub/${filename}` }), 450));
+    api.writeJSON = async (path) => ({ path });
+  });
+  await page.keyboard.press('Control+e');
+  await page.waitForSelector('#exportEveryCard');
+  await page.$eval('#exportEveryCard', (n) => { n.checked = true; n.dispatchEvent(new Event('change')); });
+  for (const button of await page.$$('#modalFoot .btn')) {
+    if ((await button.textContent()) === 'Export') { await button.click(); break; }
+  }
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Escape');
+  await page.click('.modal-head [data-close]').catch(() => {});
+  const exportHold = await page.evaluate(async () => {
+    const batch = await import('/js/core/batch.js');
+    const held = { rendering: batch.isRendering(), open: !document.getElementById('modalRoot').hidden };
+    while (batch.isRendering()) await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 100));
+    held.closedAfter = document.getElementById('modalRoot').hidden;
+    const { api } = window.TCGForge;
+    api.exportImage = window.__realExport;
+    api.writeJSON = window.__realWrite;
+    return held;
+  });
+  await page.fill('#ff_title', 'Kept After Export').catch(() => {});
+  await page.waitForTimeout(400);
+  exportHold.title = await page.evaluate(() => window.TCGForge.editor.findBySlot('title')[0].text);
+  check('the export dialog stays up while every card renders, so nothing typed is lost',
+    exportHold.rendering === true && exportHold.open === true && exportHold.closedAfter === true &&
+      exportHold.title === 'Kept After Export',
+    JSON.stringify(exportHold));
+
+  /* Ctrl+S with the caret still in the name box saves under the new name. */
+  await page.evaluate(() => {
+    const { state } = window.TCGForge;
+    state.project.path = null;
+    state.project.name = 'Smoke Old Name';
+    document.getElementById('projectName').value = 'Smoke Old Name';
+  });
+  await page.fill('#projectName', 'Smoke Named Deck');
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(600);
+  const named = await page.evaluate(() => ({ path: window.TCGForge.state.project.path,
+    name: window.TCGForge.state.project.name }));
+  named.file = await page.evaluate(async (path) =>
+    (await window.TCGForge.api.readJSON(path).catch(() => null))?.name ?? null, 'projects/smoke-named-deck.json');
+  check('Ctrl+S from the project name box saves under the name just typed',
+    named.path === 'projects/smoke-named-deck.json' && named.file === 'Smoke Named Deck', JSON.stringify(named));
+
+  /* The rows that open, load or pick things answer the keyboard. */
+  await page.evaluate(() => {
+    const { state } = window.TCGForge;
+    state.project.path = null;
+    state.project.name = 'Somewhere Else';
+    state.setDirty(false);
+  });
+  await page.keyboard.press('Control+o');
+  await page.waitForSelector('#modalBody .list-item', { timeout: 5000 }).catch(() => {});
+  let reached = '';
+  for (let i = 0; i < 40 && !reached.includes('smoke-named-deck'); i += 1) {
+    await page.keyboard.press('Tab');
+    reached = await page.evaluate(() => (document.activeElement?.classList.contains('list-item')
+      ? document.activeElement.textContent : ''));
+  }
+  if (reached.includes('smoke-named-deck')) await page.keyboard.press('Enter');
+  await page.waitForTimeout(700);
+  const keyed = await page.evaluate(() => ({ opened: window.TCGForge.state.project.path,
+    closed: document.getElementById('modalRoot').hidden }));
+  if (!keyed.closed) await page.keyboard.press('Escape');
+
+  await page.evaluate(() => window.TCGForge.state.setDirty(false));
+  await page.focus('#templateList .list-item[data-path="templates/minimal-modern.json"]').catch(() => {});
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(900);
+  keyed.template = await page.evaluate(() => ({ id: window.TCGForge.state.project.templateId,
+    focus: document.activeElement?.dataset?.path || document.activeElement?.tagName }));
+  await page.focus('#layerList .layer-row[data-index="0"]').catch(() => {});
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  keyed.layer = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    return { picked: editor.selection()[0] === editor.objects()[0],
+      focus: document.activeElement?.classList.contains('layer-row') ? document.activeElement.dataset.index : null };
+  });
+  await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    await api.trash('projects/smoke-named-deck.json').catch(() => {});
+    await api.trash('projects/smoke-named-deck.json.bak').catch(() => {});
+  });
+  check('saved projects, templates and layers can be chosen from the keyboard',
+    keyed.opened === 'projects/smoke-named-deck.json' && keyed.closed &&
+      keyed.template.id === 'minimal-modern' && keyed.template.focus === 'templates/minimal-modern.json' &&
+      keyed.layer.picked && keyed.layer.focus === '0',
+    JSON.stringify(keyed));
 
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();

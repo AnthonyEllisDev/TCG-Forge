@@ -49,7 +49,9 @@ dropdowns, or set a column to *ignore*.
   library (`dragon`), a workspace path (`assets/art/dragon.png`), or a URL. The
   image is scaled to cover the slot and clipped to it.
 - **An empty text cell clears that field** rather than leaving the template's
-  placeholder copy on the card. An empty art cell leaves the placeholder alone.
+  placeholder copy on the card. An empty art cell gives the layout's own art
+  window — the placeholder, or whatever picture the template ships in that
+  slot — even when the card on screen has artwork of its own.
 
 ## 3 · Output
 

@@ -170,7 +170,8 @@ export function openBatchDialog() {
         class: 'hint',
         text: 'A quantity column says how many of each card the deck wants. Each card is still '
           + 'rendered once; the counts go into a deck.json beside the images, which the print '
-          + 'sheet builder reads to lay out the right number of copies.',
+          + 'sheet builder reads to lay out the right number of copies. Add rows as cards '
+          + 'takes it as each card\'s Copies.',
       }),
     ]),
     el('div', { class: 'subgroup' }, [
@@ -216,6 +217,14 @@ export function openBatchDialog() {
     // on against a dialog that is off screen and can no longer be stopped.
     onClosed: () => {
       if (running) cancelRequested = true;
+    },
+    // The run owns the canvas until it has put the card back, so a dismiss
+    // while it is going asks it to stop and keeps the dialog up until it has.
+    canClose: () => {
+      if (!running) return true;
+      cancelRequested = true;
+      setStatus('Stopping after this card…', 'warn');
+      return false;
     },
     buttons: [
       { label: 'Close', onClick: (c) => (running ? (cancelRequested = true) : c()) },
@@ -354,6 +363,9 @@ function renderMapping(slots) {
 /* -------------------------------------------------------------- actions --- */
 
 async function preview(pattern) {
+  // A preview borrows the canvas just as a run does; inside a run it would
+  // take its snapshot of a spreadsheet row and unlock history under it.
+  if (running) return;
   if (!table.rows.length) {
     toast('Load a spreadsheet first.', 'warn');
     return;
@@ -385,10 +397,11 @@ function addAsCards() {
     return;
   }
   try {
-    const { added, missing } = addRows(table.rows, mapping, resolveAsset);
+    const { added, missing } = addRows(table.rows, mapping, resolveAsset, { qtyColumn: qtyChoice });
     setStatus(
       `Added ${added} cards to this project — it now holds ${cardList().length}. ` +
         'Switch between them in the strip under the card.' +
+        (qtyChoice ? ` Each card's Copies came from “${qtyChoice}”.` : '') +
         (missing.length ? ` No asset named ${missing.map((m) => `"${m}"`).join(', ')}; those slots were left empty.` : ''),
       missing.length ? 'warn' : ''
     );

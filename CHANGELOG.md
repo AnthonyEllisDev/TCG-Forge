@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.8.0 — copies per card
+
+- **Each card in a project says how many copies the deck wants.** The card
+  strip has a **Copies** box for the card on screen; tiles with more than one
+  show a `×3` badge, and the strip gives the deck's total when it is not simply
+  one of each. A card is still one design, drawn once — the count is used where
+  cards are laid out or listed:
+  - **Print → Every card in this project** repeats each card by its count, with
+    a checkbox to print one of each instead.
+  - **Export → Every card in this project** writes a `deck.json` beside the
+    images, so the exported folder prints as the same deck. It is rewritten on
+    every export, so a list from an earlier export never outlives its counts.
+  - **Add rows as cards** takes each card's count from the batch dialog's
+    quantity column.
+  - **Duplicate** copies the count along with the words.
+- A card's count is saved as `qty` on its entry in `cards`, and only when it is
+  more than one, so a set of singles saves exactly as before. Older files open
+  with every card at one. See [`docs/CARDS.md`](docs/CARDS.md).
+- Template rows, saved projects in the **Open** dialog, asset tiles and layer
+  rows can now be reached with **Tab** and chosen with **Enter** or **Space**.
+  The Open dialog's project list was not reachable from the keyboard at all.
+
+### Fixed
+
+- **Closing the export or print dialog while every card was being drawn threw
+  away what was typed next.** The run borrows the canvas and puts it back when
+  it finishes, so an edit made in between was overwritten, with nothing on the
+  undo stack. Escape and ✕ now wait for the drawing to finish (the batch
+  dialog's ask the run to stop and close once it has).
+- **A blank art cell in a batch run used the picture on the card on screen.**
+  Each row starts from the canvas as it is, and since 0.7.0 that canvas is one
+  card of a project, with that card's art in it — so every row that left its art
+  blank got that card's picture. A blank art cell now means the layout's own
+  art window, as it always said it did, and as **Add rows as cards** already
+  treated it.
+- **Preview first row** pressed during a batch run unlocked the undo history
+  under the run and put a spreadsheet row back on the canvas when it finished.
+  Only one run can have the canvas at a time now, and the preview waits.
+- Loading a template kept a note of artwork the previous project's card could
+  not load, and saved that missing file's name into the new card.
+- **Ctrl/⌘ + S** typed while the caret was still in the project-name box saved
+  under the old name.
+- The dialog's ✕ button now has an accessible name.
+
 ## 0.7.0 — multi-card projects
 
 - **A whole set in one project.** A strip under the canvas lists every card in

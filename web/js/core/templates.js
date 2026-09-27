@@ -20,6 +20,7 @@ import {
   styleObject,
 } from './objects.js';
 import { fitImage } from './effects.js';
+import { resetCards } from './cards.js';
 import { slugify } from '../util/dom.js';
 
 export const TEMPLATE_FORMAT = 'tcgforge.template';
@@ -63,6 +64,9 @@ async function loadTemplate(data, { keepName }) {
   editor.canvas.backgroundColor = canvasJSON.background ?? state.card.background;
   editor.applyCardClip();
   editor.fitToWindow();
+  // Also forgets any artwork the previous project's card could not load,
+  // which would otherwise be written into this template's first card.
+  resetCards();
 
   bus.emit(EVT.CARD, state.card);
   bus.emit(EVT.PROJECT, state.project);

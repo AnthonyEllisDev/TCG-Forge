@@ -29,8 +29,10 @@ as many pages as they need.
 
 **Every card in this project.** Offered when the project holds more than one
 card (see [`CARDS.md`](CARDS.md)): each card is drawn once, in list order, and
-laid straight onto the sheets without writing a folder first. Use **Export →
-Every card in this project** as well when the images are wanted on disk.
+laid straight onto the sheets without writing a folder first — as many times as
+its **Copies** in the card strip say, unless *Repeat each card by its deck
+quantity* is unticked. Use **Export → Every card in this project** as well when
+the images are wanted on disk; that writes the counts as a `deck.json` too.
 
 **Repeat each card by its deck quantity.** A batch run with a quantity column
 leaves a `deck.json` beside its images saying how many of each card the deck

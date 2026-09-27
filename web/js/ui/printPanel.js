@@ -3,14 +3,16 @@
  *
  * Pick what to lay out, pick a page, look at the preview, write the sheets.
  * Everything it composes is already-rendered images, so nothing in here can
- * reach the card you are editing.
+ * reach the card you are editing — except drawing every card of a project,
+ * which borrows the canvas the way a batch run does.
  */
 
 import { downloadURL, el, on, slugify } from '../util/dom.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { editor } from '../core/editor.js';
-import { cardList, renderCards } from '../core/cards.js';
+import { cardList, cardQuantities, renderCards } from '../core/cards.js';
+import { isRendering } from '../core/batch.js';
 import {
   BACK_MODES,
   CUT_GUIDES,
@@ -162,8 +164,22 @@ export function openPrintDialog() {
   let deckToken = 0;
   async function syncDeck() {
     const isFolder = source.value === 'folder';
-    qtyRow.hidden = !isFolder;
-    deckHint.hidden = !isFolder;
+    const isProject = source.value === 'project';
+    qtyRow.hidden = !isFolder && !isProject;
+    deckHint.hidden = !isFolder && !isProject;
+    if (isProject) {
+      // A project's counts are on its cards, not in a file.
+      deckToken += 1;
+      const counts = cardQuantities();
+      const total = counts.reduce((n, qty) => n + qty, 0);
+      const anyCounts = total !== counts.length;
+      useQty.disabled = !anyCounts;
+      deckHint.textContent = anyCounts
+        ? `This project's cards ask for ${total} copies of ${counts.length} designs. ` +
+          'Untick to print one of each instead.'
+        : 'Every card in this project is one copy. Set Copies in the card strip to print more of some.';
+      return;
+    }
     // The listing populating the folder select and the user changing it can
     // both land here, so a slower lookup must not overwrite a newer one.
     const token = (deckToken += 1);
@@ -328,6 +344,9 @@ export function openPrintDialog() {
     title: 'Print sheet',
     wide: true,
     body,
+    // Drawing every card of a project borrows the canvas; the dialog stays
+    // until that part is done. Laying out images afterwards touches nothing.
+    canClose: () => !isRendering(),
     buttons: [
       { label: 'Close', onClick: (close) => close() },
       { label: 'Preview', onClick: () => run({ previewOnly: true }) },
@@ -374,15 +393,17 @@ export function openPrintDialog() {
     }
     const multiplier = Number(dpi.value) / (state.card.dpi || 300);
     if (source.value === 'project') {
-      // Drawn straight onto the sheet, one of each, without writing a folder
-      // first; export the project when the images are wanted on disk too.
+      // Drawn straight onto the sheet, once per card, without writing a folder
+      // first; the cards' copies repeat the drawn images like a deck list's.
+      const counts = cardQuantities();
       const urls = await renderCards({
         multiplier,
         onProgress: ({ index, total }) => {
           status.textContent = `Drawing cards… ${index + 1} / ${total}`;
         },
       });
-      return { urls, quantities: null };
+      const anyCounts = counts.some((qty) => qty !== 1);
+      return { urls, quantities: anyCounts && useQty.checked ? counts : null };
     }
     // One render of the current card, reused for every copy: the browser
     // caches the decode, and a data URL costs nothing to repeat.
