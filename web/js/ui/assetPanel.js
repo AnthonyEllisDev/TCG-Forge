@@ -43,8 +43,9 @@ export function initAssetPanel() {
     const files = e.target.files;
     if (!files?.length) return;
     try {
-      const imported = await assets.importFiles(files, category === 'fonts' ? 'fonts' : category);
-      toast(`Imported ${imported.length} file${imported.length === 1 ? '' : 's'} into ${category}.`, 'ok');
+      const imported = await assets.importFiles(files, category);
+      const into = [...new Set(imported.map((item) => item.category || category))].join(' and ');
+      toast(`Imported ${imported.length} file${imported.length === 1 ? '' : 's'} into ${into}.`, 'ok');
     } catch (err) {
       toast(`Import failed: ${err.message}`, 'err');
     }

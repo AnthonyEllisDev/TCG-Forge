@@ -2,7 +2,9 @@
 
 import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
-import { handleSave, openExportDialog, openProjectDialog, openShortcuts } from './toolbar.js';
+import {
+  distributeSelection, handleSave, openExportDialog, openProjectDialog, openShortcuts,
+} from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
 import { stepCard } from './cardStrip.js';
@@ -135,6 +137,13 @@ export function initShortcuts() {
     if (e.key === 'PageUp' || e.key === 'PageDown') {
       e.preventDefault();
       stepCard(e.key === 'PageUp' ? -1 : 1);
+      return;
+    }
+
+    // e.code, not e.key: Alt turns H and V into other characters on a Mac.
+    if (e.altKey && e.shiftKey && (e.code === 'KeyH' || e.code === 'KeyV')) {
+      e.preventDefault();
+      distributeSelection(e.code === 'KeyH' ? 'horizontal' : 'vertical');
       return;
     }
 

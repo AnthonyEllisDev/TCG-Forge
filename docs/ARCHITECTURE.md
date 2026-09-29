@@ -174,6 +174,16 @@ Smart guides, the safe zone and the bleed guide are painted in an `after:render`
 hook straight onto the canvas context. An `exporting` flag suppresses them while
 `toDataURL()` runs, so guides never end up in the output.
 
+Anything that arranges layers works from `getBoundingRect()`, which is in card
+coordinates, rather than from `left`/`top`: a member of a multi-layer selection
+keeps those relative to the selection's centre. `align()` and `nudge()` only add
+deltas, so they can stay inside the selection. `distribute()` measures every
+layer first, then drops the selection (`memberSelection()`), moves each layer
+so the gaps between neighbouring bounding boxes are equal — the first layer
+stays, the last ends at the furthest edge — and selects them again so the
+selection box is drawn around where they now are. It needs three layers and
+returns `false` without moving anything below that.
+
 ### History
 
 `core/history.js` snapshots `{card, canvas}` as a JSON string on a debounced
@@ -235,9 +245,11 @@ the counts to `expandByQuantity()` like a deck list's.
 into it and restores the snapshot when it ends, so anything else that touches
 the canvas meanwhile is overwritten. `runBatch()` and `renderRow()` refuse to
 start while another is going (`isRendering()`), and the dialogs that start a run
-pass `canClose` to `openModal()`, which Escape and ✕ ask before they dismiss —
-a dialog left open is what keeps the editor out of reach until the canvas is
-back.
+pass `canClose` to `openModal()`, which is asked before anything dismisses the
+dialog — Escape, ✕ and the `close` its own buttons are handed alike (a string
+answer is shown as a toast, so a refused **Cancel** says why). A dialog left
+open is what keeps the editor out of reach until the canvas is back. The batch
+dialog's guard covers **Preview first row** as well as a run.
 
 A project that cannot be loaded — an image it names has gone — must not leave
 anything behind. `editor.replaceCard()` wraps opening a project and applying a

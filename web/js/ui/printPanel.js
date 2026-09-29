@@ -346,7 +346,7 @@ export function openPrintDialog() {
     body,
     // Drawing every card of a project borrows the canvas; the dialog stays
     // until that part is done. Laying out images afterwards touches nothing.
-    canClose: () => !isRendering(),
+    canClose: () => !isRendering() || 'Still drawing the cards — close the dialog once they are done.',
     buttons: [
       { label: 'Close', onClick: (close) => close() },
       { label: 'Preview', onClick: () => run({ previewOnly: true }) },

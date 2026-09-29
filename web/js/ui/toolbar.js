@@ -233,8 +233,9 @@ export function openExportDialog() {
   openModal({
     title: 'Export card',
     body,
-    // Rendering every card borrows the canvas; let the run finish first.
-    canClose: () => !isRendering(),
+    // Rendering every card borrows the canvas; let the run finish first. The
+    // Export button closes the dialog itself once it has.
+    canClose: () => !isRendering() || 'Exporting every card — this closes itself when they are done.',
     buttons: [
       { label: 'Cancel', onClick: (close) => close() },
       {
@@ -423,6 +424,11 @@ function bindCardSetup() {
 
 /* --------------------------------------------------------- view toolbar -- */
 
+/** Shared by the toolbar buttons and Alt+Shift+H / V. */
+export function distributeSelection(axis) {
+  if (!editor.distribute(axis)) toast('Select three or more layers to distribute.', 'warn');
+}
+
 function bindViewToolbar() {
   on(document, 'click', (e) => {
     const action = e.target.closest('[data-action]')?.dataset.action;
@@ -432,9 +438,21 @@ function bindViewToolbar() {
 
     const align = e.target.closest('[data-align]')?.dataset.align;
     if (align) editor.align(align);
+    const axis = e.target.closest('[data-distribute]')?.dataset.distribute;
+    if (axis) distributeSelection(axis);
   });
 
-  on($('#zoomLabel'), 'click', () => editor.setZoom(1));
+  // Distributing needs three layers; say so on the buttons rather than after.
+  bus.on(EVT.SELECTION, (selection) => {
+    const few = (selection?.length || 0) < 3;
+    $$('[data-distribute]').forEach((btn) => { btn.disabled = few; });
+  });
+
+  // A readout that resets the zoom when clicked has to be reachable without a
+  // mouse as well.
+  const zoomLabel = $('#zoomLabel');
+  on(zoomLabel, 'click', () => editor.setZoom(1));
+  activatable(zoomLabel, () => editor.setZoom(1));
 
   const snap = $('#snapToggle');
   const guides = $('#guideToggle');
@@ -507,6 +525,7 @@ export function openShortcuts() {
     ['Delete / Backspace', 'Delete selection'],
     ['Arrow keys', 'Nudge 1 px (Shift = 10 px)'],
     ['[ / ]', 'Send backward / bring forward'],
+    ['Alt + Shift + H / V', 'Distribute three or more layers evenly'],
     ['Page Up / Down', 'Previous / next card'],
     ['Ctrl/⌘ + 0', 'Fit card to window'],
     ['Ctrl/⌘ + + / −', 'Zoom in / out'],

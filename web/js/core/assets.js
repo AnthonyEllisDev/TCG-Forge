@@ -134,7 +134,9 @@ class AssetLibrary {
     const results = [];
     for (const file of Array.from(fileList)) {
       const isFont = /\.(ttf|otf|woff2?)$/i.test(file.name);
-      const targetCategory = isFont ? 'fonts' : category;
+      // The fonts folder only lists font files, so a picture sent there from
+      // the Fonts tab was written to disk and never seen again.
+      const targetCategory = isFont ? 'fonts' : category === 'fonts' ? 'art' : category;
 
       if (api.online) {
         const dataURL = await fileToDataURL(file);
@@ -143,10 +145,10 @@ class AssetLibrary {
           filename: file.name,
           dataURL,
         });
-        results.push({ ...res, name: file.name });
+        results.push({ ...res, name: file.name, category: targetCategory });
       } else if (isFont) {
         const family = await this.registerFontFromFile(file);
-        results.push({ name: file.name, family, local: true });
+        results.push({ name: file.name, family, local: true, category: targetCategory });
       } else {
         // Never a blob: URL. The library feeds the canvas, the canvas feeds the
         // project file, and a blob: URL dies with the tab — the artwork would
@@ -160,6 +162,7 @@ class AssetLibrary {
           group: 'session',
           size: file.size,
           local: true,
+          category: targetCategory,
         };
         this.index[targetCategory] = [entry, ...(this.index[targetCategory] || [])];
         results.push(entry);

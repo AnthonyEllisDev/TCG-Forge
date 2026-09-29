@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.9.0 — distribute
+
+- **Distribute layers evenly.** Two new buttons at the end of the alignment
+  group in the view toolbar, ⋯ and ⋮, space three or more selected layers so the
+  gaps between them are equal — across the card or down it. The first layer
+  stays where it is and the last ends where the furthest edge was, so a row of
+  pips or icons of different widths lines up without measuring. The buttons are
+  enabled once three layers are selected; **Alt + Shift + H** and
+  **Alt + Shift + V** do the same from the keyboard. One undo step puts them
+  back.
+- The zoom readout in the view toolbar, which resets the zoom to 100% when
+  clicked, can now be reached with **Tab** and used with **Enter** or **Space**.
+
+### Fixed
+
+- **An edit made while a project was saving was marked as saved.** Saving takes
+  a moment, and the editor stays live during it; anything typed in that moment
+  was not in the file, but the project was marked saved anyway, so New and Open
+  would discard it without asking. The project now stays marked unsaved.
+- **The export dialog's Cancel and the print dialog's Close could still be used
+  while every card was being drawn.** 0.8.0 kept Escape and ✕ waiting for the
+  drawing to finish, but the buttons closed the dialog at once, the run then put
+  its snapshot over whatever was typed next, and a save pressed mid-run could
+  write one card's words over another's. The buttons wait too now, and say why.
+- **Escape during Preview first row closed the batch dialog** while the preview
+  still held the canvas, so an edit made straight afterwards was wiped when the
+  preview finished. The dialog waits for the preview.
+- **A layer could not be renamed with a real double-click.** Picking the layer
+  redrew the whole list between the two clicks, so the browser never saw a
+  double-click; and clicking into the rename box to move the caret ended the
+  rename. Selecting a layer now restyles the rows in place.
+- **A picture imported from the Fonts tab disappeared.** It was written into
+  `assets/fonts`, which only lists font files. It goes to `assets/art` now, and
+  the message says where each file went.
+
 ## 0.8.0 — copies per card
 
 - **Each card in a project says how many copies the deck wants.** The card

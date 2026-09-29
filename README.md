@@ -46,8 +46,10 @@ python launch.py --verbose            # log every request
 ## What it does
 
 **Full layout control.** Everything on the card is a layer you can move, scale,
-rotate, reorder, lock, hide, group and rename. Nothing about the layout is
-hard-coded to a particular game.
+rotate, reorder, lock, hide, group and rename. Align layers to the card or to
+each other, and distribute three or more — a row of cost pips, a column of
+stat icons — so the gaps between them come out equal. Nothing about the layout
+is hard-coded to a particular game.
 
 **Your own art.** Drop frames, backgrounds, icons, textures and fonts into the
 workspace folders and they appear in the Asset Library with thumbnails. Click to
@@ -109,8 +111,8 @@ times as the deck asks for.
 
 ![Six cards generated from one CSV](docs/images/sample-set.png)
 
-**Built for keyboards.** Undo/redo, duplicate, copy/paste, nudge, layer
-ordering, zoom, fit, and space-drag panning. Press `?` in the app for the full
+**Built for keyboards.** Undo/redo, duplicate, copy/paste, nudge, distribute,
+layer ordering, zoom, fit, and space-drag panning. Press `?` in the app for the full
 list.
 
 ---

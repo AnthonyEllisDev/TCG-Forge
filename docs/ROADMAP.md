@@ -29,14 +29,16 @@ it.
 - **Copies per card in a project** (0.8.0) — a count on each card, honoured by
   printing every card and written as a `deck.json` by exporting every card. See
   [`CARDS.md`](CARDS.md).
+- **Distribute** (0.9.0) — equal gaps between three or more layers, across or
+  down the card, from the view toolbar or **Alt + Shift + H / V**.
 
 ## Next
 
 - **Per-card layout overrides.** A card that moves or restyles one layer
   without changing the layout for the rest of the set.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
-- **Alignment and distribution.** Distribute spacing, match sizes, align to a
-  chosen key object.
+- **More alignment.** Match sizes, align to a chosen key object, and distribute
+  with a gap you type rather than an equal share.
 - **Rulers and manual guides.** Draggable guides that snap, saved with the
   template.
 

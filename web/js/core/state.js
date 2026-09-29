@@ -67,8 +67,12 @@ export const state = {
 
   settings: loadSettings(),
   dirty: false,
+  // Counts edits, including ones made while the project is already dirty, so a
+  // save can tell whether anything changed while it was writing.
+  revision: 0,
 
   setDirty(value = true) {
+    if (value) this.revision += 1;
     if (this.dirty === value) return;
     this.dirty = value;
     bus.emit(EVT.PROJECT, this.project);

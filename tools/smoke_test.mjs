@@ -2102,6 +2102,328 @@ try {
       keyed.layer.picked && keyed.layer.focus === '0',
     JSON.stringify(keyed));
 
+  /* ---- distribute (0.9.0) ---------------------------------------------- */
+  /* Three rects of different widths, out of order on the canvas: the toolbar
+     button has to leave equal gaps between their edges, keep the outer edges
+     where they were, and redraw the selection box around the result. */
+  const spread = await page.evaluate(async () => {
+    try {
+      const { api, editor, state } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const o = await import('/js/core/objects.js');
+      await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+      const make = (left, top, width, height, name) => {
+        const r = o.makeRect({ left, top, width, height, tcgName: name, strokeWidth: 0 });
+        editor.canvas.add(r);
+        return r;
+      };
+      const a = make(40, 100, 40, 40, 'Pip A');
+      const c = make(600, 180, 60, 40, 'Pip C');
+      const b = make(90, 300, 100, 40, 'Pip B');
+      editor.select([a, b]);
+      await new Promise((r) => setTimeout(r, 50));
+      const twoDisabled = document.getElementById('distributeH').disabled;
+      editor.select([c, a, b]);
+      await new Promise((r) => setTimeout(r, 50));
+      state.setDirty(false);
+      return { twoDisabled, threeEnabled: !document.getElementById('distributeH').disabled };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.click('#distributeH').catch(() => {});
+  await page.waitForTimeout(400);
+  Object.assign(spread, await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    const rects = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || ''));
+    const boxes = rects.map((obj) => ({ name: obj.tcgName, ...obj.getBoundingRect() }))
+      .sort((p, q) => p.left - q.left);
+    const gaps = boxes.slice(1).map((box, i) => Math.round((box.left - (boxes[i].left + boxes[i].width)) * 100) / 100);
+    const sel = editor.canvas.getActiveObject()?.getBoundingRect();
+    return {
+      order: boxes.map((box) => box.name).join(),
+      lefts: boxes.map((box) => Math.round(box.left)),
+      gaps,
+      tops: rects.map((obj) => Math.round(obj.getBoundingRect().top)).sort((p, q) => p - q),
+      selected: editor.selection().length,
+      selBox: sel ? [Math.round(sel.left), Math.round(sel.left + sel.width)] : null,
+      dirty: state.dirty,
+    };
+  }));
+  check('distributing three layers leaves equal gaps and keeps the outer edges',
+    spread.twoDisabled === true && spread.threeEnabled === true &&
+      spread.order === 'Pip A,Pip B,Pip C' && spread.lefts[0] === 40 && spread.lefts[2] === 600 &&
+      spread.gaps.length === 2 && Math.abs(spread.gaps[0] - spread.gaps[1]) < 0.01 &&
+      Math.abs(spread.gaps[0] - 210) < 0.51 &&
+      spread.tops.join() === '100,180,300' && spread.selected === 3 &&
+      spread.selBox?.[0] === 40 && spread.selBox?.[1] === 660 && spread.dirty === true,
+    JSON.stringify(spread));
+
+  /* Alt+Shift+V from the keyboard, undo in one step, and a refusal below three. */
+  const column = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const rects = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || ''));
+    editor.select(rects);
+    document.activeElement?.blur?.();
+    await new Promise((r) => setTimeout(r, 300));
+    return { before: rects.map((obj) => Math.round(obj.getBoundingRect().top)) };
+  });
+  await page.keyboard.press('Alt+Shift+V');
+  await page.waitForTimeout(400);
+  Object.assign(column, await page.evaluate(async () => {
+    const { editor, history } = window.TCGForge;
+    const rects = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || ''));
+    const boxes = rects.map((obj) => obj.getBoundingRect()).sort((p, q) => p.top - q.top);
+    const gaps = boxes.slice(1).map((box, i) => Math.round((box.top - (boxes[i].top + boxes[i].height)) * 100) / 100);
+    await new Promise((r) => setTimeout(r, 350));
+    await history.undo();
+    await new Promise((r) => setTimeout(r, 200));
+    const after = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || ''))
+      .map((obj) => Math.round(obj.getBoundingRect().top));
+    const two = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || '')).slice(0, 2);
+    editor.select(two);
+    const twoBefore = two.map((obj) => Math.round(obj.getBoundingRect().top)).join();
+    return { gaps, undone: after, twoBefore };
+  }));
+  await page.keyboard.press('Alt+Shift+V');
+  await page.waitForTimeout(300);
+  Object.assign(column, await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const two = editor.objects().filter((obj) => /^Pip /.test(obj.tcgName || '')).slice(0, 2);
+    return {
+      twoAfter: two.map((obj) => Math.round(obj.getBoundingRect().top)).join(),
+      toast: Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '',
+    };
+  }));
+  check('Alt+Shift+V spaces layers down the card, undoes in one step, and refuses two',
+    column.gaps.length === 2 && Math.abs(column.gaps[0] - column.gaps[1]) < 0.01 &&
+      Math.abs(column.gaps[0] - 60) < 0.51 &&
+      column.undone.join() === column.before.join() &&
+      column.twoAfter === column.twoBefore && /three or more/.test(column.toast),
+    JSON.stringify(column));
+
+  /* ---- 0.9.0 bug guards ------------------------------------------------ */
+  /* An edit made while a save was writing was marked saved with it. */
+  const midSave = await page.evaluate(async () => {
+    try {
+      const { api, editor, state } = window.TCGForge;
+      const toolbar = await import('/js/ui/toolbar.js');
+      const t = await import('/js/core/templates.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const real = api.writeJSON;
+      let written = null;
+      api.writeJSON = async (path, data) => {
+        written = data;
+        await new Promise((r) => setTimeout(r, 600));
+        return { path };
+      };
+      state.project.path = 'projects/smoke-midsave.json';
+      try {
+        const saving = toolbar.handleSave();
+        await new Promise((r) => setTimeout(r, 150));
+        editor.findBySlot('title')[0].set('text', 'Typed during the save');
+        editor.touch();
+        await saving;
+      } finally {
+        api.writeJSON = real;
+      }
+      const dirtyAfterEdit = state.dirty;
+      await toolbar.handleSave();
+      return { dirtyAfterEdit, inFile: JSON.stringify(written).includes('Typed during the save'), dirtyAfterResave: state.dirty };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    await api.trash('projects/smoke-midsave.json').catch(() => {});
+    await api.trash('projects/smoke-midsave.json.bak').catch(() => {});
+    state.project.path = null;
+  });
+  check('an edit made while a save is writing is still unsaved afterwards',
+    midSave.dirtyAfterEdit === true && midSave.inFile === false && midSave.dirtyAfterResave === false,
+    JSON.stringify(midSave));
+
+  /* The Export dialog's Cancel and the Print dialog's Close handed the editor
+     back while every card was still rendering; the run then put its snapshot
+     over whatever came next. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await cards.addCard();
+    await cards.addCard();
+    await cards.switchCard(0);
+    state.setDirty(false);
+    window.__realExport = api.exportImage;
+    window.__realWrite = api.writeJSON;
+    api.exportImage = ({ filename }) => new Promise((resolve) =>
+      setTimeout(() => resolve({ path: `exports/smoke-stub/${filename}` }), 450));
+    api.writeJSON = async (path) => ({ path });
+  });
+  const footButton = async (label) => {
+    for (const button of await page.$$('#modalFoot .btn')) {
+      if ((await button.textContent()) === label) return button;
+    }
+    return null;
+  };
+  await page.keyboard.press('Control+e');
+  await page.waitForSelector('#exportEveryCard', { timeout: 5000 }).catch(() => {});
+  await page.$eval('#exportEveryCard', (n) => { n.checked = true; n.dispatchEvent(new Event('change')); }).catch(() => {});
+  await (await footButton('Export'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  await (await footButton('Cancel'))?.click({ timeout: 3000 }).catch(() => {});
+  const cancelHold = await page.evaluate(async () => {
+    const batch = await import('/js/core/batch.js');
+    const held = { rendering: batch.isRendering(), open: !document.getElementById('modalRoot').hidden };
+    while (batch.isRendering()) await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 100));
+    held.closedAfter = document.getElementById('modalRoot').hidden;
+    held.title = window.TCGForge.editor.findBySlot('title')[0].text;
+    return held;
+  });
+  await page.evaluate(async () => {
+    if (!document.getElementById('modalRoot').hidden) (await import('/js/ui/dialogs.js')).closeModal();
+  });
+  await page.keyboard.press('Control+p');
+  await page.waitForSelector('#printSource', { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#printSource', 'project').catch(() => {});
+  // Drawing a card is quick; slow its images so Close lands mid-run.
+  await page.route('**/files/**', async (route) => {
+    await new Promise((r) => setTimeout(r, 300));
+    await route.continue().catch(() => {});
+  });
+  await (await footButton('Preview'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  await (await footButton('Close'))?.click({ timeout: 3000 }).catch(() => {});
+  const closeHold = await page.evaluate(async () => {
+    const batch = await import('/js/core/batch.js');
+    const held = { rendering: batch.isRendering(), open: !document.getElementById('modalRoot').hidden };
+    while (batch.isRendering()) await new Promise((r) => setTimeout(r, 50));
+    return held;
+  });
+  await page.unroute('**/files/**');
+  await (await footButton('Close'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  closeHold.closedLater = await page.evaluate(() => document.getElementById('modalRoot').hidden);
+  await page.evaluate(() => {
+    const { api } = window.TCGForge;
+    api.exportImage = window.__realExport;
+    api.writeJSON = window.__realWrite;
+  });
+  check('Cancel and Close cannot hand the editor back while every card is rendering',
+    cancelHold.rendering === true && cancelHold.open === true && cancelHold.closedAfter === true &&
+      closeHold.rendering === true && closeHold.open === true && closeHold.closedLater === true,
+    JSON.stringify({ cancelHold, closeHold }));
+
+  /* Escape during the batch preview closed the dialog while the preview still
+     held the canvas; its restore then wiped what was typed next. */
+  await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    editor.findBySlot('title')[0].set('text', 'Before the preview');
+    editor.touch();
+    state.setDirty(false);
+  });
+  fs.writeFileSync('smoke-preview.csv', 'title,art\nPreview Row,starfield\n');
+  await page.keyboard.press('Control+b');
+  await page.waitForSelector('#batchPreview', { timeout: 5000 }).catch(() => {});
+  await page.setInputFiles('#modalBody input[type=file]', 'smoke-preview.csv').catch(() => {});
+  await page.waitForTimeout(500);
+  await page.route('**/files/assets/**', async (route) => {
+    await new Promise((r) => setTimeout(r, 700));
+    await route.continue().catch(() => {});
+  });
+  await page.click('#batchPreview').catch(() => {});
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Escape');
+  const previewHold = await page.evaluate(async () => {
+    const batch = await import('/js/core/batch.js');
+    return { rendering: batch.isRendering(), open: !document.getElementById('modalRoot').hidden };
+  });
+  previewHold.settled = await page.evaluate(async () => {
+    const batch = await import('/js/core/batch.js');
+    for (let i = 0; i < 400 && batch.isRendering(); i += 1) await new Promise((r) => setTimeout(r, 50));
+    return !batch.isRendering();
+  });
+  await page.unroute('**/files/assets/**');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  previewHold.closedLater = await page.evaluate(() => document.getElementById('modalRoot').hidden);
+  await page.fill('#ff_title', 'Typed after the preview').catch(() => {});
+  await page.waitForTimeout(300);
+  previewHold.title = await page.evaluate(() => window.TCGForge.editor.findBySlot('title')[0].text);
+  fs.rmSync('smoke-preview.csv', { force: true });
+  check('Escape waits for the batch preview to give the canvas back',
+    previewHold.rendering === true && previewHold.open === true && previewHold.closedLater === true &&
+      previewHold.title === 'Typed after the preview',
+    JSON.stringify(previewHold));
+
+  /* A real double-click on a layer name never reached the name — picking the
+     layer redrew every row between the two clicks — and clicking into the
+     rename box ended the rename. */
+  await page.evaluate(async () => {
+    if (!document.getElementById('modalRoot').hidden) (await import('/js/ui/dialogs.js')).closeModal();
+  });
+  const layerName = await page.$('#layerList .layer-row[data-index="0"] .layer-name');
+  await layerName?.dblclick();
+  await page.waitForTimeout(200);
+  const renameBox = await page.$('#layerList input');
+  const renaming = { opened: !!renameBox };
+  if (renameBox) {
+    await renameBox.fill('Renamed by mouse');
+    await renameBox.click();
+    await page.waitForTimeout(150);
+    renaming.stillOpen = (await page.$$('#layerList input')).length === 1;
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+  }
+  renaming.name = await page.evaluate(() => window.TCGForge.editor.objects()[0].tcgName || null);
+  renaming.row = await page.evaluate(() =>
+    document.querySelector('#layerList .layer-row[data-index="0"] .layer-name')?.textContent || '');
+  check('a layer can be renamed with a real double-click, and clicking the box keeps it open',
+    renaming.opened && renaming.stillOpen && renaming.name === 'Renamed by mouse' && renaming.row === 'Renamed by mouse',
+    JSON.stringify(renaming));
+
+  /* A picture imported from the Fonts tab went into assets/fonts, which only
+     lists font files — written to disk and never seen again. */
+  await page.click('#assetTabs [data-cat="fonts"]').catch(() => {});
+  const uploads = [];
+  const watchUpload = (req) => {
+    if (req.url().endsWith('/api/upload')) uploads.push(JSON.parse(req.postData() || '{}').category);
+  };
+  page.on('request', watchUpload);
+  fs.writeFileSync('smoke-fonts-tab.svg',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>');
+  await page.setInputFiles('#assetFileInput', 'smoke-fonts-tab.svg').catch(() => {});
+  await page.waitForTimeout(1200);
+  page.off('request', watchUpload);
+  fs.rmSync('smoke-fonts-tab.svg', { force: true });
+  const fontsTab = await page.evaluate(async (sent) => {
+    const { api, assets } = window.TCGForge;
+    const found = (assets.index.art || []).find((a) => /^smoke-fonts-tab/.test(a.file || ''));
+    const toast = Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '';
+    if (found?.path) await api.trash(found.path).catch(() => {});
+    await assets.refresh();
+    return { sent, listed: found?.path || null, toast };
+  }, uploads);
+  await page.click('#assetTabs [data-cat="frames"]').catch(() => {});
+  check('an image imported from the Fonts tab lands in art, where it is listed',
+    fontsTab.sent.join() === 'art' && /^assets\/art\/smoke-fonts-tab/.test(fontsTab.listed || '') &&
+      /into art/.test(fontsTab.toast),
+    JSON.stringify(fontsTab));
+
+  /* The zoom readout resets to 100% on a click, and now on Enter too. */
+  await page.evaluate(() => window.TCGForge.editor.setZoom(0.5));
+  await page.focus('#zoomLabel').catch(() => {});
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  const zoomKey = await page.evaluate(() => ({ zoom: window.TCGForge.editor.zoom,
+    focusable: document.getElementById('zoomLabel').tabIndex }));
+  await page.evaluate(() => window.TCGForge.editor.fitToWindow());
+  check('the zoom readout resets the zoom from the keyboard',
+    zoomKey.zoom === 1 && zoomKey.focusable === 0, JSON.stringify(zoomKey));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

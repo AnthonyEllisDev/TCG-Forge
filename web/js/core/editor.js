@@ -568,6 +568,42 @@ class Editor {
     bus.emit(EVT.SELECTION, this.selection());
   }
 
+  /**
+   * Space three or more layers evenly along one axis ('horizontal' or
+   * 'vertical'). The gaps between neighbouring bounding boxes come out equal,
+   * not the distances between their centres, which is what a row of cost pips
+   * or icons of different widths needs. The layer that starts first stays put,
+   * the last one ends where the furthest edge was, and the rest fill in by
+   * where they start. Returns false, having moved nothing, below three layers.
+   */
+  distribute(axis = 'horizontal') {
+    if (this.selection().length < 3) return false;
+    const [start, size] = axis === 'vertical' ? ['top', 'height'] : ['left', 'width'];
+    // Measure first: bounding rects are in card coordinates even for members
+    // of a multi-layer selection, whose own left/top are not.
+    const items = this.selection()
+      .map((obj, order) => ({ obj, order, bb: obj.getBoundingRect() }))
+      .sort((a, b) => a.bb[start] - b.bb[start] || a.order - b.order);
+    const from = items[0].bb[start];
+    const to = Math.max(...items.map(({ bb }) => bb[start] + bb[size]));
+    const total = items.reduce((sum, { bb }) => sum + bb[size], 0);
+    const gap = (to - from - total) / (items.length - 1);
+
+    // Dropping the selection hands every member its card coordinates back, and
+    // selecting again afterwards redraws the selection box around where the
+    // layers now are rather than where they were.
+    const objs = this.memberSelection();
+    let at = from;
+    for (const { obj, bb } of items) {
+      obj.set(start, obj[start] + (at - bb[start]));
+      obj.setCoords();
+      at += bb[size] + gap;
+    }
+    this.select(objs);
+    this.touch();
+    return true;
+  }
+
   nudge(dx, dy) {
     const objs = this.selection();
     if (!objs.length) return;

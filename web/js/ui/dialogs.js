@@ -35,11 +35,13 @@ function focusables() {
 }
 
 /**
- * Show the dialog. `canClose` is asked before Escape or the ✕ dismiss it; a
- * dialog whose work has borrowed the canvas answers no until the work is done,
- * because closing it hands the editor back while the run is still going to put
- * its snapshot over whatever is typed next. The buttons' own `close` is never
- * asked — they know what they are doing.
+ * Show the dialog. `canClose` is asked before anything dismisses it — Escape,
+ * the ✕, and the `close` handed to the buttons alike. A dialog whose work has
+ * borrowed the canvas answers no until the work is done, because closing it
+ * hands the editor back while the run is still going to put its snapshot over
+ * whatever is typed next. Any answer but `true` keeps the dialog up; a string
+ * answer is shown as a toast, so a refused Cancel does not look like a dead
+ * button. `closeModal()` itself is never asked.
  */
 export function openModal({ title = '', body = '', buttons = [], onOpen, onClosed, canClose, wide = false } = {}) {
   const root = $('#modalRoot');
@@ -58,7 +60,7 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, onClose
       el('button', {
         class: `btn ${btn.primary ? 'primary' : ''} ${btn.danger ? 'danger' : ''}`,
         text: btn.label,
-        onClick: () => btn.onClick?.(closeModal, bodyEl),
+        onClick: () => btn.onClick?.(dismissModal, bodyEl),
       })
     );
   }
@@ -86,10 +88,14 @@ export function isModalOpen() {
   return !!activeClose;
 }
 
-/** Escape and the ✕: close unless the dialog says it cannot be left yet. */
+/** Close unless the dialog says it cannot be left yet. */
 export function dismissModal() {
   if (!activeClose) return false;
-  if (activeGuard && activeGuard() === false) return false;
+  const answer = activeGuard ? activeGuard() : true;
+  if (answer !== true) {
+    if (typeof answer === 'string') toast(answer, 'warn');
+    return false;
+  }
   closeModal();
   return true;
 }

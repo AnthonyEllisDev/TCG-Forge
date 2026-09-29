@@ -12,6 +12,7 @@ import { collectFields } from '../core/templates.js';
 import {
   fillPattern,
   guessQtyColumn,
+  isRendering,
   listDataFiles,
   parseAny,
   renderRow,
@@ -220,14 +221,17 @@ export function openBatchDialog() {
     },
     // The run owns the canvas until it has put the card back, so a dismiss
     // while it is going asks it to stop and keeps the dialog up until it has.
+    // A preview borrows the canvas too, for a moment; it only has to finish.
     canClose: () => {
-      if (!running) return true;
-      cancelRequested = true;
-      setStatus('Stopping after this card…', 'warn');
-      return false;
+      if (running) {
+        cancelRequested = true;
+        setStatus('Stopping after this card…', 'warn');
+        return false;
+      }
+      return !isRendering() || 'Finishing the preview — close again in a moment.';
     },
     buttons: [
-      { label: 'Close', onClick: (c) => (running ? (cancelRequested = true) : c()) },
+      { label: 'Close', onClick: (close) => close() },
       {
         label: 'Render set',
         primary: true,

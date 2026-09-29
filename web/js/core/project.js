@@ -138,19 +138,26 @@ function restoreImagePaths(canvasJSON) {
 
 export async function saveProject({ path = state.project.path, name } = {}) {
   if (name) state.project.name = name;
+  // Serialising and writing both await, and the editor stays live meanwhile.
+  // An edit made in that window is not in the file, so it must not be marked
+  // saved — or New and Open would throw it away without asking.
+  const revision = state.revision;
   const data = await serializeProject();
   const target = path || `projects/${slugify(state.project.name, 'card')}.json`;
+  const settle = () => {
+    if (state.revision === revision) state.setDirty(false);
+  };
 
   if (api.online) {
     await api.writeJSON(target, data, { backup: true });
     state.project.path = target;
-    state.setDirty(false);
+    settle();
     bus.emit(EVT.PROJECT, state.project);
     return { path: target, saved: 'workspace' };
   }
 
   downloadText(JSON.stringify(data, null, 2), `${slugify(state.project.name, 'card')}.json`);
-  state.setDirty(false);
+  settle();
   return { path: null, saved: 'download' };
 }
 

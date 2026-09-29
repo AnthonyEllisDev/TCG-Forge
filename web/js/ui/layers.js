@@ -18,6 +18,7 @@ const KIND_BADGE = {
 let listEl = null;
 let dragIndex = null;
 let shown = [];   // the layer list as it was last drawn, by row index
+let drawn = '';   // what each row said when it was drawn — see sameRows()
 
 export function initLayers() {
   listEl = $('#layerList');
@@ -41,16 +42,48 @@ export function initLayers() {
   render();
 }
 
-function render() {
+/** A fingerprint of everything a row shows except which rows are selected. */
+function rowsKey(objects) {
+  return objects
+    .map((obj) => [kindOf(obj), labelOf(obj), obj.tcgSlot || '', obj.tcgShowIf || '',
+      obj.visible === false, obj.selectable === false].join('\u0001'))
+    .join('\u0002');
+}
+
+/**
+ * Picking a layer changes only which rows are highlighted. Rebuilding every row
+ * for that swaps the nodes under the pointer between the two clicks of a
+ * double-click, so the browser never reports one and a layer could not be
+ * renamed with the mouse; it also detached the rename box the moment it was
+ * clicked into. When nothing else changed, restyle the rows in place.
+ */
+function sameRows(objects) {
+  return objects.length === shown.length &&
+    objects.every((obj, i) => obj === shown[i]) &&
+    rowsKey(objects) === drawn &&
+    listEl.querySelectorAll('.layer-row').length === objects.length;
+}
+
+function render({ force = false } = {}) {
   if (!listEl) return;
   const objects = editor.objects();
   const active = editor.selection();
+  if (!force && objects.length && sameRows(objects)) {
+    for (const row of listEl.querySelectorAll('.layer-row')) {
+      const on = active.includes(shown[Number(row.dataset.index)]);
+      row.classList.toggle('active', on);
+      if (on) row.setAttribute('aria-current', 'true');
+      else row.removeAttribute('aria-current');
+    }
+    return;
+  }
   // Choosing a layer from the keyboard redraws the list; keep the keyboard on
   // the row it chose rather than dropping it back to the page.
   const focused = document.activeElement?.classList?.contains('layer-row') && listEl.contains(document.activeElement)
     ? shown[Number(document.activeElement.dataset.index)]
     : null;
   shown = objects.slice();
+  drawn = rowsKey(objects);
   listEl.innerHTML = '';
 
   if (!objects.length) {
@@ -125,7 +158,8 @@ function render() {
       }
     };
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.layer-btn')) return;
+      // Placing the caret in the rename box is not a request to pick the layer.
+      if (e.target.closest('.layer-btn, input')) return;
       pick(e);
     });
     // Not role="button": the row holds buttons of its own, and a button inside
@@ -199,7 +233,9 @@ function startRename(nameEl, obj) {
     if (done) return;
     done = true;
     fn();
-    render();
+    // The rename box is not part of the fingerprint, so a cancelled rename
+    // would otherwise be left on screen by the in-place path.
+    render({ force: true });
   };
   const commit = () =>
     finish(() => {
