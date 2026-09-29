@@ -97,7 +97,9 @@ project of one card, so a fresh set from a spreadsheet is: load the template,
   by their copies, without writing a folder first.
 
 Both go through the batch renderer, so a card is drawn exactly as a spreadsheet
-row with the same values would be.
+row with the same values would be. A numbered layer (`{n:3}/{total}`, see
+[`TEMPLATES.md`](TEMPLATES.md#card-numbering)) counts cards in strip order, in
+the editor and in both of these.
 
 ## The file
 

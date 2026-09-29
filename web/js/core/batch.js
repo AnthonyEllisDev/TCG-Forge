@@ -255,13 +255,16 @@ export async function applyRow(row, mapping) {
 }
 
 /** Render a single row to a data URL without saving anything — used for preview. */
-export async function renderRow(row, mapping, { multiplier = 1, format = 'png', transparent = false } = {}) {
+export async function renderRow(row, mapping, {
+  multiplier = 1, format = 'png', transparent = false, number = null,
+} = {}) {
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
   const wasDirty = state.dirty;
   claimCanvas();
   history.locked = true;
   editor.canvas.discardActiveObject();
   try {
+    if (number) editor.setNumberContext(number);
     await applyRow(row, mapping);
     await nextFrame();
     return editor.toDataURL({ multiplier, format, transparent });
@@ -271,6 +274,7 @@ export async function renderRow(row, mapping, { multiplier = 1, format = 'png', 
     // workspace. Left latched, history stops recording for the rest of the
     // session and undo dies silently.
     try {
+      editor.setNumberContext(null);
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;
@@ -332,6 +336,9 @@ export async function runBatch({
       onProgress({ index, total: rows.length, name, status: 'working' });
 
       try {
+        // Each row is a card of a set of rows.length, numbered in row order —
+        // the same {n} its filename gets.
+        editor.setNumberContext({ n: index + 1, total: rows.length });
         await restoreSnapshot(snapshot);
         await applyRow(row, mapping);
         await nextFrame();
@@ -371,6 +378,7 @@ export async function runBatch({
     // Same reason as renderRow: a restore that throws must not take undo and
     // redo down with it for the rest of the session.
     try {
+      editor.setNumberContext(null);
       await restoreSnapshot(snapshot);
     } finally {
       history.locked = false;

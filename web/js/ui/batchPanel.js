@@ -25,6 +25,8 @@ import { openModal, toast } from './dialogs.js';
 
 let table = { columns: [], rows: [] };
 let mapping = {};
+// Columns the user set to "ignore" by hand, as opposed to ones nothing matched.
+let ignored = new Set();
 let sourceName = '';
 let qtyChoice = '';
 let running = false;
@@ -281,6 +283,7 @@ function loadData(text, filename, slots) {
   table = parsed;
   sourceName = filename;
   mapping = {};
+  ignored = new Set();
   for (const column of table.columns) mapping[column] = guessSlot(column, slots);
   qtyChoice = guessQtyColumn(table.columns);
 
@@ -297,10 +300,14 @@ function showTable(slots) {
   if (!table.rows.length) return;
 
   // Slots come from the card that is open now, which need not be the one that
-  // was open when the file was read.
+  // was open when the file was read. A column the user set to "ignore" is a
+  // choice, not a gap to fill: guessing it again put an ignored column back
+  // into every card on the next opening.
   const available = new Set(slots);
   for (const column of table.columns) {
-    if (!available.has(mapping[column])) mapping[column] = guessSlot(column, slots);
+    if (!ignored.has(column) && !available.has(mapping[column])) {
+      mapping[column] = guessSlot(column, slots);
+    }
   }
   if (!table.columns.includes(qtyChoice)) qtyChoice = guessQtyColumn(table.columns);
 
@@ -345,12 +352,14 @@ function renderMapping(slots) {
   if (!table.columns.length) return;
 
   for (const column of table.columns) {
-    const select = el('select');
+    const select = el('select', { 'aria-label': `Slot for column ${column}` });
     select.append(el('option', { value: '-', text: '— ignore —' }));
     for (const slot of slots) select.append(el('option', { value: slot, text: slot }));
     select.value = mapping[column] || '-';
     on(select, 'change', () => {
       mapping[column] = select.value;
+      if (select.value === '-') ignored.add(column);
+      else ignored.delete(column);
     });
 
     const sample = String(table.rows[0]?.[column] ?? '').slice(0, 40);
@@ -376,7 +385,9 @@ async function preview(pattern) {
   }
   setStatus('Rendering preview…');
   try {
-    const url = await renderRow(table.rows[0], mapping, { multiplier: 1 });
+    const url = await renderRow(table.rows[0], mapping, {
+      multiplier: 1, number: { n: 1, total: table.rows.length },
+    });
     nodes.preview.innerHTML = '';
     nodes.preview.append(el('img', { src: url, alt: 'First row preview' }));
     setStatus(`Preview of row 1 → ${fillPattern(pattern, table.rows[0], 0)}`);

@@ -45,6 +45,7 @@ export function initProperties() {
   bindMeta();
 
   bus.on(EVT.SELECTION, sync);
+  bus.on(EVT.OBJECTS, syncTextValues);
   bus.on(EVT.FONTS, populateFonts);
   bus.on(EVT.CARD, sync);
   populateFonts();
@@ -362,9 +363,31 @@ function bindText() {
     'change'
   );
 
-  bindInput('pSlot', (n) =>
-    apply((o) => o.set('tcgSlot', n.value.trim() || undefined), { render: false })
-  );
+  bindInput('pSlot', (n) => {
+    apply((o) => o.set('tcgSlot', n.value.trim() || undefined), { render: false });
+    syncNumberingLocks(selection()[0]);
+  });
+
+  bindInput('pNumbering', (n) => {
+    apply((o) => {
+      if (isText(o)) o.set('tcgNumbering', n.value.trim() || undefined);
+    });
+    syncNumberingLocks(selection()[0]);
+  });
+}
+
+/**
+ * A numbered layer's text is written by its pattern and a slot's by the card,
+ * so a layer is one or the other: each box is disabled while the other is set,
+ * and the Text box is disabled while a pattern is.
+ */
+function syncNumberingLocks(obj) {
+  if (!obj) return;
+  const numbered = !!String(obj.tcgNumbering ?? '').trim();
+  const slotted = !!obj.tcgSlot;
+  el('pText').disabled = numbered && !slotted;
+  el('pSlot').disabled = numbered && !slotted;
+  el('pNumbering').disabled = slotted;
 }
 
 function toggleText(prop, onValue, offValue, buttonId) {
@@ -661,6 +684,8 @@ export function sync() {
       );
       setChecked('pAutoFit', !!obj.tcgAutoFit);
       setVal('pSlot', obj.tcgSlot || '');
+      setVal('pNumbering', obj.tcgNumbering || '');
+      syncNumberingLocks(obj);
     }
 
     /* image */
@@ -697,6 +722,26 @@ export function sync() {
     setChecked('pVisible', obj.visible !== false);
     syncShowIf(obj);
     setChecked('pLocked', obj.selectable === false);
+  } finally {
+    syncing = false;
+  }
+}
+
+/**
+ * The text of a selected layer changes without the selection changing: typed
+ * on the canvas, typed into Card Fields, written by auto-fit or numbering. A
+ * stale Text box here wrote its old contents back over those edits on the next
+ * keystroke, so it follows every change — except in the box being typed into.
+ */
+function syncTextValues() {
+  const objs = selection();
+  if (objs.length !== 1 || !isText(objs[0])) return;
+  const obj = objs[0];
+  const focused = document.activeElement;
+  syncing = true;
+  try {
+    if (focused !== el('pText')) setVal('pText', obj.text || '');
+    if (focused !== el('pFontSize')) setVal('pFontSize', Math.round(obj.fontSize || 24));
   } finally {
     syncing = false;
   }

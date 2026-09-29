@@ -178,9 +178,14 @@ const written = await page.evaluate(async () => {
       left: 510, top: 900, width: 170, fontSize: 44, fontWeight: 'bold', textAlign: 'center',
       fill: '#f6e7c1', tcgSlot: 'stats', tcgName: 'Power / toughness',
     });
-    addText('TCG Forge · Starter Set · 001', {
+    addText('TCG Forge · Starter Set', {
       left: 70, top: 972, width: 420, fontSize: 15,
       fill: '#c8b99a', tcgSlot: 'footer', tcgName: 'Footer',
+    });
+    // Written from the card's place in the set, so nobody types 001–060.
+    addText('001/001', {
+      left: 470, top: 972, width: 170, fontSize: 15, textAlign: 'right',
+      fill: '#c8b99a', tcgName: 'Card number', tcgNumbering: '{n:3}/{total:3}',
     });
 
     results.push(await save({

@@ -31,6 +31,9 @@ class Editor {
     this.clipboard = null;
     this.suspendEvents = false;
     this.exporting = false;
+    // Where the card on the canvas sits in its set, while a run says so; null
+    // means "the project's own card list" (see cardNumber()).
+    this.numberContext = null;
     this._els = {};
   }
 
@@ -58,6 +61,9 @@ class Editor {
     this.applyCardClip();
     this.bindCanvasEvents();
     this.bindViewportEvents();
+    // Adding, deleting, reordering or switching cards moves every number on
+    // the set without touching the canvas.
+    bus.on(EVT.CARDS, () => this.applyNumbering());
     this.fitToWindow();
     return this;
   }
@@ -81,6 +87,10 @@ class Editor {
     c.on('text:changed', (e) => {
       if (e.target?.tcgAutoFit) this.autoFitText(e.target);
       this.applyConditions();
+      // Typing on the canvas is an edit the moment it happens. Waiting for
+      // editing to end left the project reading as saved while the caret was
+      // still in the text, so Open, New and closing the tab went unasked.
+      if (!this.suspendEvents) state.setDirty(true);
       bus.emit(EVT.OBJECTS, this.objects());
     });
     c.on('text:editing:exited', () => this.touch());
@@ -424,13 +434,14 @@ class Editor {
   }
 
   remove(objects = this.selection()) {
-    const list = [].concat(objects).filter(Boolean);
-    if (!list.length) return;
+    const list = unlocked([].concat(objects).filter(Boolean));
+    if (!list.length) return 0;
     this.canvas.discardActiveObject();
     list.forEach((o) => this.canvas.remove(o));
     this.canvas.requestRenderAll();
     this.emitSelection();
     this.touch();
+    return list.length;
   }
 
   async duplicate() {
@@ -540,7 +551,7 @@ class Editor {
   /* ------------------------------------------------------------- alignment */
 
   align(mode) {
-    const objs = this.selection();
+    const objs = unlocked(this.selection());
     if (!objs.length) return;
 
     let bounds = { left: 0, top: 0, width: state.card.width, height: state.card.height };
@@ -577,11 +588,12 @@ class Editor {
    * where they start. Returns false, having moved nothing, below three layers.
    */
   distribute(axis = 'horizontal') {
-    if (this.selection().length < 3) return false;
+    const movable = unlocked(this.selection());
+    if (movable.length < 3) return false;
     const [start, size] = axis === 'vertical' ? ['top', 'height'] : ['left', 'width'];
     // Measure first: bounding rects are in card coordinates even for members
     // of a multi-layer selection, whose own left/top are not.
-    const items = this.selection()
+    const items = movable
       .map((obj, order) => ({ obj, order, bb: obj.getBoundingRect() }))
       .sort((a, b) => a.bb[start] - b.bb[start] || a.order - b.order);
     const from = items[0].bb[start];
@@ -605,7 +617,7 @@ class Editor {
   }
 
   nudge(dx, dy) {
-    const objs = this.selection();
+    const objs = unlocked(this.selection());
     if (!objs.length) return;
     for (const obj of objs) {
       obj.set({ left: obj.left + dx, top: obj.top + dy });
@@ -702,9 +714,55 @@ class Editor {
     return changed;
   }
 
+  /**
+   * The position of the card on the canvas within its set, as `{n, total}`.
+   * A batch, export or print run sets it per row; otherwise it is the active
+   * card of the project's list (a project that has never been given a list is
+   * one card on its own).
+   */
+  cardNumber() {
+    if (this.numberContext) return this.numberContext;
+    const cards = state.project.cards;
+    if (!cards?.length) return { n: 1, total: 1 };
+    return { n: (state.project.activeCard | 0) + 1, total: cards.length };
+  }
+
+  /** Point numbering at one row of a run, or back at the project with null. */
+  setNumberContext(context) {
+    this.numberContext = context;
+    this.applyNumbering();
+  }
+
+  /**
+   * Rewrite every numbered text layer (`tcgNumbering`, e.g. "{n:3}/{total}")
+   * from the card's place in its set. The pattern is the truth and the text is
+   * derived from it, the way a condition owns a layer's visibility: the text
+   * cannot be typed into while a pattern is set, and it is not a card value.
+   */
+  applyNumbering() {
+    if (!this.canvas) return false;
+    const number = this.cardNumber();
+    let changed = false;
+    for (const obj of this.objects()) {
+      if (!isTextObject(obj)) continue;
+      const pattern = numberingOf(obj);
+      obj.editable = !pattern;
+      if (!pattern) continue;
+      let text = formatNumbering(pattern, number);
+      if (obj.tcgUppercase) text = text.toUpperCase();
+      if (obj.text === text) continue;
+      obj.set('text', text);
+      if (obj.tcgAutoFit) this.autoFitText(obj);
+      changed = true;
+    }
+    if (changed) this.canvas.requestRenderAll();
+    return changed;
+  }
+
   touch() {
     if (this.suspendEvents) return;
     this.applyConditions();
+    this.applyNumbering();
     state.setDirty(true);
     bus.emit(EVT.MODIFIED);
     bus.emit(EVT.OBJECTS, this.objects());
@@ -724,6 +782,7 @@ class Editor {
       // A file written by hand, or by an older version, may not agree with
       // its own conditions; the slots are the truth.
       this.applyConditions();
+      this.applyNumbering();
       this.applyCardClip();
       this.canvas.requestRenderAll();
       this.emitSelection();
@@ -866,6 +925,35 @@ function slotFilled(objects) {
     }
     return o.type === 'image';
   });
+}
+
+const isTextObject = (o) => o.type === 'textbox' || o.type === 'i-text' || o.type === 'text';
+
+/** A layer's numbering pattern, or '' when it has none (or it is a slot). */
+function numberingOf(obj) {
+  // A slot's text belongs to the card; a layer cannot be both.
+  if (obj.tcgSlot) return '';
+  return String(obj.tcgNumbering ?? '').trim();
+}
+
+/**
+ * Fill a numbering pattern. `{n}` is the card's position in the set, `{total}`
+ * the number of cards in it, and either takes a width to pad to with zeros —
+ * `{n:3}` gives 007, the same token the batch filename pattern uses. Anything
+ * else in braces is left as typed.
+ */
+export function formatNumbering(pattern, { n = 1, total = 1 } = {}) {
+  return String(pattern ?? '').replace(/\{(n|total)(?::(\d{1,2}))?\}/g, (_, key, pad) =>
+    String(key === 'n' ? n : total).padStart(Number(pad) || 1, '0'));
+}
+
+/**
+ * The layers an arranging or deleting command may touch. A locked layer can
+ * still be picked from the Layers panel (to inspect or unlock it), so the lock
+ * has to be honoured by the commands themselves, not only by the canvas.
+ */
+function unlocked(objects) {
+  return objects.filter((o) => o.selectable !== false);
 }
 
 export function isTypingTarget(node) {

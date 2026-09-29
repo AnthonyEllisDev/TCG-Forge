@@ -17,6 +17,8 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import http from 'node:http';
 import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 
 const BASE = process.argv[2] || 'http://127.0.0.1:7870';
 const LAUNCH_OPTIONS = process.env.CHROMIUM_PATH
@@ -2423,6 +2425,266 @@ try {
   await page.evaluate(() => window.TCGForge.editor.fitToWindow());
   check('the zoom readout resets the zoom from the keyboard',
     zoomKey.zoom === 1 && zoomKey.focusable === 0, JSON.stringify(zoomKey));
+
+  /* ---- card numbering (0.10.0) ---------------------------------------- */
+  const numberingUnit = await page.evaluate(async () => {
+    const { formatNumbering } = await import('/js/core/editor.js');
+    return [
+      formatNumbering('{n:3}/{total}', { n: 7, total: 60 }),
+      formatNumbering('No. {n} of {total:2}', { n: 12, total: 9 }),
+      formatNumbering('{title} {n}', { n: 2, total: 3 }),
+    ];
+  });
+  check('a numbering pattern fills {n}, {total} and their padded forms',
+    JSON.stringify(numberingUnit) === JSON.stringify(['007/60', 'No. 12 of 09', '{title} 2']),
+    JSON.stringify(numberingUnit));
+
+  /* The shipped Classic Spell numbers itself from the card's place in the
+     project: adding, switching, reordering and deleting cards all move it, the
+     pattern survives a save and reopen, and the layer cannot be typed into. */
+  const numbered = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const layer = () => editor.objects().find((o) => o.tcgNumbering);
+      const seen = { fresh: layer()?.text, editable: layer()?.editable };
+      await cards.addCard();
+      await cards.addCard();
+      seen.third = layer().text;
+      await cards.switchCard(0);
+      seen.first = layer().text;
+      cards.moveCard(0, 1);
+      seen.moved = layer().text;
+      await cards.removeCard(2);
+      seen.removed = layer().text;
+      seen.dirtyBeforeSave = state.dirty;
+      await p.saveProject({ name: 'Smoke Numbered', path: null });
+      const saved = await api.readJSON(state.project.path);
+      const savedLayer = saved.canvas.objects.find((o) => o.tcgNumbering);
+      await p.openProjectPath(state.project.path);
+      seen.reopened = { text: layer()?.text, pattern: layer()?.tcgNumbering, cards: cards.cardList().length,
+        active: cards.activeIndex(), dirty: state.dirty };
+      seen.savedPattern = savedLayer?.tcgNumbering;
+      await api.trash(state.project.path).catch(() => {});
+      await api.trash(`${state.project.path}.bak`).catch(() => {});
+      return seen;
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a numbered layer follows its card through adding, switching, reordering and deleting',
+    numbered.fresh === '001/001' && numbered.editable === false && numbered.third === '003/003' &&
+      numbered.first === '001/003' && numbered.moved === '002/003' && numbered.removed === '002/002',
+    JSON.stringify(numbered));
+  check('a numbering pattern is saved with the layout and renumbers on reopen',
+    numbered.savedPattern === '{n:3}/{total:3}' && numbered.reopened?.pattern === '{n:3}/{total:3}' &&
+      numbered.reopened.text === '002/002' && numbered.reopened.cards === 2 && numbered.reopened.active === 1 &&
+      numbered.reopened.dirty === false,
+    JSON.stringify(numbered.reopened));
+
+  /* In a run, each row is numbered as a card of the run: three rows with the
+     same words render three different images (only the number differs), each
+     with its own number, and the canvas is numbered as the project again
+     afterwards. */
+  const numberedRun = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const layer = () => editor.objects().find((o) => o.tcgNumbering);
+      const texts = [];
+      const images = [];
+      const rows = [{ title: 'Same' }, { title: 'Same' }, { title: 'Same' }];
+      await batch.runBatch({
+        rows, mapping: { title: 'title' },
+        options: { multiplier: 0.5, pattern: '{n}', sink: (url) => { texts.push(layer().text); images.push(url); } },
+      });
+      const preview = { before: layer().text };
+      editor.setNumberContext({ n: 4, total: 9 });
+      preview.set = layer().text;
+      editor.setNumberContext(null);
+      preview.after = layer().text;
+      return { texts, distinct: new Set(images).size, after: layer().text, preview };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('every row of a run is numbered as its own card, and the canvas is renumbered after',
+    JSON.stringify(numberedRun.texts) === JSON.stringify(['001/003', '002/003', '003/003']) &&
+      numberedRun.distinct === 3 && numberedRun.after === '001/001' &&
+      numberedRun.preview?.set === '004/009' && numberedRun.preview.after === '001/001',
+    JSON.stringify(numberedRun));
+
+  /* The Properties panel: the numbered layer shows its pattern, its Text and
+     Field slot boxes are shut, a pattern typed for real rewrites the text,
+     the Layers row carries a # badge, and clearing it opens the Text box. */
+  const numberRowIndex = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const objs = editor.objects();
+    return objs.indexOf(objs.find((o) => o.tcgNumbering));
+  });
+  await page.click(`#layerList .layer-row[data-index="${numberRowIndex}"] .layer-name`).catch(() => {});
+  await page.waitForTimeout(200);
+  const numberUi = { pattern: await page.inputValue('#pNumbering').catch(() => null),
+    textShut: await page.$eval('#pText', (n) => n.disabled).catch(() => null),
+    slotShut: await page.$eval('#pSlot', (n) => n.disabled).catch(() => null) };
+  await page.click('#pNumbering', { clickCount: 3 }).catch(() => {});
+  await page.keyboard.type('No. {n} of {total}');
+  await page.waitForTimeout(250);
+  numberUi.typed = await page.evaluate(() =>
+    window.TCGForge.editor.objects().find((o) => o.tcgNumbering)?.text);
+  numberUi.pText = await page.inputValue('#pText').catch(() => null);
+  numberUi.badge = await page.$eval(`#layerList .layer-row[data-index="${numberRowIndex}"] .layer-number`,
+    (n) => n.textContent).catch(() => null);
+  await page.click('#pNumbering', { clickCount: 3 }).catch(() => {});
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(250);
+  numberUi.cleared = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const o = editor.selection()[0];
+    return { pattern: o?.tcgNumbering ?? null, editable: o?.editable, textOpen: !document.getElementById('pText').disabled };
+  });
+  check('the properties panel sets a numbering pattern and shuts the text it owns',
+    numberUi.pattern === '{n:3}/{total:3}' && numberUi.textShut === true && numberUi.slotShut === true &&
+      numberUi.typed === 'No. 1 of 1' && numberUi.pText === 'No. 1 of 1' && numberUi.badge === '#' &&
+      numberUi.cleared.pattern === null && numberUi.cleared.editable === true && numberUi.cleared.textOpen,
+    JSON.stringify(numberUi));
+
+  /* ---- 0.10.0 bug guards ----------------------------------------------- */
+  const canvasPoint = (slot) => page.evaluate((s) => {
+    const { editor } = window.TCGForge;
+    const o = editor.findBySlot(s)[0];
+    const r = o.getBoundingRect();
+    const c = editor.canvas.upperCanvasEl.getBoundingClientRect();
+    const z = editor.canvas.getZoom();
+    return { x: c.left + (r.left + r.width / 2) * z, y: c.top + (r.top + r.height / 2) * z };
+  }, slot);
+
+  /* Typing straight onto the canvas marks the project unsaved while the caret
+     is still in the text, so Open asks before throwing it away. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+    state.setDirty(false);
+  });
+  await page.waitForTimeout(300);
+  const titleAt = await canvasPoint('title');
+  await page.mouse.click(titleAt.x, titleAt.y);
+  await page.mouse.dblclick(titleAt.x, titleAt.y);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' TYPED');
+  await page.waitForTimeout(150);
+  const canvasTyping = await page.evaluate(() => ({
+    text: window.TCGForge.editor.findBySlot('title')[0].text, dirty: window.TCGForge.state.dirty }));
+  await page.click('[data-action="open-project"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  canvasTyping.asked = /unsaved changes/i.test(await page.textContent('#modalBody').catch(() => '') || '');
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  await page.evaluate(() => window.TCGForge.editor.canvas.getActiveObject()?.exitEditing?.());
+  check('typing on the canvas marks the card unsaved before editing ends',
+    /TYPED$/.test(canvasTyping.text) && canvasTyping.dirty === true && canvasTyping.asked === true,
+    JSON.stringify(canvasTyping));
+
+  /* The Properties Text box follows an edit made in Card Fields, so typing in
+     it afterwards extends that edit instead of writing the old text back. */
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select(editor.findBySlot('title')[0]);
+  });
+  await page.fill('#ff_title', 'Ember Wyrm');
+  await page.waitForTimeout(250);
+  const staleText = { shown: await page.inputValue('#pText') };
+  await page.click('#pText');
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  await page.waitForTimeout(250);
+  staleText.after = await page.evaluate(() => window.TCGForge.editor.findBySlot('title')[0].text);
+  check('the properties text box follows Card Fields, so typing there keeps the edit',
+    staleText.shown === 'Ember Wyrm' && staleText.after === 'Ember Wyrm!', JSON.stringify(staleText));
+
+  /* Placing a background sends it to the back; the Layers list has to say so,
+     or a drag there moves the wrong layer. Properties shows the fitted size. */
+  await page.click('#assetTabs [data-cat="backgrounds"]');
+  await page.waitForTimeout(400);
+  await page.click('#assetGrid > *:first-child').catch(() => {});
+  await page.waitForTimeout(600);
+  const placedBg = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const objs = editor.objects();
+    const canvas = objs.map((o) => o.tcgId);
+    const rows = Array.from(document.querySelectorAll('#layerList .layer-row'))
+      .map((r) => objs[Number(r.dataset.index)]?.tcgId);
+    const labels = Array.from(document.querySelectorAll('#layerList .layer-row .layer-name')).map((n) => n.textContent);
+    const sel = editor.selection()[0];
+    return { bottomIsBg: /^Background/.test(objs[0]?.tcgName || ''),
+      listTop: labels[0], listBottom: labels[labels.length - 1],
+      rowsMatch: JSON.stringify(rows.slice().reverse()) === JSON.stringify(canvas) || JSON.stringify(rows) === JSON.stringify(canvas),
+      pW: Number(document.getElementById('pW').value), width: Math.round(sel?.getScaledWidth() || 0) };
+  });
+  await page.click('#assetTabs [data-cat="frames"]').catch(() => {});
+  check('a placed background is listed at the bottom of the layers, at its fitted size',
+    placedBg.bottomIsBg && /^Background/.test(placedBg.listBottom || '') && placedBg.rowsMatch &&
+      placedBg.pW === placedBg.width, JSON.stringify(placedBg));
+
+  /* A locked layer, picked from the Layers panel, is not moved by the arrow
+     keys or removed by Delete; the toast says why. */
+  const lockIndex = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    const objs = editor.objects();
+    return objs.indexOf(objs.find((o) => o.tcgSlot === 'title'));
+  });
+  await page.click(`#layerList .layer-row[data-index="${lockIndex}"] .layer-btn[title^="Lock"]`).catch(() => {});
+  await page.waitForTimeout(150);
+  await page.click(`#layerList .layer-row[data-index="${lockIndex}"] .layer-name`).catch(() => {});
+  await page.waitForTimeout(150);
+  const lockBefore = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const o = editor.findBySlot('title')[0];
+    return { left: o.left, count: editor.objects().length, selected: editor.selection().includes(o), locked: o.selectable === false };
+  });
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(200);
+  const lockAfter = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const o = editor.findBySlot('title')[0];
+    return { left: o?.left, count: editor.objects().length,
+      toast: Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '' };
+  });
+  await page.click(`#layerList .layer-row[data-index="${lockIndex}"] .layer-btn[title^="Lock"]`).catch(() => {});
+  check('a locked layer picked from the Layers panel is not nudged or deleted from the keyboard',
+    lockBefore.locked && lockBefore.selected && lockAfter.left === lockBefore.left &&
+      lockAfter.count === lockBefore.count && /locked/i.test(lockAfter.toast),
+    JSON.stringify({ lockBefore, lockAfter }));
+
+  /* A column set to "ignore" in the batch dialog stays ignored when the dialog
+     is opened again. */
+  const ignoreCsv = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tcg-smoke-')), 'ignore.csv');
+  fs.writeFileSync(ignoreCsv, 'title,rules\nFire,Burn it\nIce,Freeze\n');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+b');
+  await page.waitForSelector('#modalBody', { timeout: 5000 }).catch(() => {});
+  const ignoreChooser = page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null);
+  await page.click('#modalBody button:text-is("Load file…")', { timeout: 3000 }).catch(() => {});
+  const ignoreFile = await ignoreChooser;
+  if (ignoreFile) await ignoreFile.setFiles(ignoreCsv);
+  await page.waitForTimeout(400);
+  await page.selectOption('#modalBody select[aria-label="Slot for column title"]', '-', { timeout: 3000 }).catch(() => {});
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Control+b');
+  await page.waitForTimeout(400);
+  const ignoredMap = await page.$$eval('#modalBody .map-row select', (ns) => ns.map((n) => [n.getAttribute('aria-label'), n.value]));
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check('a column set to ignore in the batch dialog stays ignored when it is reopened',
+    JSON.stringify(ignoredMap) === JSON.stringify([['Slot for column title', '-'], ['Slot for column rules', 'rules']]),
+    JSON.stringify(ignoredMap));
 
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();

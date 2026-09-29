@@ -3,7 +3,7 @@
 import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
 import {
-  distributeSelection, handleSave, openExportDialog, openProjectDialog, openShortcuts,
+  deleteSelection, distributeSelection, handleSave, openExportDialog, openProjectDialog, openShortcuts,
 } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
@@ -130,7 +130,7 @@ export function initShortcuts() {
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
-      editor.remove();
+      deleteSelection();
       return;
     }
 

@@ -63,7 +63,10 @@ to cover the slot and clipped to it, so swapping images never breaks the design.
 Any layout you build can be saved as a template. A layer can follow a field,
 too — a cost gem shown only when the card has a cost, a stats plate that
 disappears from spells — so an empty spreadsheet cell removes the ornament as
-well as the words.
+well as the words. And a text layer can number itself: give it a pattern like
+`{n:3}/{total}` and every card shows its own place in the set — `007/060` —
+through reordering, batch runs, exports and print sheets, with nothing typed by
+hand.
 
 **Real layer effects.** Solid, linear-gradient and radial-gradient fills;
 strokes with dashed and dotted styles and stroke-behind-fill for crisp text;

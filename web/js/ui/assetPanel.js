@@ -145,83 +145,94 @@ export async function placeAsset(item, dropPoint = null) {
     return null;
   }
 
-  const { width: W, height: H } = state.card;
-
   try {
-    if (cat === 'frames') {
-      const img = await editor.addImage(url, {
-        assetPath: item.path,
-        tcgKind: 'frame',
-        tcgName: `Frame: ${item.name}`,
-        center: false,
-      });
-      img.set({ scaleX: W / img.width, scaleY: H / img.height, left: 0, top: 0 });
-      img.setCoords();
-      editor.canvas.bringObjectToFront(img);
-      editor.canvas.requestRenderAll();
-      return img;
-    }
-
-    if (cat === 'backgrounds' || cat === 'textures') {
-      const img = await editor.addImage(url, {
-        assetPath: item.path,
-        tcgKind: 'background',
-        tcgName: `${cat === 'textures' ? 'Texture' : 'Background'}: ${item.name}`,
-        center: false,
-      });
-      const scale = Math.max(W / img.width, H / img.height);
-      img.set({
-        scaleX: scale,
-        scaleY: scale,
-        left: (W - img.width * scale) / 2,
-        top: (H - img.height * scale) / 2,
-      });
-      img.setCoords();
-      editor.canvas.sendObjectToBack(img);
-      editor.canvas.requestRenderAll();
-      return img;
-    }
-
-    if (cat === 'icons') {
-      const img = await editor.addImage(url, {
-        assetPath: item.path,
-        tcgKind: 'icon',
-        tcgName: `Icon: ${item.name}`,
-        center: !dropPoint,
-      });
-      const target = W * 0.14;
-      img.scaleToWidth(target);
-      if (dropPoint) {
-        img.set({ left: dropPoint.x - target / 2, top: dropPoint.y - img.getScaledHeight() / 2 });
-      }
-      img.setCoords();
-      editor.canvas.requestRenderAll();
-      return img;
-    }
-
-    /* artwork: drop straight into the art slot when the template has one */
-    if (editor.findBySlot('art').length) {
-      return await setFieldImage('art', url, { assetPath: item.path });
-    }
-    const img = await editor.addImage(url, {
-      assetPath: item.path,
-      tcgKind: 'art',
-      tcgName: item.name,
-      center: !dropPoint,
-    });
-    if (dropPoint) {
-      img.set({
-        left: dropPoint.x - img.getScaledWidth() / 2,
-        top: dropPoint.y - img.getScaledHeight() / 2,
-      });
-      img.setCoords();
-      editor.canvas.requestRenderAll();
-    }
-    return img;
+    const placed = await placeImage(cat, item, url, dropPoint);
+    // Scaling and restacking happen after place() has already told the panels
+    // about the new layer, so without this the Layers list showed a background
+    // on top of everything (and a drag there moved the wrong layer) and
+    // Properties showed the size the image had before it was fitted.
+    editor.touch();
+    editor.emitSelection();
+    return placed;
   } catch (err) {
     toast(`Could not place ${item.name}: ${err.message}`, 'err');
     return null;
   }
+}
+
+async function placeImage(cat, item, url, dropPoint) {
+  const { width: W, height: H } = state.card;
+
+  if (cat === 'frames') {
+    const img = await editor.addImage(url, {
+      assetPath: item.path,
+      tcgKind: 'frame',
+      tcgName: `Frame: ${item.name}`,
+      center: false,
+    });
+    img.set({ scaleX: W / img.width, scaleY: H / img.height, left: 0, top: 0 });
+    img.setCoords();
+    editor.canvas.bringObjectToFront(img);
+    editor.canvas.requestRenderAll();
+    return img;
+  }
+
+  if (cat === 'backgrounds' || cat === 'textures') {
+    const img = await editor.addImage(url, {
+      assetPath: item.path,
+      tcgKind: 'background',
+      tcgName: `${cat === 'textures' ? 'Texture' : 'Background'}: ${item.name}`,
+      center: false,
+    });
+    const scale = Math.max(W / img.width, H / img.height);
+    img.set({
+      scaleX: scale,
+      scaleY: scale,
+      left: (W - img.width * scale) / 2,
+      top: (H - img.height * scale) / 2,
+    });
+    img.setCoords();
+    editor.canvas.sendObjectToBack(img);
+    editor.canvas.requestRenderAll();
+    return img;
+  }
+
+  if (cat === 'icons') {
+    const img = await editor.addImage(url, {
+      assetPath: item.path,
+      tcgKind: 'icon',
+      tcgName: `Icon: ${item.name}`,
+      center: !dropPoint,
+    });
+    const target = W * 0.14;
+    img.scaleToWidth(target);
+    if (dropPoint) {
+      img.set({ left: dropPoint.x - target / 2, top: dropPoint.y - img.getScaledHeight() / 2 });
+    }
+    img.setCoords();
+    editor.canvas.requestRenderAll();
+    return img;
+  }
+
+  /* artwork: drop straight into the art slot when the template has one */
+  if (editor.findBySlot('art').length) {
+    return await setFieldImage('art', url, { assetPath: item.path });
+  }
+  const img = await editor.addImage(url, {
+    assetPath: item.path,
+    tcgKind: 'art',
+    tcgName: item.name,
+    center: !dropPoint,
+  });
+  if (dropPoint) {
+    img.set({
+      left: dropPoint.x - img.getScaledWidth() / 2,
+      top: dropPoint.y - img.getScaledHeight() / 2,
+    });
+    img.setCoords();
+    editor.canvas.requestRenderAll();
+  }
+  return img;
 }
 
 /* ------------------------------------------------------------- canvas DnD */

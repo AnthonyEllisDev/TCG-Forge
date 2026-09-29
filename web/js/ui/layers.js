@@ -4,6 +4,7 @@ import { $, activatable, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { editor, parseShowIf } from '../core/editor.js';
 import { kindOf, labelOf } from '../core/objects.js';
+import { deleteSelection } from './toolbar.js';
 
 const KIND_BADGE = {
   text: 'T',
@@ -36,7 +37,7 @@ export function initLayers() {
     else if (action === 'layer-bottom') editor.order('bottom');
     else if (action === 'duplicate') editor.duplicate();
     else if (action === 'group') editor.toggleGroup();
-    else if (action === 'delete') editor.remove();
+    else if (action === 'delete') deleteSelection();
   });
 
   render();
@@ -46,7 +47,7 @@ export function initLayers() {
 function rowsKey(objects) {
   return objects
     .map((obj) => [kindOf(obj), labelOf(obj), obj.tcgSlot || '', obj.tcgShowIf || '',
-      obj.visible === false, obj.selectable === false].join('\u0001'))
+      obj.tcgNumbering || '', obj.visible === false, obj.selectable === false].join('\u0001'))
     .join('\u0002');
 }
 
@@ -108,6 +109,13 @@ function render({ force = false } = {}) {
     row.append(nameEl);
 
     if (obj.tcgSlot) row.append(el('span', { class: 'layer-slot', text: obj.tcgSlot }));
+    else if (String(obj.tcgNumbering ?? '').trim()) {
+      row.append(el('span', {
+        class: 'layer-slot layer-number',
+        text: '#',
+        title: `Numbered: ${obj.tcgNumbering}`,
+      }));
+    }
     const rule = parseShowIf(obj.tcgShowIf);
     if (rule) {
       row.append(el('span', {

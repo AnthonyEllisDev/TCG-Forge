@@ -31,6 +31,9 @@ it.
   [`CARDS.md`](CARDS.md).
 - **Distribute** (0.9.0) — equal gaps between three or more layers, across or
   down the card, from the view toolbar or **Alt + Shift + H / V**.
+- **Card numbering** (0.10.0) — a text layer written from the card's place in
+  its set (`{n:3}/{total}`), in the editor, batch runs, exports and print
+  sheets. See [`TEMPLATES.md`](TEMPLATES.md).
 
 ## Next
 

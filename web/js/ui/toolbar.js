@@ -424,9 +424,15 @@ function bindCardSetup() {
 
 /* --------------------------------------------------------- view toolbar -- */
 
+/** Delete the selected layers, and say why when a lock kept them. */
+export function deleteSelection() {
+  if (!editor.selection().length) return;
+  if (!editor.remove()) toast('Locked layers are kept — unlock a layer to delete it.', 'warn');
+}
+
 /** Shared by the toolbar buttons and Alt+Shift+H / V. */
 export function distributeSelection(axis) {
-  if (!editor.distribute(axis)) toast('Select three or more layers to distribute.', 'warn');
+  if (!editor.distribute(axis)) toast('Select three or more unlocked layers to distribute.', 'warn');
 }
 
 function bindViewToolbar() {

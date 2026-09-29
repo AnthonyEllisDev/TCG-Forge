@@ -46,6 +46,44 @@ condition back to **Always** to hide or show it by hand again.
 The Classic Spell template uses both kinds of ornament: its cost gem follows
 `cost` and its stats plate follows `stats`.
 
+## Card numbering
+
+A text layer can write its own text from where the card sits in its set — a
+collector number, "3 of 12", a page count. Select the layer and type a pattern
+into **Properties → Text → Card numbering**:
+
+| Token | Becomes |
+| --- | --- |
+| `{n}` | the card's position in the set, counting from 1 |
+| `{total}` | how many cards the set has |
+| `{n:3}`, `{total:3}` | the same, padded with zeros to three digits (`007`) |
+
+Anything else is kept as typed, so `No. {n} of {total}` and `{n:3}/{total:3}`
+both work. "The set" depends on what is drawing the card:
+
+- **In the editor**, it is the project's card list: card 3 of a twelve-card
+  project is `{n}` = 3, `{total}` = 12. Adding, deleting, reordering or
+  switching cards renumbers at once. A project with one card is 1 of 1.
+- **In a batch run** — rendering a spreadsheet, *Export → Every card in this
+  project*, *Print → Every card in this project* — each row is a card of the run
+  and is numbered in row order, the same `{n}` its filename pattern uses. The
+  batch dialog's preview is row 1 of however many rows are loaded.
+
+Copies do not change numbering: a card wanted four times is one design with one
+number, as on a real collector's list.
+
+The pattern owns the text, the way a condition owns a layer's visibility. While
+it is set the layer cannot be typed into — on the canvas or in the Text box —
+and the Layers panel marks it `#`. Clear the pattern to type into it again; the
+last number stays as ordinary text. A numbered layer cannot also be a slot
+(each box is disabled while the other is set), because a slot's text belongs to
+the card and a numbered layer's belongs to the set.
+
+It is stored as `tcgNumbering` on the layer. The text saved beside it is just
+what was on screen at the time; it is worked out again whenever the card is
+loaded. The Classic Spell template numbers its cards in the bottom-right corner
+with `{n:3}/{total:3}`.
+
 ## Template file
 
 `workspace/templates/<id>.json`

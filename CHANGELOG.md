@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.10.0 — card numbering
+
+- **Cards can number themselves.** Give a text layer a pattern in
+  **Properties → Text → Card numbering** — `{n:3}/{total}`, `No. {n} of {total}`
+  — and it shows the card's place in the set: `007/060`. In the editor the set
+  is the project's card list, so adding, deleting, reordering or switching cards
+  renumbers at once; in a batch run, and when exporting or printing every card,
+  each row is numbered in order, the same `{n}` its filename uses. `{n:3}` and
+  `{total:3}` pad with zeros. While a pattern is set it owns the text: the layer
+  cannot be typed into, and the Layers panel marks it `#`.
+- **Classic Spell numbers its cards** in the bottom-right corner, and the sample
+  spreadsheet no longer types `001`–`006` into its footer by hand.
+- The mapping dropdowns in the batch dialog now say which column they are for,
+  for screen readers.
+
+### Fixed
+
+- **Typing straight onto the card did not count as a change until you clicked
+  away.** Until then the project read as saved, so **Open**, **New**, loading a
+  template or closing the tab threw the typing away without asking.
+- **The Properties Text box kept the old words after an edit made elsewhere.**
+  Change a title in Card Fields (or on the card) with that layer selected, then
+  type in the Text box, and the old title came back with your keystroke on the
+  end. The box now follows every change.
+- **Placing a background or texture left the Layers list out of order.** The
+  new layer is sent to the back, but the list still showed it on top, so
+  dragging a row there moved a different layer from the one dragged. Properties
+  also showed the picture's size from before it was fitted to the card.
+- **Locked layers could be moved and deleted from the keyboard.** Picking one in
+  the Layers panel and pressing an arrow key or **Delete** moved or removed it;
+  the align and distribute buttons moved it too. Locked layers are now left
+  where they are, and **Delete** says why nothing happened.
+- **A spreadsheet column set to *ignore* was matched again** the next time the
+  batch dialog was opened, so its values went back onto every card.
+
 ## 0.9.0 — distribute
 
 - **Distribute layers evenly.** Two new buttons at the end of the alignment

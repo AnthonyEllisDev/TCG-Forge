@@ -145,6 +145,7 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgClip` | clip this layer to the card rectangle |
 | `tcgCardClip` | marks the clipPath `tcgClip` installed, so it can be removed again |
 | `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
+| `tcgNumbering` | a pattern (`"{n:3}/{total}"`): the text layer's text is written from the card's place in its set |
 | `tcgPlaceholder` | on art placed in a slot: the serialised layer it replaced, so the slot can be emptied again |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
 
@@ -177,7 +178,10 @@ hook straight onto the canvas context. An `exporting` flag suppresses them while
 Anything that arranges layers works from `getBoundingRect()`, which is in card
 coordinates, rather than from `left`/`top`: a member of a multi-layer selection
 keeps those relative to the selection's centre. `align()` and `nudge()` only add
-deltas, so they can stay inside the selection. `distribute()` measures every
+deltas, so they can stay inside the selection. They, `distribute()` and
+`remove()` all leave locked layers alone: a locked layer can still be picked
+from the Layers panel, so the lock is honoured by the commands, not only by the
+canvas. `distribute()` measures every
 layer first, then drops the selection (`memberSelection()`), moves each layer
 so the gaps between neighbouring bounding boxes are equal — the first layer
 stays, the last ends at the furthest edge — and selects them again so the
@@ -208,6 +212,17 @@ Conditional layers need nothing from the batch renderer either.
 whether its slot holds anything, and `editor.touch()` calls it on every change —
 so the `setFieldText` a row goes through has already settled the ornaments by
 the time the card is rendered, and the snapshot restore puts them back after.
+
+Card numbering works the same way from the other side. `editor.applyNumbering()`
+rewrites every text layer carrying a `tcgNumbering` pattern from
+`editor.cardNumber()`, and runs from `touch()`, at the end of `loadJSON()` and
+on every `project:cards` event (a card added, deleted, moved or switched to).
+`cardNumber()` is the project's active card and list length, unless a run has
+set `editor.setNumberContext({n, total})`: `runBatch()` sets it to the row
+before each row's snapshot restore, `renderRow()` takes it as an option for the
+preview, and both set it back to `null` in the `finally` that restores the
+canvas. A numbered layer is never a slot and never a card value, so nothing in
+`cards.js` knows about it.
 
 A quantity column does not change any of that. Each design is still rendered
 once; the counts are collected as the run goes and written beside the images as

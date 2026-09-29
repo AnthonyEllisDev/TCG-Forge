@@ -390,6 +390,9 @@
               <label class="check" title="Shrink the font until the text fits the box height"><input type="checkbox" id="pAutoFit"> Auto-fit text to box</label>
               <label class="field"><span>Field slot (for templates)</span>
                 <input type="text" id="pSlot" class="search" placeholder="e.g. title, rules, cost" spellcheck="false"></label>
+              <label class="field"><span>Card numbering</span>
+                <input type="text" id="pNumbering" class="search" placeholder="e.g. {n:3}/{total}" spellcheck="false" aria-describedby="pNumberingHint"></label>
+              <p class="hint" id="pNumberingHint">{n} is the card's place in the set, {total} the set's size; {n:3} pads to three digits. Leave empty for plain text.</p>
             </div>
 
             <!-- image -->

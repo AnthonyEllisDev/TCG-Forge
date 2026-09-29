@@ -52,6 +52,11 @@ dropdowns, or set a column to *ignore*.
   placeholder copy on the card. An empty art cell gives the layout's own art
   window — the placeholder, or whatever picture the template ships in that
   slot — even when the card on screen has artwork of its own.
+- **Numbered layers need no column.** A text layer with a card-numbering
+  pattern (`{n:3}/{total}`) is numbered by row: the first row is card 1 of
+  however many rows the run has. That is why the sample file has no collector
+  numbers in its footer — Classic Spell writes `001/006` to `006/006` itself.
+  See [`TEMPLATES.md`](TEMPLATES.md#card-numbering).
 
 ## 3 · Output
 
