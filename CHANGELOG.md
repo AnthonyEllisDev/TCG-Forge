@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.11.0 — changes for one card
+
+- **A card can change a layer for itself.** Tick **Properties → Layer → Only on
+  this card** and moving, resizing, turning, fading or recolouring that layer
+  changes it on the card on screen only — a long title set a little lower, a
+  badge turned to sit beside unusual art — while every other card keeps the
+  layout. The Layers panel marks the layer **this card**; unticking the box puts
+  it back as the rest of the set has it. Exporting and printing every card draw
+  each card with its own changes, **Duplicate** copies them, and project files
+  keep them beside the layout rather than in it, so older versions still open
+  the layout. See [`docs/CARDS.md`](docs/CARDS.md#a-change-for-one-card).
+
+### Fixed
+
+- **Saving while a card was still switching saved the wrong card.** Stepping to
+  a card whose artwork took a moment to load and pressing **Ctrl + S** at once
+  wrote the card being left over the card being shown, and marked the project
+  saved. Saving now waits for the switch to finish.
+- **Undo pressed during a card switch left two pictures in one art slot**, and
+  two undos pressed quickly could land on the wrong step and lose the steps
+  after it. Undo and redo now take their turn one at a time and wait for a
+  switch to finish.
+- **Saving a new project under a name another project already had replaced
+  that project without asking.** Two cards both left as *Untitled Card* was
+  enough. The first save, and **Save As**, now ask before replacing a file.
+- **A layer name typed in Properties was lost** if the next click was on another
+  layer on the card. The name is now kept as you type.
+- **Raising or lowering several layers at once** did nothing or swapped them,
+  depending on the order they were picked in. They now move together as a
+  block and keep their order.
+- **A font from the library whose file name has a hyphen or underscore**
+  (`Caladea-Bold.ttf`) was applied under a name the browser did not know, so
+  the text stayed in the default face.
+
 ## 0.10.0 — card numbering
 
 - **Cards can number themselves.** Give a text layer a pattern in

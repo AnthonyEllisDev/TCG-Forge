@@ -47,7 +47,7 @@ export function initLayers() {
 function rowsKey(objects) {
   return objects
     .map((obj) => [kindOf(obj), labelOf(obj), obj.tcgSlot || '', obj.tcgShowIf || '',
-      obj.tcgNumbering || '', obj.visible === false, obj.selectable === false].join('\u0001'))
+      obj.tcgNumbering || '', obj.visible === false, obj.selectable === false, !!obj.tcgBase].join('\u0001'))
     .join('\u0002');
 }
 
@@ -114,6 +114,13 @@ function render({ force = false } = {}) {
         class: 'layer-slot layer-number',
         text: '#',
         title: `Numbered: ${obj.tcgNumbering}`,
+      }));
+    }
+    if (obj.tcgBase) {
+      row.append(el('span', {
+        class: 'layer-slot layer-own',
+        text: 'this card',
+        title: 'Changed on this card only — the rest of the set shows the layout',
       }));
     }
     const rule = parseShowIf(obj.tcgShowIf);

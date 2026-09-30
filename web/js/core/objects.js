@@ -19,6 +19,12 @@
  *               replaced (usually the dashed art box), so the slot can be
  *               emptied again — which is what switching to a card with no art
  *               in that slot does. See templates.clearFieldImage().
+ *   tcgBase   - on a layer the card on screen has changed for itself alone,
+ *               the layout's own values for the properties it changed
+ *               (OVERRIDE_KEYS). The live layer shows the card's version; this
+ *               is what every other card shows. Saved files never carry it —
+ *               toLayoutJSON() puts it back first — but undo snapshots do,
+ *               which is why it is listed below. See cards.setOverride().
  *   _baseWidth/_baseHeight - natural pixel size of an image, for cropping
  */
 
@@ -40,6 +46,7 @@ export const CUSTOM_PROPS = [
   'tcgShowIf',
   'tcgNumbering',
   'tcgPlaceholder',
+  'tcgBase',
   '_baseWidth',
   '_baseHeight',
   'selectable',
@@ -51,6 +58,59 @@ export const CUSTOM_PROPS = [
   'lockScalingY',
   'hasControls',
 ];
+
+/**
+ * What a card may change about a layer for itself alone: where it sits, its
+ * size and turn, how see-through it is, and a plain colour. Nothing that
+ * changes what a layer *is* — its text belongs to the card's slots already,
+ * and its stacking order is the layout's. Which of these apply depends on the
+ * layer: see overrideKeysFor().
+ */
+export const OVERRIDE_KEYS = ['left', 'top', 'scaleX', 'scaleY', 'width', 'height', 'angle', 'opacity', 'fill'];
+
+/**
+ * The override keys that mean "size" differ by layer. A resized box or
+ * triangle has its scale folded into width and height (editor.bakeScale), and
+ * a text box is resized by its width — its height follows its words. An
+ * image's width and height are its crop, so a picture is sized by scale alone.
+ */
+export function overrideKeysFor(obj) {
+  const type = String(obj?.type || '').toLowerCase();
+  return OVERRIDE_KEYS.filter((key) => {
+    if (key === 'width') return type === 'rect' || type === 'triangle' || type === 'textbox';
+    if (key === 'height') return type === 'rect' || type === 'triangle';
+    if (key === 'fill') return typeof obj?.fill === 'string';
+    return true;
+  });
+}
+
+/** Put a layer the card on screen changed back to how the layout has it. */
+export function revertToLayout(obj) {
+  if (!obj?.tcgBase) return false;
+  obj.set({ ...obj.tcgBase, tcgBase: undefined });
+  // A text box back at the layout's width has to wrap its words again.
+  obj.initDimensions?.();
+  obj.setCoords?.();
+  return true;
+}
+
+/**
+ * Canvas JSON as the shared layout: every layer the card on screen changed for
+ * itself is written with the layout's values instead. A project or template
+ * file holds the layout and each card's changes separately, so a build that
+ * knows nothing of card changes still opens the layout it expects.
+ */
+export function toLayoutJSON(canvasJSON) {
+  const visit = (list) => {
+    for (const obj of list || []) {
+      if (obj?.tcgBase && typeof obj.tcgBase === 'object') Object.assign(obj, obj.tcgBase);
+      if (obj) delete obj.tcgBase;
+      if (Array.isArray(obj?.objects)) visit(obj.objects);
+    }
+  };
+  visit(canvasJSON?.objects);
+  return canvasJSON;
+}
 
 const CONTROL_STYLE = {
   transparentCorners: false,

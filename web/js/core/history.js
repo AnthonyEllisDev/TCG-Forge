@@ -16,6 +16,7 @@ class History {
     this.limit = limit;
     this.locked = false;
     this._pending = null;   // the debounced record not yet taken
+    this._steps = Promise.resolve();   // undo/redo still loading, in order
   }
 
   attach() {
@@ -89,18 +90,45 @@ class History {
     state.setDirty(true);
   }
 
-  async undo() {
-    this.flush();
-    if (this.index <= 0) return false;
-    this.index -= 1;
-    await this.apply(this.stack[this.index]);
-    return true;
+  /**
+   * Undo and redo load a snapshot, which awaits its images. A second press
+   * that started its own load meanwhile had the first one's `finally` release
+   * the lock under it, and both loads raced for the canvas: the card landed on
+   * the wrong step and the steps after it were lost. So steps queue, one at a
+   * time. A step is also refused while something else holds the lock — a card
+   * switch or a batch run — because loading it would put a snapshot of the
+   * card being left on top of the one being shown.
+   */
+  undo() {
+    return this._queue(-1);
   }
 
-  async redo() {
+  redo() {
+    return this._queue(1);
+  }
+
+  /** Resolves once every step already asked for has loaded. */
+  settled() {
+    return this._steps;
+  }
+
+  _queue(delta) {
+    const step = this._steps
+      .then(() => this._step(delta))
+      .catch((err) => {
+        console.error('[history] could not restore a step', err);
+        return false;
+      });
+    this._steps = step;
+    return step;
+  }
+
+  async _step(delta) {
+    if (this.locked) return false;
     this.flush();
-    if (this.index >= this.stack.length - 1) return false;
-    this.index += 1;
+    const to = this.index + delta;
+    if (to < 0 || to > this.stack.length - 1) return false;
+    this.index = to;
     await this.apply(this.stack[this.index]);
     return true;
   }

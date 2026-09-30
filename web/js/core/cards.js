@@ -12,6 +12,11 @@
  * The canvas is the truth for the card on screen: its stored values are only
  * read when some other card is shown, and are written back from the slots on
  * every switch and every save.
+ *
+ * A card may also change a layer for itself alone — nudge the title, turn a
+ * badge, recolour a plate (`overrides`, keyed by the layer's `tcgId`). Such a
+ * layer carries the layout's own values in `tcgBase` while its card is shown;
+ * every other card, and every file, sees the layout.
  */
 
 import { api } from './api.js';
@@ -22,6 +27,7 @@ import { history } from './history.js';
 import { applyRow, runBatch } from './batch.js';
 import { readQuantity } from './printSheet.js';
 import { collectFields, isImageSlot, isPlacedArt } from './templates.js';
+import { OVERRIDE_KEYS, overrideKeysFor, revertToLayout } from './objects.js';
 import { slugify, uid } from '../util/dom.js';
 
 /** A project holding more than this is almost certainly a mistyped import. */
@@ -120,11 +126,134 @@ function artValue(img) {
 /** Artwork a card names that could not be loaded when it was last shown. */
 let unresolved = {};
 
+/**
+ * A card switch in progress. The pointer already names the incoming card while
+ * the canvas is still being filled with it, so for that moment the canvas is
+ * neither card and must not be read into either.
+ */
+let switching = null;
+
+/** Resolves once no card switch is in progress. */
+export const settled = () => switching || Promise.resolve();
+
 /** Write the card on screen back into the list. */
 export function syncActive() {
   const cards = cardList();
-  cards[state.project.activeCard].values = captureValues();
+  // Mid-switch the outgoing card has already been written back and the
+  // incoming one's record is still the truth.
+  if (switching) return cards;
+  const card = cards[state.project.activeCard];
+  card.values = captureValues();
+  const overrides = captureOverrides();
+  if (Object.keys(overrides).length) card.overrides = overrides;
+  else delete card.overrides;
   return cards;
+}
+
+/* -------------------------------------------------------------- overrides -- */
+
+/**
+ * Whether a layer can be changed for one card. Artwork slots cannot: the
+ * picture is replaced on every card, and how a card crops its art is a
+ * different question from where a layer sits. Nor can anything inside a
+ * group, which moves as the layout's.
+ */
+export function canOverride(obj) {
+  if (!obj?.tcgId || obj.group || obj.type === 'activeselection') return false;
+  if (!editor.objects().includes(obj)) return false;
+  return !(obj.tcgSlot && isImageSlot(editor.findBySlot(obj.tcgSlot)));
+}
+
+/** The layout's values for what a card may change about this layer. */
+function layoutValues(obj) {
+  return Object.fromEntries(overrideKeysFor(obj).map((key) => [key, obj[key]]));
+}
+
+/** Keep only what a card may change, in a shape that can be set. */
+function cleanPatch(patch) {
+  const out = {};
+  for (const key of OVERRIDE_KEYS) {
+    const value = patch?.[key];
+    if (key === 'fill' ? typeof value === 'string' : Number.isFinite(value)) out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Where a layer sits, read in card coordinates. A member of a multi-layer
+ * selection holds coordinates relative to the selection, so the selection is
+ * dropped for the reading and put back after.
+ */
+function readLayers(read) {
+  const members = editor.memberSelection();
+  try {
+    return read();
+  } finally {
+    if (members.length > 1) editor.select(members);
+  }
+}
+
+/** What the card on screen has changed for itself, as sparse patches. */
+function captureOverrides() {
+  const out = {};
+  const changed = editor.objects().filter((obj) => obj.tcgBase && obj.tcgId);
+  if (!changed.length) return out;
+  readLayers(() => {
+    for (const obj of changed) {
+      const patch = {};
+      for (const [key, base] of Object.entries(obj.tcgBase)) {
+        if (obj[key] !== base) patch[key] = obj[key];
+      }
+      // A layer marked with nothing changed yet is still marked: the next
+      // nudge belongs to this card.
+      out[obj.tcgId] = cleanPatch(patch);
+    }
+  });
+  return out;
+}
+
+/**
+ * Show a card's own changes on the layout: every layer goes back to the
+ * layout first, then each patch is laid over its layer. Layers a patch names
+ * that are no longer on the layout are passed over.
+ */
+export function showOverrides(overrides) {
+  const touched = editor.objects().filter((obj) => revertToLayout(obj));
+  for (const [id, patch] of Object.entries(overrides || {})) {
+    const obj = editor.objects().find((o) => o.tcgId === id);
+    if (!canOverride(obj)) continue;
+    const base = layoutValues(obj);
+    const own = Object.entries(cleanPatch(patch)).filter(([key]) => key in base);
+    obj.set({ tcgBase: base, ...Object.fromEntries(own) });
+    obj.initDimensions?.();
+    obj.setCoords();
+    touched.push(obj);
+  }
+  // A text box given another width wraps differently, and auto-fit has to
+  // measure it again.
+  new Set(touched).forEach((obj) => { if (obj.tcgAutoFit) editor.autoFitText(obj); });
+  editor.canvas?.requestRenderAll();
+}
+
+/** Whether a layer is changed on the card on screen alone. */
+export const isOverridden = (obj) => !!obj?.tcgBase;
+
+/**
+ * Make a layer the card on screen's own, or give it back to the layout.
+ * Handing it back puts it where the layout has it — the card's change is
+ * dropped, not spread to the rest of the set.
+ */
+export function setOverride(obj, on) {
+  if (on) {
+    if (!canOverride(obj) || obj.tcgBase) return false;
+    obj.set('tcgBase', layoutValues(obj));
+  } else if (!revertToLayout(obj)) {
+    return false;
+  }
+  editor.canvas.requestRenderAll();
+  editor.touch();
+  editor.emitSelection();
+  return true;
 }
 
 /** What to call a card in the strip: its first words, or its number. */
@@ -181,9 +310,23 @@ async function applyValues(values) {
  * card would put its words back on the next — so it starts afresh on each.
  */
 export async function switchCard(index) {
+  // An undo still loading would release the history lock halfway through the
+  // switch and put the old card's step over the new card.
+  await history.settled();
   const cards = cardList();
   if (index === state.project.activeCard || index < 0 || index >= cards.length) return [];
   syncActive();
+  let finish;
+  switching = new Promise((resolve) => { finish = resolve; });
+  try {
+    return await showCard(index, cards);
+  } finally {
+    switching = null;
+    finish();
+  }
+}
+
+async function showCard(index, cards) {
   const wasDirty = state.dirty;
   history.locked = true;
   editor.canvas.discardActiveObject();
@@ -191,6 +334,7 @@ export async function switchCard(index) {
   try {
     state.project.activeCard = index;
     failed = await applyValues(cards[index].values);
+    showOverrides(cards[index].overrides);
   } finally {
     history.locked = false;
     // Placing art selects it; a card switch should not leave anything picked.
@@ -212,7 +356,9 @@ export async function addCard({ copy = false } = {}) {
   const at = state.project.activeCard + 1;
   const source = cards[state.project.activeCard];
   const values = copy ? { ...source.values } : {};
-  cards.splice(at, 0, { id: uid('card'), values, qty: copy ? qtyOf(source) : 1 });
+  const card = { id: uid('card'), values, qty: copy ? qtyOf(source) : 1 };
+  if (copy && source.overrides) card.overrides = JSON.parse(JSON.stringify(source.overrides));
+  cards.splice(at, 0, card);
   // The copy is the card the list now points at, so leave the pointer where it
   // was and let the switch do the work.
   await switchCard(at);
@@ -299,7 +445,7 @@ function cardRows() {
   const kinds = slotKinds();
   const mapping = Object.fromEntries([...kinds.keys()].map((slot) => [slot, slot]));
   const rows = cards.map((card, index) => {
-    const row = { _card: cardLabel(card, index, kinds), _qty: qtyOf(card) };
+    const row = { _card: cardLabel(card, index, kinds), _qty: qtyOf(card), _overrides: card.overrides || null };
     for (const [slot, kind] of kinds) {
       const value = card.values?.[slot];
       row[slot] = kind === 'image' ? value || null : value ?? '';
@@ -331,6 +477,7 @@ export function exportCards({ multiplier = 2, format = 'png', transparent = fals
       pattern: '{n:3}-{_card}',
       toWorkspace: api.online,
       qtyColumn: '_qty',
+      prepare: (row) => showOverrides(row._overrides),
     },
   });
 }
@@ -343,7 +490,12 @@ export async function renderCards({ multiplier = 1, onProgress } = {}) {
     rows,
     mapping,
     onProgress,
-    options: { multiplier, format: 'png', sink: (url) => urls.push(url) },
+    options: {
+      multiplier,
+      format: 'png',
+      sink: (url) => urls.push(url),
+      prepare: (row) => showOverrides(row._overrides),
+    },
   });
   if (result.failed.length) {
     const first = result.failed[0];
@@ -360,14 +512,25 @@ export async function renderCards({ multiplier = 1, onProgress } = {}) {
  * project it was run from.
  */
 export function serializeCards({ onlyActive = false } = {}) {
-  if (onlyActive) return { cards: [{ id: uid('card'), values: captureValues() }], activeCard: 0 };
+  if (onlyActive) {
+    const card = { id: uid('card'), values: captureValues() };
+    const overrides = captureOverrides();
+    if (Object.keys(overrides).length) card.overrides = overrides;
+    return { cards: [card], activeCard: 0 };
+  }
   const cards = syncActive();
+  // A change to a layer that has since been deleted from the layout means
+  // nothing any more, on any card.
+  const layers = new Set(editor.objects().map((obj) => obj.tcgId).filter(Boolean));
   return {
-    // A count is written only where it says something, so a set of singles
-    // saves exactly as it did before counts existed.
+    // A count, or a card's own changes, are written only where they say
+    // something, so a plain set of singles saves exactly as it did before
+    // either existed.
     cards: cards.map((card) => {
       const out = { id: card.id, values: { ...card.values } };
       if (qtyOf(card) !== 1) out.qty = qtyOf(card);
+      const overrides = Object.entries(card.overrides || {}).filter(([id]) => layers.has(id));
+      if (overrides.length) out.overrides = Object.fromEntries(overrides);
       return out;
     }),
     activeCard: state.project.activeCard,
@@ -387,11 +550,25 @@ export function loadCards(data) {
         id: typeof card?.id === 'string' ? card.id : uid('card'),
         values: card?.values && typeof card.values === 'object' ? { ...card.values } : {},
         qty: readQuantity(card?.qty),
+        ...readOverrides(card?.overrides),
       }))
     : null;
   state.project.activeCard = Number.isInteger(data?.activeCard) ? data.activeCard : 0;
-  cardList();
+  const cards = cardList();
+  // The file holds the layout; the card it opens on may have changed some of
+  // it for itself.
+  showOverrides(cards[state.project.activeCard].overrides);
   bus.emit(EVT.CARDS, state.project.cards);
+}
+
+/** A card's own changes as read from a file: `{}` when it has none. */
+function readOverrides(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const overrides = {};
+  for (const [id, patch] of Object.entries(raw)) {
+    if (patch && typeof patch === 'object') overrides[id] = cleanPatch(patch);
+  }
+  return Object.keys(overrides).length ? { overrides } : {};
 }
 
 /** Forget the list — the project is one card again, whatever is on screen. */

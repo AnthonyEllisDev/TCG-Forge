@@ -92,7 +92,7 @@ function render() {
     });
 
     if (category === 'fonts') {
-      cell.append(el('span', { class: 'font-chip', text: 'Aa', style: `font-family:"${item.name}"` }));
+      cell.append(el('span', { class: 'font-chip', text: 'Aa', style: `font-family:"${assets.familyOf(item)}"` }));
     } else {
       cell.append(el('img', { src: item.url || api.fileURL(item.path), loading: 'lazy', alt: item.name }));
     }
@@ -135,13 +135,14 @@ export async function placeAsset(item, dropPoint = null) {
   if (cat === 'fonts') {
     const target = editor.selection().filter((o) => o.type === 'textbox' || o.type === 'i-text');
     if (!target.length) {
-      toast(`“${item.name}” is ready to use — pick it in Typography.`, 'info');
+      toast(`“${assets.familyOf(item)}” is ready to use — pick it in Typography.`, 'info');
       return null;
     }
-    target.forEach((o) => o.set('fontFamily', item.name));
+    const family = assets.familyOf(item);
+    target.forEach((o) => o.set('fontFamily', family));
     editor.canvas.requestRenderAll();
     editor.touch();
-    toast(`Applied ${item.name} to ${target.length} text layer${target.length === 1 ? '' : 's'}.`, 'ok');
+    toast(`Applied ${family} to ${target.length} text layer${target.length === 1 ? '' : 's'}.`, 'ok');
     return null;
   }
 

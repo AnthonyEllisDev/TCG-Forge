@@ -18,6 +18,7 @@ import {
   makeArtBox,
   makeImage,
   styleObject,
+  toLayoutJSON,
 } from './objects.js';
 import { fitImage } from './effects.js';
 import { resetCards } from './cards.js';
@@ -260,7 +261,9 @@ function boundsOf(obj) {
 /* ----------------------------------------------------------- save as ----- */
 
 export function buildTemplate({ name, description = '', author = '', tags = [] }) {
-  const canvas = editor.toJSON();
+  // A template is a layout: a change the card on screen made for itself stays
+  // with that card.
+  const canvas = toLayoutJSON(editor.toJSON());
   relinkImages(canvas);
   const fields = collectFields();
   return {

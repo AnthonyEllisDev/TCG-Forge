@@ -8,8 +8,8 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { forEachImageJSON } from './objects.js';
-import { loadCards, resetCards, serializeCards, slotKinds } from './cards.js';
+import { forEachImageJSON, toLayoutJSON } from './objects.js';
+import { loadCards, resetCards, serializeCards, settled, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
 
 export const PROJECT_FORMAT = 'tcgforge.project';
@@ -20,7 +20,9 @@ export const PROJECT_VERSION = 2;
 /* ------------------------------------------------------------ serialise -- */
 
 export async function serializeProject({ embed = state.settings.embedImages, onlyActive = false } = {}) {
-  const canvas = editor.toJSON();
+  // The file's canvas is the layout; what the card on screen changed for
+  // itself goes with that card, in the list.
+  const canvas = toLayoutJSON(editor.toJSON());
   if (embed) await embedImageSources(canvas);
   else dereferenceImages(canvas);
   const { cards, activeCard } = serializeCards({ onlyActive });
@@ -136,14 +138,38 @@ function restoreImagePaths(canvasJSON) {
 
 /* ----------------------------------------------------------------- save -- */
 
+/** Where a project of this name is saved when it has no file yet. */
+export const projectTarget = (name = state.project.name) => `projects/${slugify(name, 'card')}.json`;
+
+/**
+ * Whether saving to `target` would replace a file other than this project's
+ * own. A new project, or Save As, goes to a path made from its name, and two
+ * projects called the same thing — "Untitled Card" above all — used to
+ * overwrite each other without a word.
+ */
+export async function wouldReplace(target) {
+  if (!api.online || target === state.project.path) return false;
+  const folder = target.split('/').slice(0, -1).join('/');
+  try {
+    const data = await api.request(`/api/list?path=${encodeURIComponent(folder)}`);
+    return (data.entries || []).some((entry) => entry.path === target && !entry.dir);
+  } catch {
+    // No folder yet means nothing in it to replace.
+    return false;
+  }
+}
+
 export async function saveProject({ path = state.project.path, name } = {}) {
   if (name) state.project.name = name;
+  // A card switch still filling the canvas would be read as the card it is
+  // switching to, over that card's own record. Let it land first.
+  await settled();
   // Serialising and writing both await, and the editor stays live meanwhile.
   // An edit made in that window is not in the file, so it must not be marked
   // saved — or New and Open would throw it away without asking.
   const revision = state.revision;
   const data = await serializeProject();
-  const target = path || `projects/${slugify(state.project.name, 'card')}.json`;
+  const target = path || projectTarget();
   const settle = () => {
     if (state.revision === revision) state.setDirty(false);
   };

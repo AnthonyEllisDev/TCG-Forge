@@ -15,6 +15,7 @@ import { state } from './state.js';
 import { clearFieldImage, isImageSlot, setFieldImage, setFieldText } from './templates.js';
 import { serializeProject } from './project.js';
 import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
+import { toLayoutJSON } from './objects.js';
 import { downloadURL, slugify } from '../util/dom.js';
 
 /* --------------------------------------------------------------- parsing -- */
@@ -215,6 +216,17 @@ function claimCanvas() {
   rendering = true;
 }
 
+/**
+ * The snapshot a run starts each row from: the layout, without the changes the
+ * card on screen made to its layers for itself. Starting rows from the
+ * snapshot as taken printed one card's nudged title on every row.
+ */
+function layoutSnapshot(snapshot) {
+  const data = JSON.parse(snapshot);
+  toLayoutJSON(data.canvas);
+  return JSON.stringify(data);
+}
+
 async function restoreSnapshot(snapshot) {
   const data = JSON.parse(snapshot);
   Object.assign(state.card, data.card);
@@ -265,6 +277,8 @@ export async function renderRow(row, mapping, {
   editor.canvas.discardActiveObject();
   try {
     if (number) editor.setNumberContext(number);
+    const layout = layoutSnapshot(snapshot);
+    if (layout !== snapshot) await restoreSnapshot(layout);
     await applyRow(row, mapping);
     await nextFrame();
     return editor.toDataURL({ multiplier, format, transparent });
@@ -310,9 +324,14 @@ export async function runBatch({
     // Given, every image goes here instead of to disk: the print sheet uses
     // this to lay out a project's cards without writing them anywhere first.
     sink = null,
+    // Given, called with each row once its values are in and before it is
+    // drawn — a project's cards use it to lay their own changes over the
+    // layout. The run knows nothing of what it does.
+    prepare = null,
   } = options;
 
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
+  const layout = layoutSnapshot(snapshot);
   const originalName = state.project.name;
   const extension = format === 'jpeg' ? 'jpg' : 'png';
   const rendered = [];
@@ -339,8 +358,9 @@ export async function runBatch({
         // Each row is a card of a set of rows.length, numbered in row order —
         // the same {n} its filename gets.
         editor.setNumberContext({ n: index + 1, total: rows.length });
-        await restoreSnapshot(snapshot);
+        await restoreSnapshot(layout);
         await applyRow(row, mapping);
+        if (prepare) await prepare(row, index);
         await nextFrame();
 
         const dataURL = editor.toDataURL({ multiplier, format, transparent });

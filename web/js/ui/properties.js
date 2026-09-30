@@ -11,6 +11,7 @@ import { state } from '../core/state.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
 import { collectFields } from '../core/templates.js';
+import { canOverride, isOverridden, setOverride } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import {
   applyCrop,
@@ -377,6 +378,24 @@ function bindText() {
 }
 
 /**
+ * Whether the layer is the card on screen's own. Artwork slots and
+ * multi-layer selections cannot be, and the hint says why rather than leaving
+ * a dead box.
+ */
+function syncCardOnly(obj, multi) {
+  const box = el('pCardOnly');
+  if (!box) return;
+  const allowed = !multi && canOverride(obj);
+  box.checked = !multi && isOverridden(obj);
+  box.disabled = !allowed;
+  let hint = 'Move, resize, turn, fade or recolour this layer on the card on screen without changing the rest of the set.';
+  if (multi) hint = 'Pick a single layer to change it on this card alone.';
+  else if (!allowed) hint = 'Artwork already changes with every card, so its layer cannot be changed for one card alone.';
+  else if (box.checked) hint = 'Where this layer sits, its size, turn, opacity and colour now belong to this card. Untick to put it back as the rest of the set has it.';
+  setText('pCardOnlyHint', hint);
+}
+
+/**
  * A numbered layer's text is written by its pattern and a slot's by the card,
  * so a layer is one or the other: each box is disabled while the other is set,
  * and the Text box is disabled while a pattern is.
@@ -546,8 +565,17 @@ function bindMeta() {
     // The Visible box changes hands with the condition, so redraw the panel.
     sync();
   }, 'change');
-  bindInput('pName', (n) => apply((o) => o.set('tcgName', n.value.trim() || undefined), { render: false }), 'change');
+  // On every keystroke, not on `change`: clicking another layer on the canvas
+  // changes the selection on mousedown, before the box loses focus, so the
+  // resync wrote the new layer's name over the typing and `change` never came.
+  bindInput('pName', (n) => apply((o) => o.set('tcgName', n.value.trim() || undefined), { render: false }));
   bindInput('pVisible', (n) => apply((o) => o.set('visible', n.checked)), 'change');
+  bindInput('pCardOnly', (n) => {
+    if (syncing) return;
+    const objs = selection();
+    if (objs.length === 1) setOverride(objs[0], n.checked);
+    syncCardOnly(objs[0], objs.length > 1);
+  }, 'change');
   bindInput('pLocked', (n) =>
     apply((o) => {
       const locked = n.checked;
@@ -721,6 +749,7 @@ export function sync() {
     setVal('pName', obj.tcgName || labelOf(obj));
     setChecked('pVisible', obj.visible !== false);
     syncShowIf(obj);
+    syncCardOnly(obj, multi);
     setChecked('pLocked', obj.selectable === false);
   } finally {
     syncing = false;

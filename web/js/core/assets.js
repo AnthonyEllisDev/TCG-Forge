@@ -99,6 +99,16 @@ class AssetLibrary {
     return family;
   }
 
+  /**
+   * The family a library font is registered under. Its file name is not the
+   * family — hyphens and underscores become spaces — so anything applying a
+   * font from the library must ask here, or it sets a name the browser has
+   * never heard of and the text quietly falls back to a default face.
+   */
+  familyOf(item) {
+    return fontFamilyName(item?.name ?? '');
+  }
+
   fontFamilies() {
     return [...this.customFonts.keys()].sort().concat(BUILTIN_FONTS);
   }

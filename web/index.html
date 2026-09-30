@@ -211,7 +211,7 @@
             Copies <input id="cardQty" type="number" min="1" max="999" step="1" value="1">
           </label>
           <span id="cardDeckTotal" class="readout" aria-live="polite"></span>
-          <span class="hint strip-hint">Every card shares the layout; only the Card Fields differ.</span>
+          <span class="hint strip-hint">Cards share the layout; only Card Fields and per-card layers differ.</span>
         </div>
         <div id="cardTiles" class="strip-tiles" role="group" aria-label="Cards"></div>
       </section>
@@ -436,6 +436,8 @@
                 <label class="check"><input type="checkbox" id="pVisible" checked> Visible</label>
                 <label class="check"><input type="checkbox" id="pLocked"> Locked</label>
               </div>
+              <label class="check"><input type="checkbox" id="pCardOnly"> Only on this card</label>
+              <p class="hint" id="pCardOnlyHint">Move, resize, turn, fade or recolour this layer on the card on screen without changing the rest of the set.</p>
               <label class="field"><span>Show this layer</span><select id="pShowIf"></select></label>
               <p class="hint" id="pShowIfHint">Tie an ornament to a field: a cost gem that only appears when the card has a cost.</p>
             </div>

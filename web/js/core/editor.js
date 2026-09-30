@@ -16,6 +16,7 @@ import {
   makeRect,
   makeText,
   makeTriangle,
+  revertToLayout,
   styleObject,
 } from './objects.js';
 
@@ -455,6 +456,9 @@ class Editor {
         top: (obj.top || 0) + 24,
         tcgId: undefined,
         tcgSlot: undefined,
+        // A copy is a new layer of the layout, as it looks now — not a
+        // change the card on screen made to somebody else's layer.
+        tcgBase: undefined,
       });
       styleObject(clone);
       this.canvas.add(clone);
@@ -490,7 +494,7 @@ class Editor {
     const pasted = [];
     for (const source of this.clipboard) {
       const clone = await source.clone(CUSTOM_PROPS);
-      clone.set({ left: (clone.left || 0) + 28, top: (clone.top || 0) + 28, tcgId: undefined });
+      clone.set({ left: (clone.left || 0) + 28, top: (clone.top || 0) + 28, tcgId: undefined, tcgBase: undefined });
       styleObject(clone);
       this.canvas.add(clone);
       pasted.push(clone);
@@ -501,15 +505,35 @@ class Editor {
 
   /* ---------------------------------------------------------------- order */
 
+  /**
+   * Restack the selection as one block. Moving each layer on its own, in the
+   * order they were picked, let one selected layer hop over another — raising
+   * two neighbours did nothing, and sending them to the back swapped them. So
+   * the layers go in stacking order, from the end they are moving towards, and
+   * a layer only steps past one that is not selected.
+   */
   order(action) {
     const objs = this.selection();
     if (!objs.length) return;
     const c = this.canvas;
-    for (const obj of objs) {
-      if (action === 'up') c.bringObjectForward(obj);
-      else if (action === 'down') c.sendObjectBackwards(obj);
-      else if (action === 'top') c.bringObjectToFront(obj);
-      else if (action === 'bottom') c.sendObjectToBack(obj);
+    const picked = new Set(objs);
+    const stack = () => c.getObjects();
+    const bottomUp = [...objs].sort((a, b) => stack().indexOf(a) - stack().indexOf(b));
+    const topDown = [...bottomUp].reverse();
+    if (action === 'up') {
+      for (const obj of topDown) {
+        const above = stack()[stack().indexOf(obj) + 1];
+        if (above && !picked.has(above)) c.bringObjectForward(obj);
+      }
+    } else if (action === 'down') {
+      for (const obj of bottomUp) {
+        const below = stack()[stack().indexOf(obj) - 1];
+        if (below && !picked.has(below)) c.sendObjectBackwards(obj);
+      }
+    } else if (action === 'top') {
+      bottomUp.forEach((obj) => c.bringObjectToFront(obj));
+    } else if (action === 'bottom') {
+      topDown.forEach((obj) => c.sendObjectToBack(obj));
     }
     c.requestRenderAll();
     bus.emit(EVT.OBJECTS, this.objects());
@@ -540,6 +564,9 @@ class Editor {
     } else if (this.selection().length > 1) {
       const items = this.selection().slice();
       this.canvas.discardActiveObject();
+      // A group is part of the layout, so a change the card on screen made to
+      // one of its members for itself cannot come along into it.
+      items.forEach((o) => revertToLayout(o));
       items.forEach((o) => this.canvas.remove(o));
       const group = styleObject(new fabric.Group(items, { tcgKind: 'group', tcgName: 'Group' }));
       this.canvas.add(group);

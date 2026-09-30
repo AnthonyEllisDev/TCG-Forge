@@ -417,6 +417,7 @@
   letter-spacing: 0.04em;
 }
 .layer-cond { color: var(--gold); background: var(--gold-soft); text-transform: none; }
+.layer-own { color: var(--ok); background: var(--ok-soft); text-transform: none; }
 
 /* --------------------------------------------------------------------------
    template field form

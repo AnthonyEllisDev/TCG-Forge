@@ -34,11 +34,12 @@ it.
 - **Card numbering** (0.10.0) — a text layer written from the card's place in
   its set (`{n:3}/{total}`), in the editor, batch runs, exports and print
   sheets. See [`TEMPLATES.md`](TEMPLATES.md).
+- **Per-card layout changes** (0.11.0) — *Only on this card* lets one card move,
+  resize, turn, fade or recolour a layer without changing it for the rest of
+  the set. See [`CARDS.md`](CARDS.md#a-change-for-one-card).
 
 ## Next
 
-- **Per-card layout overrides.** A card that moves or restyles one layer
-  without changing the layout for the rest of the set.
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
 - **More alignment.** Match sizes, align to a chosen key object, and distribute
   with a gap you type rather than an equal share.

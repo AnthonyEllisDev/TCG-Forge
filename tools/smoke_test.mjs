@@ -2686,6 +2686,474 @@ try {
     JSON.stringify(ignoredMap) === JSON.stringify([['Slot for column title', '-'], ['Slot for column rules', 'rules']]),
     JSON.stringify(ignoredMap));
 
+  /* ---- per-card changes (0.11.0) --------------------------------------- */
+  /* A layer made the card's own keeps that card's position, turn and colour;
+     every other card, the saved layout, a template built from it and a copy of
+     the layer all see the layout. */
+  const ownLayer = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'First');
+      await cards.addCard();
+      t.setFieldText('title', 'Second');
+      await cards.addCard();
+      t.setFieldText('title', 'Third');
+      await cards.switchCard(1);
+      const title = () => editor.findBySlot('title')[0];
+      const look = () => {
+        const o = title();
+        return { left: Math.round(o.left), top: Math.round(o.top), angle: o.angle, fill: o.fill, own: !!o.tcgBase };
+      };
+      const base = look();
+      const allowed = { title: cards.canOverride(title()), art: cards.canOverride(editor.findBySlot('art')[0]) };
+      cards.setOverride(title(), true);
+      title().set({ left: title().left + 60, top: title().top + 40, angle: 5, fill: '#ff0000' });
+      editor.touch();
+      const second = look();
+      await cards.switchCard(0);
+      const first = look();
+      await cards.switchCard(2);
+      const third = look();
+      await cards.switchCard(1);
+      const back = look();
+      const template = JSON.stringify(t.buildTemplate({ name: 'Smoke Own' }).canvas);
+      await p.saveProject({ name: 'Smoke Own Layer', path: null });
+      const saved = await api.readJSON(state.project.path);
+      const savedTitle = saved.canvas.objects.find((o) => o.tcgSlot === 'title');
+      const id = title().tcgId;
+      await p.openProjectPath(state.project.path);
+      const reopened = { ...look(), active: cards.activeIndex(), dirty: state.dirty };
+      await cards.switchCard(0);
+      reopened.first = look();
+      await cards.switchCard(1);
+      editor.select(title());
+      await editor.duplicate();
+      const copy = editor.canvas.getActiveObject();
+      const copyOwn = !!copy?.tcgBase;
+      editor.remove([copy]);
+      await api.trash(state.project.path).catch(() => {});
+      await api.trash(`${state.project.path}.bak`).catch(() => {});
+      return {
+        allowed, base, second, first, third, back, reopened, copyOwn,
+        savedTitle: { left: Math.round(savedTitle.left), fill: savedTitle.fill, own: 'tcgBase' in savedTitle },
+        savedCanvasClean: !JSON.stringify(saved.canvas).includes('tcgBase'),
+        templateClean: !template.includes('tcgBase') && !template.includes('#ff0000'),
+        savedOverrides: saved.cards.map((c) => c.overrides?.[id] || null),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const sameLook = (a, b) => a && b && a.left === b.left && a.top === b.top && a.angle === b.angle && a.fill === b.fill;
+  check('a layer changed on one card keeps the change there and nowhere else',
+    ownLayer.allowed?.title === true && ownLayer.allowed.art === false &&
+      ownLayer.second.own && ownLayer.second.left === ownLayer.base.left + 60 &&
+      ownLayer.second.top === ownLayer.base.top + 40 && ownLayer.second.fill === '#ff0000' &&
+      sameLook(ownLayer.first, ownLayer.base) && !ownLayer.first.own &&
+      sameLook(ownLayer.third, ownLayer.base) && sameLook(ownLayer.back, ownLayer.second) &&
+      ownLayer.copyOwn === false,
+    JSON.stringify(ownLayer));
+  check('a card\'s own changes are saved apart from the layout and come back on reopen',
+    ownLayer.savedCanvasClean && ownLayer.templateClean && ownLayer.savedTitle?.left === ownLayer.base?.left &&
+      ownLayer.savedTitle.own === false && ownLayer.savedOverrides?.[0] === null && ownLayer.savedOverrides[2] === null &&
+      ownLayer.savedOverrides[1]?.left === ownLayer.second.left && ownLayer.savedOverrides[1]?.angle === 5 &&
+      ownLayer.savedOverrides[1]?.fill === '#ff0000' && !('scaleX' in ownLayer.savedOverrides[1]) &&
+      sameLook(ownLayer.reopened, ownLayer.second) && ownLayer.reopened.active === 1 &&
+      ownLayer.reopened.dirty === false && sameLook(ownLayer.reopened.first, ownLayer.base),
+    JSON.stringify({ saved: ownLayer.savedOverrides, reopened: ownLayer.reopened, savedTitle: ownLayer.savedTitle }));
+
+  /* Rendering: every card is drawn with its own changes, and a spreadsheet
+     run — started while a card with a change is on screen — is drawn from the
+     layout. Pixels are read back from the rendered images. */
+  const ownRender = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+      const block = editor.insert('rect');
+      block.set({ left: 100, top: 100, width: 160, height: 160, scaleX: 1, scaleY: 1, angle: 0, fill: '#00ff00',
+        stroke: null, strokeWidth: 0, originX: 'left', originY: 'top', tcgName: 'Block' });
+      block.setCoords();
+      editor.touch();
+      await cards.addCard();
+      await cards.addCard();
+      await cards.switchCard(1);
+      cards.setOverride(block, true);
+      block.set({ left: 400, top: 600, fill: '#ff00ff', scaleX: 1.5 });
+      // Resizing a box folds its scale into its width, as a drag does.
+      editor.bakeScale(block);
+      editor.touch();
+      const pixel = async (url, x, y) => {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        return Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3)).join(',');
+      };
+      const urls = await cards.renderCards({ multiplier: 1 });
+      const set = [];
+      for (const url of urls) {
+        set.push({ base: await pixel(url, 180, 180), moved: await pixel(url, 480, 680), wide: await pixel(url, 630, 680),
+          edge: await pixel(url, 300, 180) });
+      }
+      const sheet = [];
+      await batch.runBatch({
+        rows: [{ title: 'Row' }], mapping: { title: 'title' },
+        options: { multiplier: 1, pattern: '{n}', sink: (url) => sheet.push(url) },
+      });
+      const row = { base: await pixel(sheet[0], 180, 180), moved: await pixel(sheet[0], 480, 680) };
+      const preview = await batch.renderRow({ title: 'Preview' }, { title: 'title' }, { multiplier: 1 });
+      const previewed = { base: await pixel(preview, 180, 180), moved: await pixel(preview, 480, 680) };
+      return {
+        set, row, previewed,
+        saved: cards.cardList()[1].overrides,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const green = '0,255,0';
+  const magenta = '255,0,255';
+  check('every card renders with its own changes, and a spreadsheet run renders the layout',
+    ownRender.set?.length === 3 &&
+      ownRender.set[0].base === green && ownRender.set[0].moved !== magenta &&
+      ownRender.set[1].base !== green && ownRender.set[1].moved === magenta && ownRender.set[1].wide === magenta &&
+      ownRender.set[0].edge !== green && ownRender.set[2].edge !== green &&
+      Object.values(ownRender.saved || {})[0]?.width === 240 &&
+      ownRender.set[2].base === green && ownRender.set[2].moved !== magenta &&
+      ownRender.row.base === green && ownRender.row.moved !== magenta &&
+      ownRender.previewed.base === green && ownRender.previewed.moved !== magenta,
+    JSON.stringify(ownRender));
+
+  /* The Properties box, with real clicks and keys: tick it, nudge the layer,
+     step to the next card and back, untick it. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await cards.addCard();
+    await cards.switchCard(0);
+    state.setDirty(false);
+  });
+  await page.waitForTimeout(300);
+  const ownUiAt = await canvasPoint('title');
+  await page.mouse.click(ownUiAt.x, ownUiAt.y);
+  await page.waitForTimeout(150);
+  const ownUi = { artDisabled: null };
+  ownUi.before = await page.evaluate(() => ({
+    left: window.TCGForge.editor.findBySlot('title')[0].left,
+    disabled: document.querySelector('#pCardOnly').disabled,
+    checked: document.querySelector('#pCardOnly').checked,
+  }));
+  await page.click('#pCardOnly', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  ownUi.ticked = await page.evaluate(() => ({
+    own: !!window.TCGForge.editor.findBySlot('title')[0].tcgBase,
+    badge: Array.from(document.querySelectorAll('#layerList .layer-own')).map((n) => n.textContent),
+    hint: document.querySelector('#pCardOnlyHint').textContent,
+    dirty: window.TCGForge.state.dirty,
+  }));
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.waitForTimeout(100);
+  const ownLeft = () => page.evaluate(() => ({
+    left: window.TCGForge.editor.findBySlot('title')[0].left,
+    badge: document.querySelectorAll('#layerList .layer-own').length,
+  }));
+  ownUi.nudged = await ownLeft();
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(700);
+  ownUi.nextCard = await ownLeft();
+  await page.keyboard.press('PageUp');
+  await page.waitForTimeout(700);
+  ownUi.backAgain = await ownLeft();
+  await page.mouse.click(ownUiAt.x + 10, ownUiAt.y);
+  await page.waitForTimeout(150);
+  ownUi.boxBack = await page.evaluate(() => document.querySelector('#pCardOnly').checked);
+  await page.click('#pCardOnly', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  ownUi.unticked = await ownLeft();
+  await page.evaluate(() => window.TCGForge.editor.select(window.TCGForge.editor.findBySlot('art')[0]));
+  await page.waitForTimeout(150);
+  ownUi.artDisabled = await page.evaluate(() => document.querySelector('#pCardOnly').disabled);
+  await page.evaluate(() => window.TCGForge.editor.canvas.discardActiveObject());
+  check('the Only on this card box makes a layer the card\'s own and gives it back',
+    ownUi.before.disabled === false && ownUi.before.checked === false && ownUi.ticked.own === true &&
+      JSON.stringify(ownUi.ticked.badge) === '["this card"]' && ownUi.ticked.dirty === true &&
+      ownUi.nudged.left === ownUi.before.left + 10 &&
+      ownUi.nextCard.left === ownUi.before.left && ownUi.nextCard.badge === 0 &&
+      ownUi.backAgain.left === ownUi.before.left + 10 && ownUi.backAgain.badge === 1 && ownUi.boxBack === true &&
+      ownUi.unticked.left === ownUi.before.left && ownUi.unticked.badge === 0 && ownUi.artDisabled === true,
+    JSON.stringify(ownUi));
+
+  /* ---- 0.11.0 bug guards ----------------------------------------------- */
+  /* A two-card project, the second card's art slowed down so a switch to it
+     takes a moment: the window in which a save or an undo used to act on the
+     wrong card. */
+  const slowStar = async (ms) => {
+    await page.unroute('**/assets/icons/star.svg').catch(() => {});
+    if (ms) {
+      await page.route('**/assets/icons/star.svg', async (route) => {
+        await new Promise((r) => setTimeout(r, ms));
+        await route.continue();
+      });
+    }
+  };
+  const switchPair = async (name) => page.evaluate(async (projectName) => {
+    const { state, api, editor, history } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const p = await import('/js/core/project.js');
+    const cards = await import('/js/core/cards.js');
+    const batch = await import('/js/core/batch.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await batch.applyRow({ title: 'Card One', art: 'assets/icons/gem.svg' }, { title: 'title', art: 'art' });
+    await cards.addCard();
+    await batch.applyRow({ title: 'Card Two', art: 'assets/icons/star.svg' }, { title: 'title', art: 'art' });
+    await cards.switchCard(0);
+    history.reset();
+    await p.saveProject({ name: projectName, path: null });
+    document.activeElement?.blur?.();
+    editor.canvas.discardActiveObject();
+    return state.project.path;
+  }, name);
+
+  const switchSavePath = await switchPair('Smoke Switch Save');
+  await slowStar(1500);
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(2600);
+  const switchSave = await page.evaluate(async (file) => {
+    const { state, api, editor } = window.TCGForge;
+    const cards = await import('/js/core/cards.js');
+    const saved = await api.readJSON(file).catch(() => null);
+    const out = {
+      saved: saved?.cards?.map((c) => [c.values.title, c.values.art]),
+      memory: cards.cardList().map((c) => c.values.title),
+      canvas: editor.findBySlot('title')[0]?.text,
+      active: cards.activeIndex(),
+      dirty: state.dirty,
+    };
+    return out;
+  }, switchSavePath);
+  check('a save pressed while a card is still switching writes each card as itself',
+    JSON.stringify(switchSave.saved) ===
+      JSON.stringify([['Card One', 'assets/icons/gem.svg'], ['Card Two', 'assets/icons/star.svg']]) &&
+      JSON.stringify(switchSave.memory) === JSON.stringify(['Card One', 'Card Two']) &&
+      switchSave.canvas === 'Card Two' && switchSave.active === 1,
+    JSON.stringify(switchSave));
+
+  /* Undo pressed mid-switch must not load the other card's step over the
+     switch — that left two art layers in one slot. */
+  await slowStar(0);
+  await switchPair('Smoke Switch Undo');
+  await page.evaluate(async () => {
+    const { editor, history } = window.TCGForge;
+    const f = await import('/js/core/templates.js');
+    f.setFieldText('title', 'Card One edited');
+    editor.touch();
+    history.flush();
+    document.activeElement?.blur?.();
+  });
+  await slowStar(1500);
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(2600);
+  const switchUndo = await page.evaluate(async () => {
+    const { editor, api, state } = window.TCGForge;
+    const cards = await import('/js/core/cards.js');
+    const out = {
+      artLayers: editor.findBySlot('art').length,
+      title: editor.findBySlot('title')[0]?.text,
+      active: cards.activeIndex(),
+      first: cards.cardList()[0].values.title,
+    };
+    await api.trash(state.project.path).catch(() => {});
+    await api.trash(`${state.project.path}.bak`).catch(() => {});
+    return out;
+  });
+  await page.evaluate(async (file) => {
+    const { api } = window.TCGForge;
+    await api.trash(file).catch(() => {});
+    await api.trash(`${file}.bak`).catch(() => {});
+  }, switchSavePath);
+  check('an undo pressed while a card is still switching leaves one art layer on the new card',
+    switchUndo.artLayers === 1 && switchUndo.title === 'Card Two' && switchUndo.active === 1 &&
+      switchUndo.first === 'Card One edited',
+    JSON.stringify(switchUndo));
+
+  /* Two undos pressed faster than a step can load land two steps back, with
+     both steps still there to redo. */
+  await slowStar(0);
+  await page.evaluate(async () => {
+    const { api, editor, history } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const batch = await import('/js/core/batch.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    history.reset();
+    t.setFieldText('title', 'T1'); editor.touch(); history.flush();
+    await batch.applyRow({ art: 'assets/icons/star.svg' }, { art: 'art' }); editor.touch(); history.flush();
+    t.setFieldText('title', 'T2'); editor.touch(); history.flush();
+    editor.canvas.discardActiveObject();
+    document.activeElement?.blur?.();
+  });
+  await slowStar(400);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(40);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(1500);
+  await slowStar(0);
+  const quickUndos = await page.evaluate(async () => {
+    const { editor, history } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    return { ...history.status(), title: editor.findBySlot('title')[0]?.text,
+      art: t.isPlacedArt(editor.findBySlot('art')[0]), artLayers: editor.findBySlot('art').length,
+      locked: history.locked };
+  });
+  check('two quick undos step back twice and keep both steps to redo',
+    quickUndos.index === 1 && quickUndos.depth === 4 && quickUndos.title === 'T1' && quickUndos.art === false &&
+      quickUndos.artLayers === 1 && quickUndos.locked === false,
+    JSON.stringify(quickUndos));
+
+  /* A first save under a name another project already has asks before it
+     replaces that file. */
+  const clash = await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'The first card');
+    await p.saveProject({ name: 'Smoke Clash', path: null });
+    const first = state.project.path;
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'A different card');
+    state.setDirty(true);
+    return { first, pathAfterTemplate: state.project.path };
+  });
+  await page.fill('#projectName', 'Smoke Clash');
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(500);
+  clash.asked = await page.isVisible('#modalFoot .btn.danger').catch(() => false);
+  await page.click('#modalFoot button:text-is("Cancel")', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  clash.afterCancel = await page.evaluate(async (file) => {
+    const { api, state } = window.TCGForge;
+    const data = await api.readJSON(file).catch(() => null);
+    const title = data?.cards?.[0]?.values?.title;
+    return { title, path: state.project.path, dirty: state.dirty };
+  }, clash.first);
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(500);
+  await page.click('#modalFoot .btn.danger', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  clash.afterReplace = await page.evaluate(async (file) => {
+    const { api, state } = window.TCGForge;
+    const data = await api.readJSON(file).catch(() => null);
+    const out = { title: data?.cards?.[0]?.values?.title, path: state.project.path, dirty: state.dirty };
+    await api.trash(file).catch(() => {});
+    await api.trash(`${file}.bak`).catch(() => {});
+    return out;
+  }, clash.first);
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check('saving a new project under a name already taken asks before replacing that file',
+    clash.pathAfterTemplate === null && clash.asked === true &&
+      clash.afterCancel.title === 'The first card' && clash.afterCancel.path === null &&
+      clash.afterCancel.dirty === true &&
+      clash.afterReplace.title === 'A different card' && clash.afterReplace.path === clash.first,
+    JSON.stringify(clash));
+
+  /* A name typed into Properties is kept when the next thing the user does is
+     click another layer on the canvas. */
+  await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+  });
+  await page.waitForTimeout(300);
+  const renameFrom = await canvasPoint('title');
+  await page.mouse.click(renameFrom.x, renameFrom.y);
+  await page.waitForTimeout(150);
+  await page.click('#pName', { clickCount: 3 });
+  await page.keyboard.type('Hero Banner');
+  const renameTo = await canvasPoint('rules');
+  await page.mouse.click(renameTo.x, renameTo.y);
+  await page.waitForTimeout(250);
+  const renamed = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    return { title: editor.findBySlot('title')[0].tcgName, rules: editor.findBySlot('rules')[0].tcgName,
+      selected: editor.canvas.getActiveObject()?.tcgSlot, box: document.querySelector('#pName').value };
+  });
+  check('a layer name typed in Properties is kept when another layer is clicked on the canvas',
+    renamed.title === 'Hero Banner' && renamed.rules !== 'Hero Banner' && renamed.selected === 'rules' &&
+      renamed.box === renamed.rules,
+    JSON.stringify(renamed));
+
+  /* Raising or lowering several layers moves them as one block, in their own
+     stacking order, whichever order they were picked in. */
+  const blockOrder = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const p = await import('/js/core/project.js');
+    await p.newProject({});
+    const make = (name) => {
+      const o = editor.insert('rect');
+      o.set('tcgName', name);
+      return o;
+    };
+    const [A, B, C, D] = ['A', 'B', 'C', 'D'].map(make);
+    const names = () => editor.objects().filter((o) => /^[ABCD]$/.test(o.tcgName)).map((o) => o.tcgName).join('');
+    const reset = () => [A, B, C, D].forEach((o, i) => editor.canvas.moveObjectTo(o, editor.objects().length - 4 + i));
+    const run = (picked, action) => {
+      reset();
+      editor.select(picked);
+      editor.order(action);
+      const out = names();
+      editor.canvas.discardActiveObject();
+      return out;
+    };
+    return {
+      start: names(),
+      upAB: run([A, B], 'up'),
+      upBA: run([B, A], 'up'),
+      bottomAB: run([A, B], 'bottom'),
+      topBA: run([B, A], 'top'),
+      downDC: run([D, C], 'down'),
+      downCD: run([C, D], 'down'),
+      upAtTop: run([C, D], 'up'),
+    };
+  });
+  check('raising or lowering several layers moves them as one block',
+    blockOrder.start === 'ABCD' && blockOrder.upAB === 'CABD' && blockOrder.upBA === 'CABD' &&
+      blockOrder.bottomAB === 'ABCD' && blockOrder.topBA === 'CDAB' && blockOrder.downDC === 'ACDB' &&
+      blockOrder.downCD === 'ACDB' && blockOrder.upAtTop === 'ABCD',
+    JSON.stringify(blockOrder));
+
+  /* A library font with a hyphen or underscore in its file name is applied
+     under the family name it was registered as. */
+  const fontName = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const { placeAsset } = await import('/js/ui/assetPanel.js');
+    const { assets } = await import('/js/core/assets.js');
+    const o = editor.insert('text');
+    await placeAsset({ category: 'fonts', name: 'Smoke-Font_Bold', file: 'Smoke-Font_Bold.ttf',
+      path: 'assets/fonts/Smoke-Font_Bold.ttf' });
+    return { type: o?.type, family: o?.fontFamily, registered: assets.familyOf?.({ name: 'Smoke-Font_Bold' }) };
+  });
+  check('a library font is applied under the family name it was registered as',
+    fontName.family === 'Smoke Font Bold' && fontName.registered === 'Smoke Font Bold',
+    JSON.stringify(fontName));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

@@ -32,6 +32,7 @@
   --on-gold:       #1a1206;   /* text on a gold badge, either theme */
   --danger:        #ef4d5a;
   --ok:            #3ecf8e;
+  --ok-soft:       rgba(62, 207, 142, 0.14);
   --warn:          #f0a53a;
 
   /* geometry */

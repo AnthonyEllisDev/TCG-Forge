@@ -20,6 +20,7 @@ strings, not a copy of the canvas.
 | --- | --- |
 | text in each slot | every layer without a slot |
 | artwork in each art slot | the position, size, font and effects of slotted layers |
+| where a layer marked **Only on this card** sits, its size, turn, opacity and colour | everything else about that layer |
 | | card size, dpi, corners and background |
 | | which layers follow which field (`tcgShowIf`) — though whether a conditional layer is showing depends on the card, since it follows that card's fields |
 
@@ -76,6 +77,37 @@ listed:
 This is the same rule as 0.5.0's batch quantities: the count is expanded when
 the page is laid out, never by drawing the card several times.
 
+## A change for one card
+
+Sometimes one card needs its own tweak: a long title that has to sit a little
+lower, a set symbol turned to fit beside unusual art, a plate recoloured for a
+special card. Select the layer and tick **Properties → Layer → Only on this
+card**. From then on, moving, resizing, turning or fading that layer, or giving
+it a plain fill colour, changes it on the card on screen only. Every other card
+keeps the layout's version, and the Layers panel marks the layer **this card**
+while this card is shown.
+
+Untick the box to put the layer back as the rest of the set has it — the card's
+change is dropped, not copied to the other cards. To change the layout's
+version of a marked layer, do it from a card that has not marked it.
+
+- A layer's words already belong to each card through its slot; its stacking
+  order, font and effects stay with the layout.
+- Artwork slots cannot be marked: the picture changes with every card already.
+  Nor can layers inside a group, and grouping a marked layer hands it back to
+  the layout first.
+- **Duplicate** copies a card's changes along with its words. A copied or
+  pasted *layer* is a new layer of the layout, as it looked when copied.
+- Exporting or printing every card draws each card with its own changes. A
+  spreadsheet run in the batch dialog draws the layout, whichever card is on
+  screen.
+- Only a plain fill colour can be a card's own. A layer with a gradient can
+  still be moved, resized, turned or faded for one card, but a change to its
+  fill is a change to the layout.
+
+This is Magic Set Editor's *options specific to this card*, for layout rather
+than style settings.
+
 ## Filling a project from a spreadsheet
 
 In the batch dialog, **Add rows as cards** turns every row into a card in this
@@ -109,9 +141,10 @@ A project from 0.7.0 on is version 2 and carries two more keys:
 {
   "format": "tcgforge.project",
   "version": 2,
-  "canvas": { "...": "the layout, showing the active card" },
+  "canvas": { "...": "the layout, showing the active card's words and art" },
   "cards": [
-    { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png", "stats": "4 / 4" }, "qty": 3 },
+    { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png", "stats": "4 / 4" }, "qty": 3,
+      "overrides": { "obj_m2k8a1q": { "left": 130, "top": 82, "angle": 5 } } },
     { "id": "card_p0q7m1c", "values": { "title": "Ashfall Ritual", "art": null, "stats": "" } }
   ],
   "activeCard": 0
@@ -127,6 +160,10 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   one; a card without it is one copy, which is every card saved before 0.8.0.
   The file stays version 2 — an older TCG Forge ignores the key (and drops it
   if it saves the file).
+- `overrides` (0.11.0) is a card's own changes, keyed by the layer's `tcgId`,
+  holding only what differs from the layout. Written only when a card has
+  some; the `canvas` is always the layout without them. Like `qty`, it needs no
+  new version: an older TCG Forge shows every card with the layout.
 - `canvas` is exactly what it was in version 1, so an older TCG Forge opens a
   version-2 file as its active card. (Saving it from that older version keeps
   only that card.)

@@ -147,6 +147,7 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
 | `tcgNumbering` | a pattern (`"{n:3}/{total}"`): the text layer's text is written from the card's place in its set |
 | `tcgPlaceholder` | on art placed in a slot: the serialised layer it replaced, so the slot can be emptied again |
+| `tcgBase` | on a layer the card on screen has changed for itself: the layout's own values for what it changed. In undo snapshots only — saved files never carry it |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
 
 > One gotcha worth knowing: serialised Fabric objects use capitalised type names
@@ -193,7 +194,9 @@ returns `false` without moving anything below that.
 `core/history.js` snapshots `{card, canvas}` as a JSON string on a debounced
 `editor:modified`, capped at 80 steps. Undo and redo take any snapshot still
 waiting out the debounce first, so an edit made a moment before Ctrl+Z is the
-one that is undone. Restoring re-applies the card geometry
+one that is undone. Restoring a step awaits its images, so steps queue one
+behind another rather than loading over each other, and a step is refused while
+something else holds the history lock (a card switch, a batch run). Restoring re-applies the card geometry
 and calls `canvas.loadFromJSON`. Snapshots are strings so no live object can be
 mutated out from under a step.
 
@@ -240,13 +243,31 @@ everything that is not a slot is shared by every card for free.
 
 Switching cards is `applyRow()` from the batch renderer pointed at the project:
 the card on screen is read back out of its slots, then every slot is written
-from the next card. *Every* slot, so a value one card lacks is emptied rather
+from the next card. For the moment a switch is loading, the canvas is neither
+card, so `syncActive()` does not read it and `saveProject()` waits for the
+switch to finish (`cards.settled()`). *Every* slot, so a value one card lacks is emptied rather
 than left over from the previous card; an art slot with no art of its own goes
 back to the layer the art replaced, which placed art carries as
 `tcgPlaceholder`. The canvas is the truth for the card on screen: its record in
 the list is only brought up to date on a switch or a save. History starts
 afresh on each switch, since a snapshot from one card restored onto another
 would carry its words across.
+
+**A card can change a layer for itself** (0.11.0). `setOverride(obj, true)`
+parks the layout's values for `OVERRIDE_KEYS` (`left`, `top`, `scaleX`,
+`scaleY`, `angle`, `opacity`, and `fill` when it is a plain colour) on the layer
+as `tcgBase`; the live layer is then the card's version, and editing it edits
+only that card. `syncActive()` writes the differences into the card's record as
+`overrides: { <tcgId>: {left: 130, …} }`; `showOverrides()` puts every layer
+back to its `tcgBase` and lays the incoming card's patches over the layout,
+after its values, on every switch and when a project opens. Files hold the
+layout only: `toLayoutJSON()` writes each `tcgBase` back over its layer before
+a project or template is saved, so an older build opens the layout it expects.
+Art slots and group members cannot be changed per card; a copied layer drops
+`tcgBase`, and grouping hands its members back to the layout first. Batch runs
+start every row from the layout snapshot (`layoutSnapshot()`), and a project's
+rows carry `_overrides`, which `runBatch()`'s `prepare` hook lays over the row
+before it is drawn — `batch.js` itself knows nothing of cards.
 
 Exporting or printing every card turns the list back into batch rows with an
 identity mapping and hands them to `runBatch()`, whose `sink` option collects

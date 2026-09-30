@@ -14,7 +14,9 @@ import {
   newProject,
   openProjectData,
   openProjectPath,
+  projectTarget,
   saveProject,
+  wouldReplace,
 } from '../core/project.js';
 import { cardList, exportCards } from '../core/cards.js';
 import { isRendering } from '../core/batch.js';
@@ -80,9 +82,21 @@ async function handleNew() {
   toast('New card ready.', 'ok');
 }
 
+/** Ask before a save lands on a file that belongs to another project. */
+async function mayReplace(target) {
+  if (!(await wouldReplace(target))) return true;
+  return confirmDialog({
+    title: 'Replace an existing project?',
+    message: `${target} already holds another project. Saving replaces it; the file it replaces is kept once as a .bak beside it.`,
+    confirmLabel: 'Replace',
+    danger: true,
+  });
+}
+
 export async function handleSave() {
   commitProjectName();
   try {
+    if (!state.project.path && !(await mayReplace(projectTarget()))) return;
     const res = await saveProject({});
     toast(res.saved === 'workspace' ? `Saved to ${res.path}` : 'Downloaded project file.', 'ok');
   } catch (err) {
@@ -100,6 +114,7 @@ async function handleSaveAs() {
   });
   if (!name) return;
   try {
+    if (!(await mayReplace(projectTarget(name)))) return;
     const res = await saveProject({ name, path: null });
     $('#projectName').value = state.project.name;
     toast(res.saved === 'workspace' ? `Saved to ${res.path}` : 'Downloaded project file.', 'ok');
