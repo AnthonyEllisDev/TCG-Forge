@@ -226,6 +226,7 @@
         <header class="panel-head"><h2>Card Fields</h2><span class="chev"></span></header>
         <div class="panel-body">
           <div id="fieldForm" class="field-form"></div>
+          <div id="iconPalette" class="icon-palette" hidden></div>
           <p class="hint" id="fieldHint">Load a template with named slots and its editable fields appear here.</p>
         </div>
       </section>
@@ -366,7 +367,7 @@
             <!-- text -->
             <div class="subgroup" data-sub="text" hidden>
               <h3>Typography</h3>
-              <textarea id="pText" rows="3" class="text-input" placeholder="Layer text…"></textarea>
+              <textarea id="pText" rows="3" class="text-input" placeholder="Layer text…" data-icon-target></textarea>
               <div class="field-row">
                 <label class="field"><span>Font</span><select id="pFontFamily"></select></label>
                 <label class="field narrow"><span>Size</span><input type="number" id="pFontSize" min="4" max="400" step="1" value="24"></label>
@@ -469,7 +470,7 @@
   </div>
 </div>
 
-<div id="toasts" class="toasts"></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 
 <script type="module" src="js/main.js"></script>
 </body>

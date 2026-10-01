@@ -120,7 +120,14 @@ function artValue(img) {
   if (img.tcgAsset) return img.tcgAsset;
   const src = img.getSrc?.() || '';
   const files = `${location.origin}/files/`;
-  return (src.startsWith(files) ? src.slice(files.length) : src) || null;
+  if (!src.startsWith(files)) return src || null;
+  // The address is percent-encoded; the card stores the file's own path.
+  const path = src.slice(files.length);
+  try {
+    return decodeURIComponent(path) || null;
+  } catch {
+    return path || null;
+  }
 }
 
 /** Artwork a card names that could not be loaded when it was last shown. */
@@ -555,9 +562,17 @@ export function loadCards(data) {
     : null;
   state.project.activeCard = Number.isInteger(data?.activeCard) ? data.activeCard : 0;
   const cards = cardList();
+  // Artwork the card on screen names but could not show when it was saved
+  // came back as the placeholder. It is still the card's art, and stepping off
+  // the card must not read the placeholder over it.
+  const active = cards[state.project.activeCard];
+  for (const [slot, kind] of slotKinds()) {
+    const value = active.values[slot];
+    if (kind === 'image' && value && !isPlacedArt(editor.findBySlot(slot)[0])) unresolved[slot] = value;
+  }
   // The file holds the layout; the card it opens on may have changed some of
   // it for itself.
-  showOverrides(cards[state.project.activeCard].overrides);
+  showOverrides(active.overrides);
   bus.emit(EVT.CARDS, state.project.cards);
 }
 

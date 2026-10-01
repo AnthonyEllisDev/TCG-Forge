@@ -7,6 +7,7 @@
 import { bus, EVT } from '../util/bus.js';
 import { clamp, round } from '../util/dom.js';
 import { state } from './state.js';
+import { expandIcons } from './icons.js';
 import {
   CUSTOM_PROPS,
   makeArtBox,
@@ -65,6 +66,8 @@ class Editor {
     // Adding, deleting, reordering or switching cards moves every number on
     // the set without touching the canvas.
     bus.on(EVT.CARDS, () => this.applyNumbering());
+    // Text measured before an icon font arrived measured its icons as blanks.
+    bus.on(EVT.ICONS, () => this.remeasureText());
     this.fitToWindow();
     return this;
   }
@@ -94,7 +97,12 @@ class Editor {
       if (!this.suspendEvents) state.setDirty(true);
       bus.emit(EVT.OBJECTS, this.objects());
     });
-    c.on('text:editing:exited', () => this.touch());
+    c.on('text:editing:exited', (e) => {
+      // `{gem}` typed on the canvas becomes the icon once typing is done;
+      // rewriting the text under the caret mid-word would fight the editor.
+      this.expandIconsIn(e.target);
+      this.touch();
+    });
 
     c.on('selection:created', () => this.emitSelection());
     c.on('selection:updated', () => this.emitSelection());
@@ -707,6 +715,35 @@ class Editor {
       }
       guard += 1;
     }
+    this.canvas.requestRenderAll();
+  }
+
+  /** Turn `{name}` tokens in a text layer into icons. True if it changed. */
+  expandIconsIn(obj) {
+    if (!obj || !isTextObject(obj) || typeof obj.text !== 'string') return false;
+    const text = expandIcons(obj.text);
+    if (text === obj.text) return false;
+    obj.set('text', text);
+    if (obj.tcgAutoFit) this.autoFitText(obj);
+    this.canvas.requestRenderAll();
+    return true;
+  }
+
+  /** Measure every text layer again, as after a font arrives. */
+  remeasureText() {
+    if (!this.canvas) return;
+    fabric.cache.clearFontCache();
+    const walk = (list) => {
+      for (const obj of list) {
+        if (isTextObject(obj)) {
+          obj.initDimensions?.();
+          if (obj.tcgAutoFit) this.autoFitText(obj);
+          obj.dirty = true;
+        }
+        if (obj.getObjects) walk(obj.getObjects());
+      }
+    };
+    walk(this.objects());
     this.canvas.requestRenderAll();
   }
 

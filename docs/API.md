@@ -19,7 +19,13 @@ curl, CI, a script — are unaffected. This is what stops a web page you happen 
 have open from rewriting your workspace over loopback; there is no
 `Access-Control-Allow-Origin` anywhere. A refused request closes its connection.
 
-Bodies must carry a `Content-Length`; chunked bodies are refused.
+Started with `--host` on something other than loopback, the server also
+answers to IP addresses, to this computer's own name and to each
+`--allow-host` name — but still not to a name nobody gave it, which is what a
+DNS-rebinding page arrives under.
+
+Bodies must carry a `Content-Length`; chunked bodies are refused, and so is a
+body that is not a JSON object (`400`).
 
 ## Static routes
 
@@ -86,8 +92,9 @@ All take a JSON body.
 { "path": "projects/my-card.json", "content": "{…}", "backup": true }
 ```
 
-Writes atomically (temp file + rename); a write that fails leaves no temp file
-behind, and a path naming a folder is refused. With `backup: true` an existing
+Writes atomically (a temp file of its own, then a rename), so two writes to the
+same path at once cannot trip over each other; a write that fails leaves no
+temp file behind, and a path naming a folder is refused. With `backup: true` an existing
 file is copied to `<name>.bak` first. Returns the path and byte count.
 
 ### `POST /api/upload`

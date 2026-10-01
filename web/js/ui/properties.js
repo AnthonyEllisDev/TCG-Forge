@@ -13,6 +13,7 @@ import { labelOf } from '../core/objects.js';
 import { collectFields } from '../core/templates.js';
 import { canOverride, isOverridden, setOverride } from '../core/cards.js';
 import { toast } from './dialogs.js';
+import { expandTyped } from './iconPalette.js';
 import {
   applyCrop,
   applyFilters,
@@ -302,13 +303,14 @@ function bindShadow() {
 /* ----------------------------------------------------------------- text -- */
 
 function bindText() {
-  bindInput('pText', (n) =>
+  bindInput('pText', (n) => {
+    expandTyped(n);
     apply((o) => {
       if (!isText(o)) return;
       o.set('text', o.tcgUppercase ? n.value.toUpperCase() : n.value);
       if (o.tcgAutoFit) editor.autoFitText(o);
-    })
-  );
+    });
+  });
 
   bindInput('pFontFamily', (n) => apply((o) => o.set('fontFamily', n.value)), 'change');
   bindInput('pFontSize', (n) =>

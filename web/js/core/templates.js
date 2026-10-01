@@ -21,6 +21,7 @@ import {
   toLayoutJSON,
 } from './objects.js';
 import { fitImage } from './effects.js';
+import { expandIcons } from './icons.js';
 import { resetCards } from './cards.js';
 import { slugify } from '../util/dom.js';
 
@@ -135,7 +136,10 @@ export function setFieldText(slot, value) {
   if (!objs.length) return false;
   for (const obj of objs) {
     if (obj.type !== 'textbox' && obj.type !== 'i-text' && obj.type !== 'text') continue;
-    obj.set('text', obj.tcgUppercase ? String(value).toUpperCase() : String(value));
+    // `{gem}` in a spreadsheet cell or a field is the icon, wherever the
+    // words came from.
+    const text = expandIcons(value);
+    obj.set('text', obj.tcgUppercase ? text.toUpperCase() : text);
     if (obj.tcgAutoFit) editor.autoFitText(obj);
   }
   editor.canvas.requestRenderAll();

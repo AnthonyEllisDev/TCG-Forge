@@ -44,7 +44,9 @@ Every column is matched to a slot automatically when the names line up
 dropdowns, or set a column to *ignore*.
 
 - **Text slots** take the cell value verbatim. Line breaks inside a quoted cell
-  are preserved, and auto-fit shrinks text that would overflow its box.
+  are preserved, and auto-fit shrinks text that would overflow its box. An
+  icon's name in braces — `Deal 2 {element-fire} damage` — becomes the icon;
+  see [`ICONS.md`](ICONS.md).
 - **Art and icon slots** resolve the cell to an image: an asset name from the
   library (`dragon`), a workspace path (`assets/art/dragon.png`), or a URL. The
   image is scaled to cover the slot and clipped to it.

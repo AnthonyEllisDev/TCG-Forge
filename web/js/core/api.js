@@ -99,7 +99,10 @@ class ForgeAPI {
   fileURL(path) {
     if (!path) return '';
     if (/^(data:|blob:|https?:|file:)/i.test(path)) return path;
-    return `/files/${String(path).replace(/^\/+/, '')}`;
+    // A file dropped into the workspace by hand keeps its own name, and a
+    // `#` or `?` in it would otherwise end the path early.
+    const segments = String(path).replace(/^\/+/, '').split('/');
+    return `/files/${segments.map(encodeURIComponent).join('/')}`;
   }
 
   get workspacePath() {

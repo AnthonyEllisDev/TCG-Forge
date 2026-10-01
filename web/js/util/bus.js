@@ -39,6 +39,7 @@ export const EVT = {
   TEMPLATES: 'templates:changed',
   TEMPLATE_APPLIED: 'templates:applied',
   FONTS: 'fonts:changed',
+  ICONS: 'icons:changed',             // icon list, from the icon fonts
   PROJECT: 'project:changed',
   CARDS: 'project:cards',             // card list, or which card is showing
   STATUS: 'ui:status',

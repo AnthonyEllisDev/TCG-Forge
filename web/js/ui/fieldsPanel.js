@@ -19,6 +19,7 @@ import {
   setFieldText,
 } from '../core/templates.js';
 import { toast } from './dialogs.js';
+import { expandTyped } from './iconPalette.js';
 
 let signature = '';
 let artInput = null;
@@ -92,14 +93,24 @@ function render(force) {
       item.append(row);
       item.append(el('div', { class: 'hint', id: `ffh_${field.id}`, text: artHint(current) }));
     } else if (field.type === 'multiline') {
-      const area = el('textarea', { id: `ff_${field.id}`, rows: '3', placeholder: field.placeholder || '' });
+      const area = el('textarea', {
+        id: `ff_${field.id}`, rows: '3', placeholder: field.placeholder || '', dataset: { iconTarget: '' },
+      });
       area.value = fieldValue(field.id);
-      on(area, 'input', () => setFieldText(field.id, area.value));
+      on(area, 'input', () => {
+        expandTyped(area);
+        setFieldText(field.id, area.value);
+      });
       item.append(area);
     } else {
-      const input = el('input', { type: 'text', id: `ff_${field.id}`, placeholder: field.placeholder || '' });
+      const input = el('input', {
+        type: 'text', id: `ff_${field.id}`, placeholder: field.placeholder || '', dataset: { iconTarget: '' },
+      });
       input.value = fieldValue(field.id);
-      on(input, 'input', () => setFieldText(field.id, input.value));
+      on(input, 'input', () => {
+        expandTyped(input);
+        setFieldText(field.id, input.value);
+      });
       item.append(input);
     }
 

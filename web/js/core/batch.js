@@ -384,7 +384,9 @@ export async function runBatch({
           state.project.name = name;
           const project = await serializeProject({ onlyActive: true });
           const folder = subfolder ? `${slugify(subfolder)}/` : '';
-          await api.writeJSON(`projects/${folder}${name}.json`, project);
+          // Same safety net as an ordinary save: a hand-made project that
+          // happens to share the name is kept beside it.
+          await api.writeJSON(`projects/${folder}${name}.json`, project, { backup: true });
         }
 
         onProgress({ index, total: rows.length, name, status: 'done' });

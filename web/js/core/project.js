@@ -61,10 +61,15 @@ async function embedImageSources(canvasJSON) {
     if (!obj.src || obj.src.startsWith('data:')) continue;
     try {
       const res = await fetch(obj.src);
-      const blob = await res.blob();
-      obj.src = await blobToDataURL(blob);
+      // A missing file answers with an error page, which would otherwise be
+      // embedded as the picture and make the project impossible to open.
+      if (!res.ok) throw new Error(`${res.status}`);
+      obj.src = await blobToDataURL(await res.blob());
     } catch (err) {
       console.warn('[project] could not embed image', obj.src, err);
+      // Not embedded, so it is referenced like any other: by workspace path,
+      // which comes back to life when the file does.
+      if (obj.tcgAsset) obj.src = api.fileURL(obj.tcgAsset);
     }
   }
 }

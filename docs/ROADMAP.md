@@ -37,6 +37,10 @@ it.
 - **Per-card layout changes** (0.11.0) — *Only on this card* lets one card move,
   resize, turn, fade or recolour a layer without changing it for the rest of
   the set. See [`CARDS.md`](CARDS.md#a-change-for-one-card).
+- **Icons in rules text** (0.12.0) — `{gem}` in a field, a cell or on the card
+  becomes an inline symbol from an icon font, which
+  `tools/build_icon_font.py` builds from a folder of SVGs. See
+  [`ICONS.md`](ICONS.md).
 
 ## Next
 
@@ -45,6 +49,11 @@ it.
   with a gap you type rather than an equal share.
 - **Rulers and manual guides.** Draggable guides that snap, saved with the
   template.
+
+- **Coloured icons in text.** Today an icon takes the text's colour. A
+  per-icon colour (or full-colour SVG runs) needs Fabric's per-character
+  styles kept in step with the text, through Card Fields, batch and card
+  switches.
 
 ## Soon after
 

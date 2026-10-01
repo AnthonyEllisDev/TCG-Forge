@@ -43,7 +43,10 @@ website you happen to have open. Two checks close that:
 - **`Host`** must be a name this server answers to. Without it, an attacker can
   point their own DNS record at `127.0.0.1`, making their page same-origin with
   yours. Binding to something other than loopback with `--host` is a deliberate
-  choice to serve the network, and turns this check off.
+  choice to serve the network, so the server then also answers to any IP
+  address (an address cannot be rebound — only a name can), to this
+  computer's own name (`hostname`, `hostname.local`) and to every
+  `--allow-host` name. Any other name is still refused.
 
 A refused request is answered `403` and the connection is closed, because its
 body was never read and the socket can no longer be trusted to start at a
@@ -79,6 +82,7 @@ web/
     │   ├── history.js  undo/redo snapshots
     │   ├── effects.js  fills, strokes, shadows, filters, crop
     │   ├── assets.js   asset index and font registration
+    │   ├── icons.js    icons in text: reads icon fonts, {name} tokens
     │   ├── templates.js template load/save and the slot system
     │   ├── cards.js    multi-card projects: the card list and switching
     │   ├── batch.js    spreadsheet parsing and set rendering
@@ -93,6 +97,7 @@ web/
         ├── assetPanel.js  thumbnail browser, click-to-place, drag & drop
         ├── templatePanel.js
         ├── fieldsPanel.js the form view of a template
+        ├── iconPalette.js the icon palette, and {name} typed into a box
         ├── batchPanel.js  the batch generator dialog
         ├── printPanel.js  the print sheet dialog
         ├── cardStrip.js   the card list under the canvas
@@ -118,6 +123,7 @@ second view of the same document, without rewriting panels.
 | `editor:zoom` | zoom level changed |
 | `history:changed` | undo/redo availability |
 | `assets:changed` / `fonts:changed` | library rescanned |
+| `icons:changed` | an icon font was read; payload is the icon list |
 | `templates:applied` | a template was loaded |
 | `project:changed` | project name / path / dirty flag |
 | `project:cards` | the card list changed, or another card is on screen |
@@ -171,6 +177,16 @@ exports are always computed from the true card size.
 
 Rounded card corners are a canvas-level `clipPath`, which means they clip the
 background too and survive export.
+
+An icon in text (`docs/ICONS.md`) is a Private Use Area character drawn by
+font fallback: `core/icons.js` wraps Fabric's `_getFontDeclaration()` so every
+text run's CSS font lists the icon fonts after the layer's own, and Fabric's
+width measurements go through the same declaration. When an icon font arrives,
+`editor.remeasureText()` clears Fabric's width cache and re-fits every text
+layer. `{name}` tokens are turned into characters on the way in —
+`setFieldText()` (Card Fields, batch rows, card switches), the Properties text
+box, and the end of on-canvas editing — so the text always holds the
+character, never the token.
 
 Smart guides, the safe zone and the bleed guide are painted in an `after:render`
 hook straight onto the canvas context. An `exporting` flag suppresses them while

@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.12.0 — icons in rules text
+
+- **Icons sit in the text.** Type `{gem}`, `{element-fire}` or any icon's name
+  in braces into Card Fields, a spreadsheet cell, Properties → Text or straight
+  onto the card, and the symbol appears in the line of text — wrapping,
+  shrinking with auto-fit and printing with the words around it. An **Icons**
+  palette under Card Fields inserts one at the caret. A name that is not an
+  icon is left as typed, so card-number and filename patterns are untouched.
+  The sample spreadsheet now uses a few.
+- **Your own icons are one command away.** `tools/build_icon_font.py` turns a
+  folder of SVGs into a TrueType font (standard library only): filled shapes,
+  round-capped strokes and transforms come through, and a rebuild keeps every
+  icon's code point so saved cards never change symbol. The shipped
+  `Forge-Icons.ttf` is built from the sample icons. Any icon font with named
+  glyphs in the Private Use Area works the same way. See
+  [`docs/ICONS.md`](docs/ICONS.md).
+- **`--allow-host NAME`** lets a server started with `--host` answer to another
+  name.
+- Toasts are now read out by screen readers, and errors interrupt.
+
+### Fixed
+
+- **A project saved with *Embed images* while one of its pictures was missing
+  could never be opened again.** The server's "not found" reply was embedded
+  as the picture. A picture that cannot be read is now kept by its path, so the
+  project opens again as soon as the file is back.
+- **Library files with `#` or `?` in their names could not be placed**, shown or
+  reopened — the name cut the address short. Files dropped into the asset
+  folders by hand keep their own names, so this was easy to hit.
+- **Artwork that would not load was forgotten after a save and reopen.** Its
+  path was kept while the card was on screen, but after reopening the project,
+  stepping to another card wrote "no art" over it.
+- **"Also save an editable project file per card" overwrote projects of the
+  same name without a backup.** It now keeps a `.bak`, as an ordinary save does.
+- **Opening a dialog from the keyboard left the focus behind it** — on the
+  button that opened it — for the Open and Batch dialogs, so Enter opened the
+  dialog again.
+- **Started with `--host 0.0.0.0`, the server answered to any name at all**,
+  which let a web page reach it through its own DNS record. It now answers to
+  addresses, this computer's name and `--allow-host` names only.
+- **Two saves to the same file at the same moment could fail** with a spurious
+  "not found", because both used the same temporary file.
+- A request whose body was not a JSON object was answered with a server error
+  instead of a plain refusal.
+
 ## 0.11.0 — changes for one card
 
 - **A card can change a layer for itself.** Tick **Properties → Layer → Only on

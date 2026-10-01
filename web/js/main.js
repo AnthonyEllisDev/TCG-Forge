@@ -23,6 +23,7 @@ import { initProperties } from './ui/properties.js';
 import { initAssetPanel } from './ui/assetPanel.js';
 import { initTemplatePanel, refresh as refreshTemplates } from './ui/templatePanel.js';
 import { initFieldsPanel } from './ui/fieldsPanel.js';
+import { initIconPalette } from './ui/iconPalette.js';
 import { initBatchPanel } from './ui/batchPanel.js';
 import { initPrintPanel } from './ui/printPanel.js';
 import { initCardStrip } from './ui/cardStrip.js';
@@ -51,6 +52,7 @@ async function boot() {
   initAssetPanel();
   initTemplatePanel();
   initFieldsPanel();
+  initIconPalette();
   initBatchPanel();
   initPrintPanel();
   initCardStrip();

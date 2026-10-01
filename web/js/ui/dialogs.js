@@ -7,7 +7,8 @@ import { $, el } from '../util/dom.js';
 export function toast(message, kind = 'info', duration = 2800) {
   const host = $('#toasts');
   if (!host) return;
-  const node = el('div', { class: `toast ${kind}`, text: message });
+  // Errors interrupt a screen reader; everything else waits its turn.
+  const node = el('div', { class: `toast ${kind}`, text: message, role: kind === 'err' ? 'alert' : null });
   host.append(node);
   setTimeout(() => {
     node.classList.add('fade');
@@ -73,11 +74,12 @@ export function openModal({ title = '', body = '', buttons = [], onOpen, onClose
   activeGuard = canClose || null;
   onOpen?.(bodyEl);
 
-  const firstInput = bodyEl.querySelector('input, textarea, select');
-  if (firstInput) {
-    firstInput.focus();
-    firstInput.select?.();
-  } else {
+  // A hidden file picker is an input too, but it cannot take the focus — and
+  // focus left on the button that opened the dialog is behind it.
+  const firstInput = bodyEl.querySelector('input:not([type="file"]):not([hidden]), textarea, select');
+  firstInput?.focus();
+  firstInput?.select?.();
+  if (!root.contains(document.activeElement)) {
     (footEl.querySelector('.btn.primary') || focusables()[0])?.focus();
   }
   return closeModal;

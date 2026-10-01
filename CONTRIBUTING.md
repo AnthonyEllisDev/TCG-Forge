@@ -86,8 +86,13 @@ If you change the starter templates or sample assets, regenerate them:
 
 ```bash
 python tools/make_sample_assets.py
+python tools/build_icon_font.py                      # after changing the icons
 npm i playwright && node tools/build_templates.mjs   # app must be running
 ```
+
+The smoke test rebuilds the icon font from the shipped icons and fails if the
+result differs from `workspace/assets/fonts/Forge-Icons.ttf` by a single byte,
+so a changed icon needs its font rebuilt in the same commit.
 
 ## Pull requests
 

@@ -6,6 +6,7 @@
 import { api } from './api.js';
 import { bus, EVT } from '../util/bus.js';
 import { slugify } from '../util/dom.js';
+import { addIconFont } from './icons.js';
 
 /* Fonts that are safe to use with no network access. */
 export const BUILTIN_FONTS = [
@@ -76,10 +77,17 @@ class AssetLibrary {
       const family = fontFamilyName(file.name);
       if (this.customFonts.has(family)) continue;
       try {
-        const face = new FontFace(family, `url("${api.fileURL(file.path)}")`);
+        const url = api.fileURL(file.path);
+        const face = new FontFace(family, `url("${url}")`);
         await face.load();
         document.fonts.add(face);
         this.customFonts.set(family, { family, path: file.path, source: 'workspace' });
+        // A font may also be an icon font; only plain TrueType/OpenType can
+        // say so, because a WOFF's tables are compressed.
+        if (/^(ttf|otf)$/i.test(file.ext || '')) {
+          const res = await fetch(url);
+          if (res.ok) addIconFont(family, await res.arrayBuffer());
+        }
       } catch (err) {
         console.warn(`[assets] could not load font ${file.file}`, err);
       }
@@ -95,6 +103,7 @@ class AssetLibrary {
     await face.load();
     document.fonts.add(face);
     this.customFonts.set(family, { family, path: null, source: 'local' });
+    addIconFont(family, buffer);
     bus.emit(EVT.FONTS, this.fontFamilies());
     return family;
   }

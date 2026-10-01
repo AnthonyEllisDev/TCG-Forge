@@ -47,6 +47,8 @@
   /* type */
   --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  /* The icon fonts in the workspace, set once they load (core/icons.js). */
+  --font-icons: sans-serif;
   --fs-xs: 10.5px;
   --fs-sm: 11.5px;
   --fs-md: 12.5px;
@@ -113,6 +115,9 @@ button, input, select, textarea {
   font-size: var(--fs-sm);
   color: var(--text);
 }
+
+/* Text boxes show an icon in a value as the icon, not as a blank box. */
+input, textarea { font-family: var(--font-ui), var(--font-icons); }
 
 input[type="text"], input[type="number"], input[type="search"], select, textarea {
   background: var(--bg-sunken);

@@ -433,6 +433,19 @@
 }
 .field-form textarea { min-height: 54px; }
 
+.icon-palette { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.icon-palette-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }
+.icon-palette-head > span:first-child { font-size: var(--fs-xs); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.icon-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+.icon-btn {
+  width: 30px; height: 30px; padding: 0;
+  font-family: var(--font-icons); font-size: 17px; line-height: 1;
+  background: var(--bg-sunken); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--r-sm); cursor: pointer;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 /* --------------------------------------------------------------------------
    viewport
    -------------------------------------------------------------------------- */

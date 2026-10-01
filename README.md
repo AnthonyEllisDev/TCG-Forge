@@ -79,6 +79,13 @@ registered automatically and appears in the font list. Line height, letter
 spacing, alignment, uppercase transform, and auto-fit that shrinks rules text
 until it fits its box (and never grows past the size the template intended).
 
+**Icons in the rules text.** Type `{gem}` or `{element-fire}` into a field, a
+spreadsheet cell or the card itself, or pick from the **Icons** palette, and the
+symbol sits in the line of text — wrapping, shrinking and printing with the
+words around it. The icons come from a font built from the SVGs in
+`assets/icons` by `tools/build_icon_font.py`, so your own symbols are one
+command away. See [`docs/ICONS.md`](docs/ICONS.md).
+
 **Print-ready output.** Card presets are sized in real inches at your chosen dpi
 (Poker 2.5 × 3.5 in at 300 dpi = 750 × 1050 px). Export PNG or JPEG at 1× to 4×,
 with optional transparency, saved straight into `workspace/exports`. Safe-zone
@@ -134,7 +141,7 @@ workspace/
 │   ├── icons/         mana symbols, element icons, set symbols
 │   ├── art/           illustrations
 │   ├── textures/      overlays: foil, grain, hatching
-│   └── fonts/         .ttf / .otf / .woff / .woff2
+│   └── fonts/         .ttf / .otf / .woff / .woff2, and the icon font
 ├── templates/         reusable layouts (.json)
 ├── projects/          saved projects — one card or a whole set (.json)
 ├── batch/             spreadsheets for batch generation (.csv / .json)
@@ -187,6 +194,7 @@ template…**. Your slots become that template's form fields.
 | [`docs/CARDS.md`](docs/CARDS.md) | Multi-card projects: one layout, a list of cards |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |
+| [`docs/ICONS.md`](docs/ICONS.md) | Icons in rules text, and building an icon font |
 | [`docs/API.md`](docs/API.md) | The local HTTP API exposed by `launch.py` |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned next, and where help is welcome |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Development setup and code conventions |
@@ -226,7 +234,9 @@ node tools/smoke_test.mjs
 
 TCG Forge makes no outbound requests. The server binds to `127.0.0.1` only, so
 it is not reachable from other machines on your network unless you deliberately
-pass `--host 0.0.0.0`. There is no telemetry of any kind.
+pass `--host 0.0.0.0`. Even then it answers only to an IP address, this
+computer's own name, and any name you add with `--allow-host cards.lan`. There
+is no telemetry of any kind.
 
 Binding to loopback is not by itself enough to keep a local server private —
 any web page you have open can send requests to `127.0.0.1`. The API therefore

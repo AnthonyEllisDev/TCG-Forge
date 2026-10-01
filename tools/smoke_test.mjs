@@ -3154,6 +3154,436 @@ try {
     fontName.family === 'Smoke Font Bold' && fontName.registered === 'Smoke Font Bold',
     JSON.stringify(fontName));
 
+  /* ---- 0.12.0 bug guards ------------------------------------------------ */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    state.setDirty(false);
+  });
+  await page.waitForTimeout(300);
+
+  /* "Embed images" fetched each picture without asking whether the fetch
+     worked, so a picture that had gone from the workspace was embedded as the
+     server's JSON error — and the project could then never be opened again,
+     even after the file came back. */
+  const embedGone = await page.evaluate(async () => {
+    try {
+      const { api } = await import('/js/core/api.js');
+      const t = await import('/js/core/templates.js');
+      const p = await import('/js/core/project.js');
+      const png =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
+        'AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const up = await api.uploadAsset({ category: 'art', filename: 'smoke-embed-gone.png', dataURL: png });
+      await t.setFieldImage('art', api.fileURL(up.path), { assetPath: up.path });
+      await api.trash(up.path);
+      const data = await p.serializeProject({ embed: true });
+      let src = null;
+      const walk = (list) => (list || []).forEach((o) => {
+        if (o.tcgAsset === up.path) src = o.src;
+        walk(o.objects);
+      });
+      walk(data.canvas.objects);
+      t.clearFieldImage?.('art');
+      return { path: up.path, src: String(src).slice(0, 60) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('embedding a picture that has gone keeps its path instead of an error page',
+    !embedGone.error && embedGone.src === `/files/${embedGone.path}`, JSON.stringify(embedGone));
+
+  /* A file dropped straight into an asset folder keeps its own name, and a
+     "#" or "?" in it cut the address short: the library listed it and every
+     attempt to load it was a 404. */
+  const hashName = await page.evaluate(async () => {
+    try {
+      const { api } = await import('/js/core/api.js');
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#0f0"/></svg>';
+      const path = 'assets/art/smoke hash #1?.svg';
+      await api.post('/api/write', { path, content: svg });
+      const listing = await api.request('/api/assets');
+      const item = (listing.assets?.art || listing.art || []).find((a) => a.path === path);
+      const listed = item ? (await fetch(item.url)).status : null;
+      const direct = (await fetch(api.fileURL(path))).status;
+      await api.trash(path).catch(() => {});
+      return { found: !!item, listed, direct };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a library file with # or ? in its name can be loaded',
+    hashName.found && hashName.listed === 200 && hashName.direct === 200, JSON.stringify(hashName));
+
+  /* Artwork a card names that would not load was remembered while the card
+     was on screen — but not across a save and reopen, so stepping off that
+     card after reopening wrote null over the path. */
+  const lostArt = await page.evaluate(async () => {
+    try {
+      const c = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      await c.addCard();
+      c.cardList()[0].values.art = 'assets/art/smoke-missing-art.png';
+      await c.switchCard(0);
+      const saved = await p.serializeProject();
+      await p.openProjectData(saved);
+      await c.switchCard(1);
+      const after = c.cardList()[0].values.art;
+      const resaved = (await p.serializeProject()).cards[0].values.art;
+      return { saved: saved.cards[0].values.art, after, resaved };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('art that would not load survives a reopen and a card switch',
+    lostArt.after === 'assets/art/smoke-missing-art.png' && lostArt.resaved === lostArt.after,
+    JSON.stringify(lostArt));
+
+  /* "Save an editable project file per card" wrote straight over any project
+     of the same name, with none of the backup an ordinary save keeps. */
+  const batchBak = await page.evaluate(async () => {
+    try {
+      const { api } = await import('/js/core/api.js');
+      const b = await import('/js/core/batch.js');
+      await api.writeJSON('projects/smoke-batch-own.json', { format: 'tcgforge.project', name: 'Hand-made' });
+      await b.runBatch({
+        rows: [{ title: 'Own' }], mapping: { title: 'title' },
+        options: { pattern: 'smoke-batch-own', subfolder: '', saveProjects: true, multiplier: 1 },
+      });
+      const now = await api.readJSON('projects/smoke-batch-own.json').catch(() => null);
+      const bak = await api.readJSON('projects/smoke-batch-own.json.bak').catch(() => null);
+      for (const f of ['projects/smoke-batch-own.json', 'projects/smoke-batch-own.json.bak',
+        'exports/smoke-batch-own.png']) await api.trash(f).catch(() => {});
+      return { now: now?.name, bak: bak?.name };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a batch run keeps a backup of a project file it replaces',
+    batchBak.now && batchBak.bak === 'Hand-made', JSON.stringify(batchBak));
+
+  /* Opening a dialog from the keyboard left focus on the toolbar button
+     behind it whenever the dialog's first input was a hidden file picker. */
+  await page.evaluate(() => window.TCGForge.state.setDirty(false));
+  await page.focus('[data-action="open-project"]');
+  await page.keyboard.press('Enter');
+  await page.waitForSelector('#modalRoot:not([hidden])', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  const dialogFocus = await page.evaluate(() => {
+    const a = document.activeElement;
+    const inModal = !!a?.closest('.modal');
+    return { tag: a?.tagName, type: a?.type || '', inModal };
+  });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  check('a dialog opened from the keyboard takes the focus',
+    dialogFocus.inModal && dialogFocus.type !== 'file', JSON.stringify(dialogFocus));
+
+  /* The server took a JSON array as a request and answered with a 500 from
+     deep inside the handler; anything but an object is a 400 now. */
+  const arrayBody = await rawRequest({
+    method: 'POST', path: '/api/write',
+    headers: { 'Content-Type': 'application/json' }, body: '[1]',
+  });
+  check('a request body that is not a JSON object is refused as a bad request',
+    arrayBody.status === 400, `POST [1] → ${arrayBody.status}`);
+
+  /* Every write used the same temp file, so two writes to one path at the
+     same moment could rename or remove each other's and one came back 404. */
+  const racing = [];
+  for (let round = 0; round < 4; round += 1) {
+    const batch = await Promise.all(Array.from({ length: 8 }, (_, i) => rawRequest({
+      method: 'POST', path: '/api/write',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: 'projects/smoke-racing.json', content: JSON.stringify({ i, pad: 'x'.repeat(150000) }) }),
+    })));
+    racing.push(...batch.map((r) => r.status));
+  }
+  await page.evaluate(async () => {
+    const { api } = await import('/js/core/api.js');
+    await api.trash('projects/smoke-racing.json').catch(() => {});
+  });
+  check('simultaneous writes to one file all succeed',
+    racing.length === 32 && racing.every((s) => s === 200),
+    `${racing.filter((s) => s === 200).length}/32 → 200`);
+
+  /* Serving the network (--host 0.0.0.0) used to switch the Host check off
+     altogether, so a page arriving under its own DNS name — a rebinding
+     attack on the user's own browser — could write to the workspace. Any
+     address that is not 127.0.0.1 counts as serving the network; 127.0.0.2
+     says so without opening a port to the network (or a firewall prompt),
+     except on macOS, which only answers on 127.0.0.1. */
+  const network = await (async () => {
+    const { spawn } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const launcher = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'launch.py');
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tcg-network-'));
+    const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const bind = process.platform === 'darwin' ? '0.0.0.0' : '127.0.0.2';
+    const child = spawn(python, ['-u', launcher, '--no-browser', '--host', bind, '--port', '7960',
+      '--workspace', scratch, '--allow-host', 'cards.example'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      const port = await new Promise((resolve) => {
+        let out = '';
+        const timer = setTimeout(() => resolve(null), 8000);
+        child.stdout.on('data', (chunk) => {
+          out += chunk;
+          const m = out.match(/running\s*:\s*http:\/\/[^:]+:(\d+)\//);
+          if (m) { clearTimeout(timer); resolve(Number(m[1])); }
+        });
+        child.on('exit', () => { clearTimeout(timer); resolve(null); });
+      });
+      if (!port) return { error: 'launcher did not start' };
+      const probe = (host) => new Promise((resolve) => {
+        const req = http.request({ host: bind === '0.0.0.0' ? '127.0.0.1' : bind, port, path: '/api/status',
+          headers: { Host: `${host}:${port}` } },
+          (res) => { res.resume(); resolve(res.statusCode); });
+        req.on('error', () => resolve(null));
+        req.end();
+      });
+      return {
+        rebound: await probe('cards.evil.example'),
+        address: await probe('192.168.1.20'),
+        named: await probe('cards.example'),
+        loopback: await probe('localhost'),
+      };
+    } catch (err) {
+      return { error: err.message };
+    } finally {
+      child.kill();
+    }
+  })();
+  check('serving the network still refuses a name nobody gave the server',
+    network.rebound === 403 && network.address === 200 && network.named === 200 && network.loopback === 200,
+    JSON.stringify(network));
+
+  /* Every error the app reports is a toast, and the toasts were silent to a
+     screen reader. */
+  const spoken = await page.evaluate(async () => {
+    const { toast } = await import('/js/ui/dialogs.js');
+    toast('Smoke error', 'err', 400);
+    const host = document.querySelector('#toasts');
+    const last = host.lastElementChild;
+    return { live: host.getAttribute('aria-live'), role: host.getAttribute('role'), errRole: last?.getAttribute('role') };
+  });
+  check('toasts are announced, and errors interrupt',
+    spoken.live === 'polite' && spoken.role === 'status' && spoken.errRole === 'alert', JSON.stringify(spoken));
+
+  /* ---- icons in text ---------------------------------------------------- */
+
+  /* The shipped icon font is what the builder makes from the shipped icons,
+     byte for byte — so it is reproducible and cannot drift from the SVGs —
+     and a rebuild keeps every icon's code point, because a card's text stores
+     the code point itself. */
+  const iconBuild = await (async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const builder = path.join(root, 'tools', 'build_icon_font.py');
+    const shipped = ['element-air', 'element-dark', 'element-earth', 'element-fire', 'element-light',
+      'element-water', 'gem', 'heart', 'shield', 'skull', 'star', 'sword'];
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tcg-icons-'));
+    const icons = path.join(scratch, 'icons');
+    fs.mkdirSync(icons);
+    for (const name of shipped) {
+      fs.copyFileSync(path.join(root, 'workspace', 'assets', 'icons', `${name}.svg`), path.join(icons, `${name}.svg`));
+    }
+    const out = path.join(scratch, 'Forge-Icons.ttf');
+    const run = (...args) => spawnSync(python, [builder, '--icons', icons, '--out', out, ...args], { encoding: 'utf8' });
+    const first = run();
+    if (first.status !== 0) return { error: first.stderr || first.error?.message || 'builder failed' };
+    const same = Buffer.compare(fs.readFileSync(out),
+      fs.readFileSync(path.join(root, 'workspace', 'assets', 'fonts', 'Forge-Icons.ttf'))) === 0;
+    const table = () => Object.fromEntries(run('--list').stdout.trim().split('\n')
+      .map((line) => line.match(/U\+([0-9A-F]+)\s+\{(.+)\}/)).filter(Boolean).map((m) => [m[2], m[1]]));
+    const before = table();
+    // A new icon that sorts first, and one taken away.
+    fs.copyFileSync(path.join(icons, 'star.svg'), path.join(icons, 'aaa-new.svg'));
+    fs.rmSync(path.join(icons, 'gem.svg'));
+    run();
+    const after = table();
+    const kept = shipped.filter((n) => n !== 'gem').every((n) => before[n] && before[n] === after[n]);
+    return { same, count: Object.keys(before).length, gem: before.gem, kept, added: after['aaa-new'], gone: !after.gem };
+  })().catch((err) => ({ error: err.message }));
+  check('the icon font is rebuilt from the icons byte for byte, keeping every code point',
+    iconBuild.same && iconBuild.count === 12 && iconBuild.gem === 'E006' && iconBuild.kept &&
+      iconBuild.added === 'E00C' && iconBuild.gone,
+    JSON.stringify(iconBuild));
+
+  /* The app reads the icon names out of the font, and the canvas draws and
+     measures an icon from it: two icons paint different shapes (a missing
+     glyph paints the same box for both) at the font's own advance width. */
+  const iconPaint = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const icons = await import('/js/core/icons.js');
+      const list = icons.iconList();
+      const gem = list.find((i) => i.name === 'gem');
+      const o = editor.insert('text');
+      o.set({ left: 20, top: 20, width: 500, fontSize: 300, fill: '#ff00ff', text: '\ue007', opacity: 1 });
+      o.initDimensions();
+      const advance = Math.round(o.getLineWidth(0));
+      const mask = () => new Promise((resolve) => {
+        const url = editor.toDataURL({ multiplier: 1 });
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          c.width = img.width;
+          c.height = img.height;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          const d = ctx.getImageData(20, 20, 420, 420).data;
+          let ink = 0;
+          let hash = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            const on = d[i] > 200 && d[i + 1] < 80 && d[i + 2] > 200;
+            if (on) { ink += 1; hash = (hash * 31 + i) % 1000000007; }
+          }
+          resolve({ ink, hash });
+        };
+        img.src = url;
+      });
+      const heart = await mask();
+      o.set('text', '\ue00a');
+      o.initDimensions();
+      editor.canvas.requestRenderAll();
+      const star = await mask();
+      editor.canvas.remove(o);
+      editor.touch();
+      return {
+        count: list.length, gem: gem?.char.codePointAt(0).toString(16), families: icons.iconFamilies(),
+        loaded: document.fonts.check('20px "Forge Icons"'), advance, heart, star,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('icons are read from the font and drawn on the canvas at their own width',
+    !iconPaint.error && iconPaint.count === 12 && iconPaint.gem === 'e006' && iconPaint.loaded &&
+      Math.abs(iconPaint.advance - 291) <= 3 && iconPaint.heart.ink > 3000 && iconPaint.star.ink > 3000 &&
+      iconPaint.heart.hash !== iconPaint.star.hash,
+    JSON.stringify(iconPaint));
+
+  /* Typed into Card Fields with real keys: a finished {name} becomes the icon
+     in the box and on the card, the caret stays put, and braces that name no
+     icon are left alone. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    state.setDirty(false);
+  });
+  await page.waitForTimeout(300);
+  await page.click('#ff_rules');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Pay {gem} and {nothing} now');
+  await page.waitForTimeout(250);
+  const typedIcon = await page.evaluate(() => ({
+    field: document.querySelector('#ff_rules').value,
+    canvas: window.TCGForge.editor.findBySlot('rules')[0].text,
+    caret: document.querySelector('#ff_rules').selectionStart,
+  }));
+  check('{name} typed into a card field becomes the icon, on the card too',
+    typedIcon.field === 'Pay \ue006 and {nothing} now' && typedIcon.canvas === typedIcon.field &&
+      typedIcon.caret === typedIcon.field.length,
+    JSON.stringify(typedIcon));
+
+  /* The palette puts the icon at the caret of the box that had it last — not
+     simply the first field — and gives that box the focus back (a real mouse
+     click and a real keyboard press). */
+  await page.click('#ff_rules');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Bolt');
+  await page.keyboard.press('Home');
+  await page.click('#iconPalette [data-icon="star"]');
+  await page.keyboard.type(' ');
+  await page.waitForTimeout(200);
+  const paletteMouse = await page.evaluate(() => ({
+    field: document.querySelector('#ff_rules').value,
+    canvas: window.TCGForge.editor.findBySlot('rules')[0].text,
+    focus: document.activeElement?.id,
+  }));
+  await page.focus('#iconPalette [data-icon="heart"]');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  const paletteKeys = await page.evaluate(() => ({
+    field: document.querySelector('#ff_rules').value,
+    focus: document.activeElement?.id,
+  }));
+  check('the icon palette inserts at the caret of the last text box',
+    paletteMouse.field === '\ue00a Bolt' && paletteMouse.canvas === paletteMouse.field &&
+      paletteMouse.focus === 'ff_rules' && paletteKeys.field === '\ue00a \ue007Bolt' && paletteKeys.focus === 'ff_rules',
+    JSON.stringify({ paletteMouse, paletteKeys }));
+
+  /* On the canvas a token turns into the icon when typing ends, and in the
+     Properties text box as it is typed. A short title keeps it on one line,
+     so End is the end of the text. */
+  await page.fill('#ff_title', 'Bolt');
+  await page.waitForTimeout(150);
+  const titleLayer = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const o = editor.findBySlot('title')[0];
+    const r = o.getBoundingRect();
+    const z = editor.canvas.getZoom();
+    const box = editor.canvas.upperCanvasEl.getBoundingClientRect();
+    return { x: box.left + (r.left + 30) * z, y: box.top + (r.top + r.height / 2) * z };
+  });
+  await page.mouse.click(titleLayer.x, titleLayer.y);
+  await page.mouse.dblclick(titleLayer.x, titleLayer.y);
+  await page.keyboard.press('End');
+  await page.keyboard.type(' {skull}');
+  const whileTyping = await page.evaluate(() => window.TCGForge.editor.findBySlot('title')[0].text);
+  await page.evaluate(() => window.TCGForge.editor.canvas.getActiveObject()?.exitEditing?.());
+  await page.waitForTimeout(200);
+  const canvasIcon = await page.evaluate(() => ({
+    text: window.TCGForge.editor.findBySlot('title')[0].text,
+    field: document.querySelector('#ff_title').value,
+  }));
+  await page.evaluate(() => window.TCGForge.editor.select(window.TCGForge.editor.findBySlot('rules')[0]));
+  await page.waitForTimeout(200);
+  await page.click('#pText');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Gain {heart}.');
+  await page.waitForTimeout(200);
+  const propsIcon = await page.evaluate(() => ({
+    box: document.querySelector('#pText').value,
+    canvas: window.TCGForge.editor.findBySlot('rules')[0].text,
+  }));
+  check('a token typed on the canvas or in Properties becomes the icon',
+    whileTyping.endsWith(' {skull}') && canvasIcon.text.endsWith(' \ue009') && canvasIcon.field === canvasIcon.text &&
+      propsIcon.box === 'Gain \ue007.' && propsIcon.canvas === propsIcon.box,
+    JSON.stringify({ whileTyping, canvasIcon, propsIcon }));
+
+  /* A spreadsheet cell's {name} is the icon on the rendered card, and the
+     canvas comes back as it was. */
+  const batchIcons = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const b = await import('/js/core/batch.js');
+      const before = editor.findBySlot('rules')[0].text;
+      const seen = [];
+      const images = [];
+      await b.runBatch({
+        rows: [{ rules: 'Pay {gem}.' }, { rules: 'Pay {GEM} and {star}.' }],
+        mapping: { rules: 'rules' },
+        options: {
+          multiplier: 1,
+          sink: (url) => images.push(url),
+          prepare: () => seen.push(editor.findBySlot('rules')[0].text),
+        },
+      });
+      return { seen, images: images.length, after: editor.findBySlot('rules')[0].text === before };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a {name} in a spreadsheet cell renders as the icon',
+    batchIcons.seen?.[0] === 'Pay \ue006.' && batchIcons.seen?.[1] === 'Pay \ue006 and \ue00a.' &&
+      batchIcons.images === 2 && batchIcons.after,
+    JSON.stringify(batchIcons));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ipaddress
 import json
 import mimetypes
 import os
@@ -27,16 +28,17 @@ import shutil
 import socket
 import stat
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
 from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.12.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -154,7 +156,9 @@ def scan_assets() -> dict:
                         "file": fn,
                         "ext": ext.lstrip("."),
                         "path": r,
-                        "url": "/files/" + r,
+                        # A file dropped in by hand keeps its own name, and a
+                        # "#" or "?" in it would end the address early.
+                        "url": "/files/" + quote(r),
                         "group": "" if group == "." else group,
                         "size": st.st_size,
                         "modified": iso(st.st_mtime),
@@ -257,7 +261,10 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             self.close_connection = True
             raise ValueError("payload too large")
         raw = self.rfile.read(length)
-        return json.loads(raw.decode("utf-8"))
+        body = json.loads(raw.decode("utf-8"))
+        if not isinstance(body, dict):
+            raise ValueError("the request body must be a JSON object")
+        return body
 
     # -- access control ----------------------------------------------------
     # Loopback is not a security boundary. Any web page in the browser can post
@@ -278,11 +285,11 @@ class ForgeHandler(SimpleHTTPRequestHandler):
 
     def _request_allowed(self) -> bool:
         allowed = getattr(self.server, "allowed_hosts", None)
-        if allowed:
+        if allowed is not None and not host_allowed(self._host_name(), allowed,
+                                                    getattr(self.server, "network", False)):
             # A name we do not serve under means the request arrived through
             # someone else's DNS record: that is a rebinding attack.
-            if self._host_name() not in allowed:
-                return False
+            return False
         origin = self.headers.get("Origin")
         if origin is None:
             return True                               # curl, CI, plain navigation
@@ -408,10 +415,17 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             os.makedirs(os.path.dirname(full), exist_ok=True)
             if body.get("backup") and os.path.exists(full):
                 shutil.copy2(full, full + ".bak")
-            tmp = full + ".tmp"
+            # A temp file of its own, so two writes to one path at once cannot
+            # rename or remove each other's.
+            fd, tmp = tempfile.mkstemp(prefix=".write-", suffix=".tmp",
+                                       dir=os.path.dirname(full))
             try:
-                with open(tmp, "w", encoding="utf-8") as fh:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
                     fh.write(content)
+                # mkstemp makes the file private; the user's file keeps the
+                # permissions an ordinary write would have given it.
+                os.chmod(tmp, stat.S_IMODE(os.stat(full).st_mode)
+                         if os.path.exists(full) else 0o644)
                 os.replace(tmp, full)
             finally:
                 # Only reachable with the temp file still there if the write or
@@ -507,11 +521,39 @@ def decode_data_url(value: str) -> bytes:
     return base64.b64decode(value)
 
 
+def host_allowed(name: str, allowed: frozenset, network: bool) -> bool:
+    """Whether a request's Host names this server rather than someone's DNS."""
+    if name in allowed:
+        return True
+    if not network:
+        return False
+    # Serving the network means being reached by address. An address cannot be
+    # rebound — only a name can be pointed somewhere new — so any is fine.
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
+
+
+def machine_names() -> set:
+    """The names other machines on the network are likely to use for this one."""
+    names = set()
+    try:
+        host = socket.gethostname().strip().lower()
+    except OSError:
+        return names
+    if host:
+        names |= {host, f"{host}.local"}
+    return names
+
+
 class ThreadingHTTPServerV6(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
     verbose = False
     allowed_hosts = frozenset()
+    network = False
 
 
 # --------------------------------------------------------------------------
@@ -539,6 +581,9 @@ def main(argv=None):
                         help="port to listen on (default: 7870)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="interface to bind (default: 127.0.0.1, local only)")
+    parser.add_argument("--allow-host", action="append", default=[], metavar="NAME",
+                        help="with --host, another name the server may be reached "
+                             "by (repeatable)")
     parser.add_argument("--workspace", default=WORKSPACE,
                         help="workspace folder holding assets/templates/projects")
     parser.add_argument("--no-browser", action="store_true",
@@ -556,11 +601,15 @@ def main(argv=None):
     httpd = ThreadingHTTPServerV6((args.host, port), ForgeHandler)
     httpd.verbose = args.verbose
     # Binding somewhere other than loopback is a deliberate choice to serve the
-    # network, so the caller decides which names reach it; the default refuses
-    # everything but this machine.
+    # network: it may then be reached by address, by this machine's own name
+    # and by any --allow-host name — but still not by a name nobody gave it,
+    # which is what a rebinding page arrives under.
     bound = args.host.strip().lower()
-    httpd.allowed_hosts = (frozenset(LOOPBACK_HOSTS | {bound})
-                           if bound in LOOPBACK_HOSTS else frozenset())
+    names = LOOPBACK_HOSTS | {bound} | {n.strip().lower() for n in args.allow_host if n.strip()}
+    httpd.network = bound not in LOOPBACK_HOSTS
+    if httpd.network:
+        names |= machine_names()
+    httpd.allowed_hosts = frozenset(names)
     url = f"http://{args.host}:{port}/"
 
     print(f"\n  {APP_NAME} {APP_VERSION}")
