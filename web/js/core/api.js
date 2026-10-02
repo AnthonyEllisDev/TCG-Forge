@@ -83,6 +83,11 @@ class ForgeAPI {
     });
   }
 
+  /** Write any text file in the workspace, e.g. a CSV. */
+  writeText(path, content, { backup = false } = {}) {
+    return this.post('/api/write', { path, content, backup });
+  }
+
   uploadAsset({ category, filename, dataURL, group }) {
     return this.post('/api/upload', { category, filename, data: dataURL, group });
   }

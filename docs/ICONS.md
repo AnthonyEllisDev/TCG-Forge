@@ -84,8 +84,17 @@ a font it reads the old one first: every icon keeps the code point it had, and
 new icons take the next free one. A saved card never finds a different icon in
 its text after a rebuild.
 
-Taking an icon *out* and rebuilding forgets its code point; cards that used it
-then show an empty box where it was. Keep an icon's file while any card uses it.
+Taking an icon *out* and rebuilding leaves its code point reserved — the
+builder warns, and records it in the font — so cards that used it show an empty
+box where it was rather than some newer icon. Put the file back and it takes
+its old code point again. A code point is never handed out twice.
+
+A *new* font starts after the highest code point the other fonts in its folder
+use, so two fonts built with this tool never share one. A font from elsewhere
+may still collide (most start at U+E000): the first font loaded keeps the code
+point, and the other font's icon is left out of the palette with a warning in
+the browser console, rather than inserting a character that draws as somebody
+else's icon.
 
 ## Bringing an icon font from elsewhere
 

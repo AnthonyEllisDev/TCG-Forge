@@ -96,6 +96,23 @@ export function parseTable(text, { delimiter } = {}) {
   return { columns: header, rows, delimiter: sep };
 }
 
+/**
+ * The reverse of parseTable(): `{ columns, rows }` as CSV text that
+ * parseTable() — and a spreadsheet — reads back to the same cells. A cell is
+ * quoted when it holds a comma, a quote or a line break. Lines end in CRLF
+ * and the text starts with a byte-order mark, which is what makes Excel read
+ * it as UTF-8 rather than mangling every accented letter.
+ */
+export function toCSV(columns, rows) {
+  const cell = (value) => {
+    const text = String(value ?? '');
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [columns.map(cell).join(',')];
+  for (const row of rows) lines.push(columns.map((column) => cell(row[column])).join(','));
+  return `\ufeff${lines.join('\r\n')}\r\n`;
+}
+
 /** Accept a JSON array of objects as an alternative to CSV. */
 export function parseJSONTable(text) {
   const data = JSON.parse(text);

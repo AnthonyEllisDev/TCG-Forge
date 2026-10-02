@@ -207,11 +207,13 @@
           <button class="btn tiny" data-card-action="right" title="Move this card later" aria-label="Move this card later">⇢</button>
           <button class="btn tiny" data-card-action="delete" title="Delete this card">Delete</button>
           <span class="strip-sep"></span>
+          <button class="btn tiny" id="cardsCsv" data-card-action="sheet" title="Save every card's fields as a spreadsheet in workspace/batch. Edit it, then bring it back with Batch → Add rows as cards.">Save as CSV</button>
+          <span class="strip-sep"></span>
           <label class="strip-qty" title="How many of this card the deck wants. Print and Export → every card use it; the card is still drawn once.">
             Copies <input id="cardQty" type="number" min="1" max="999" step="1" value="1">
           </label>
           <span id="cardDeckTotal" class="readout" aria-live="polite"></span>
-          <span class="hint strip-hint">Cards share the layout; only Card Fields and per-card layers differ.</span>
+          <span class="hint strip-hint" title="Cards share the layout; only Card Fields and per-card layers differ.">Cards share the layout; only Card Fields and per-card layers differ.</span>
         </div>
         <div id="cardTiles" class="strip-tiles" role="group" aria-label="Cards"></div>
       </section>

@@ -6,15 +6,20 @@
  * file; they would be most of its size and all of its diff noise.
  */
 
-import { $, el, on } from '../util/dom.js';
+import { $, downloadText, el, on, slugify } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
+import { api } from '../core/api.js';
+import { state } from '../core/state.js';
 import { editor } from '../core/editor.js';
 import { history } from '../core/history.js';
+import { isRendering } from '../core/batch.js';
+import { wouldReplace } from '../core/project.js';
 import {
   activeIndex,
   addCard,
   cardLabel,
   cardList,
+  cardsTable,
   captureValues,
   moveCard,
   qtyOf,
@@ -98,6 +103,8 @@ async function runAction(action) {
       await goTo(index + 1);
     } else if (action === 'left' || action === 'right') {
       moveCard(index, action === 'left' ? -1 : 1);
+    } else if (action === 'sheet') {
+      await saveSheet();
     } else if (action === 'delete') {
       if (cardList().length <= 1) return;
       const label = cardLabel(cardList()[index], index);
@@ -119,6 +126,44 @@ async function runAction(action) {
     toast(`${err.message}`, 'err');
   }
   render();
+}
+
+/**
+ * Every card's fields as a CSV in workspace/batch, where the batch dialog
+ * lists it. The sheet carries each card's id, so loading it back with *Add
+ * rows as cards* updates these cards rather than adding a second set.
+ */
+async function saveSheet() {
+  // During a run the canvas shows a spreadsheet row, and the card on screen
+  // would be read from it.
+  if (isRendering()) {
+    toast('Wait for the render to finish first.', 'warn');
+    return;
+  }
+  const table = await cardsTable();
+  const file = `${slugify(state.project.name, 'cards')}.csv`;
+  const count = `${table.rows.length} ${table.rows.length === 1 ? 'card' : 'cards'}`;
+  const note = table.inline
+    ? ` ${table.inline} ${table.inline === 1 ? 'picture lives' : 'pictures live'} only inside the project file and ${table.inline === 1 ? 'was' : 'were'} left blank.`
+    : '';
+  if (!api.online) {
+    downloadText(table.csv, file, 'text/csv');
+    toast(`Downloaded ${count} as ${file}.${note}`, table.inline ? 'warn' : 'ok', 6000);
+    return;
+  }
+  const target = `batch/${file}`;
+  if (await wouldReplace(target)) {
+    const go = await confirmDialog({
+      title: 'Replace a spreadsheet?',
+      message: `${target} already exists — perhaps with edits not brought back yet. Saving replaces it; the file it replaces is kept once as a .bak beside it.`,
+      confirmLabel: 'Replace',
+      danger: true,
+    });
+    if (!go) return;
+  }
+  await api.writeText(target, table.csv, { backup: true });
+  toast(`Saved ${count} to ${target}. Edit it in a spreadsheet, then bring it back with Batch → Add rows as cards.${note}`,
+    table.inline ? 'warn' : 'ok', 7000);
 }
 
 /** Keep the picture of the card on screen current. */

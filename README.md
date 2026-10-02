@@ -113,7 +113,9 @@ shares the layout and keeps its own words and artwork, so a set-wide change is
 one edit. Add, duplicate, reorder and delete cards, turn a spreadsheet into
 cards you can go on editing, give each card a number of copies, nudge or
 recolour a layer on one card without touching the rest, and export or print
-every card at once. See [`docs/CARDS.md`](docs/CARDS.md).
+every card at once. **Save as CSV** writes the whole set out as a spreadsheet;
+edit it there and load it back, and the same cards are updated in place. See
+[`docs/CARDS.md`](docs/CARDS.md).
 
 **Decks, not just sets.** A count column in the spreadsheet — `qty`, `copies`,
 whatever you call it — makes a deck out of a set: four of this, one of that.

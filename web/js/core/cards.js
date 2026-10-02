@@ -24,7 +24,8 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { applyRow, runBatch } from './batch.js';
+import { applyRow, isRendering, runBatch, toCSV } from './batch.js';
+import { collapseIcons, expandIcons } from './icons.js';
 import { readQuantity } from './printSheet.js';
 import { collectFields, isImageSlot, isPlacedArt } from './templates.js';
 import { OVERRIDE_KEYS, overrideKeysFor, revertToLayout } from './objects.js';
@@ -405,24 +406,47 @@ export function moveCard(index, delta) {
 /* ------------------------------------------------------------ from a file -- */
 
 /**
+ * The column that ties a spreadsheet row to the card it was written from. Its
+ * leading underscore keeps the batch dialog from guessing a slot for it.
+ */
+export const ID_COLUMN = '_id';
+
+/**
  * Append spreadsheet rows as cards. Nothing is rendered: a row becomes the
  * same values a card holds, so the set can be edited card by card afterwards.
  * A quantity column, when there is one, becomes each card's count.
+ *
+ * A row whose `_id` names a card already in the project updates that card
+ * instead — the way back for a sheet written by cardsTable(). Only the mapped
+ * slots change: a column left out, or set to ignore, keeps the card's own
+ * value, and so do its per-card layer changes. If the card on screen is one
+ * of them, it is shown again with its new values.
  */
-export function addRows(rows, mapping, resolve, { qtyColumn = '' } = {}) {
+export async function addRows(rows, mapping, resolve, { qtyColumn = '' } = {}) {
+  if (isRendering()) throw new Error('a render is using the card — try again when it has finished');
+  await history.settled();
+  await settled();
   const cards = syncActive();
-  if (cards.length + rows.length > MAX_CARDS) {
-    throw new Error(`that would make ${cards.length + rows.length} cards — a project holds at most ${MAX_CARDS}`);
+  const byId = new Map(cards.map((card) => [card.id, card]));
+  const fresh = rows.filter((row) => !byId.has(String(row[ID_COLUMN] ?? '').trim()));
+  if (cards.length + fresh.length > MAX_CARDS) {
+    throw new Error(`that would make ${cards.length + fresh.length} cards — a project holds at most ${MAX_CARDS}`);
   }
   const kinds = slotKinds();
   const missing = new Set();
+  const touched = new Set();
+  let added = 0;
   for (const row of rows) {
-    const values = {};
+    const id = String(row[ID_COLUMN] ?? '').trim();
+    // A row copied in the spreadsheet carries the same id twice; the first
+    // updates the card and the copy becomes a card of its own.
+    const card = byId.get(id) && !touched.has(id) ? byId.get(id) : null;
+    const values = card ? { ...card.values } : {};
     for (const [column, slot] of Object.entries(mapping)) {
       if (!kinds.has(slot)) continue;
       const cell = String(row[column] ?? '').trim();
       if (kinds.get(slot) === 'text') {
-        values[slot] = String(row[column] ?? '');
+        values[slot] = expandIcons(row[column] ?? '');
       } else if (cell) {
         try {
           const asset = resolve(cell);
@@ -431,13 +455,73 @@ export function addRows(rows, mapping, resolve, { qtyColumn = '' } = {}) {
           missing.add(cell);
           values[slot] = null;
         }
+      } else if (card && !/^(data|blob):/i.test(card.values[slot] || '')) {
+        // Blank means blank, for art too: the card goes back to the layout's.
+        // Except for a picture kept inside the project file, which a sheet
+        // has no way to hold — cardsTable() wrote it out as a blank cell.
+        values[slot] = null;
       }
     }
-    cards.push({ id: uid('card'), values, qty: qtyColumn ? readQuantity(row[qtyColumn]) : 1 });
+    if (card) {
+      card.values = values;
+      if (qtyColumn) card.qty = readQuantity(row[qtyColumn]);
+      touched.add(id);
+    } else {
+      cards.push({ id: uid('card'), values, qty: qtyColumn ? readQuantity(row[qtyColumn]) : 1 });
+      added += 1;
+    }
   }
-  state.setDirty(true);
+  const active = state.project.activeCard;
+  if (touched.has(cards[active].id)) {
+    // The canvas is the truth for the card on screen, so a new value in its
+    // record means nothing until the card is drawn from it again.
+    await settled();
+    let finish;
+    switching = new Promise((done) => { finish = done; });
+    try {
+      await showCard(active, cards);
+    } finally {
+      switching = null;
+      finish();
+    }
+  }
+  if (added || touched.size) state.setDirty(true);
   bus.emit(EVT.CARDS, cards);
-  return { added: rows.length, missing: [...missing] };
+  return { added, updated: touched.size, missing: [...missing] };
+}
+
+/**
+ * Every card as a spreadsheet: one row per card, one column per slot, its
+ * copies, and its id so the sheet can come back as an update (addRows). Icons
+ * are written as their `{name}`, which reads in any spreadsheet and turns back
+ * into the icon on the way in. Artwork is its workspace path; a picture that
+ * only lives inside the project file as a data URL has no path to write and
+ * is left blank — `inline` counts those.
+ */
+export async function cardsTable() {
+  await settled();
+  const cards = syncActive();
+  const kinds = slotKinds();
+  const slots = [...kinds.keys()];
+  const qtyColumn = kinds.has('qty') ? 'copies' : 'qty';
+  const columns = [ID_COLUMN, ...slots, qtyColumn];
+  let inline = 0;
+  const rows = cards.map((card) => {
+    const row = { [ID_COLUMN]: card.id, [qtyColumn]: String(qtyOf(card)) };
+    for (const [slot, kind] of kinds) {
+      const value = card.values?.[slot];
+      if (kind === 'text') {
+        row[slot] = collapseIcons(value ?? '');
+      } else if (value && /^(data|blob):/i.test(value)) {
+        row[slot] = '';
+        inline += 1;
+      } else {
+        row[slot] = value || '';
+      }
+    }
+    return row;
+  });
+  return { columns, rows, inline, csv: toCSV(columns, rows) };
 }
 
 /* ---------------------------------------------------------------- render -- */

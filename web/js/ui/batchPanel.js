@@ -30,6 +30,9 @@ let ignored = new Set();
 let sourceName = '';
 let qtyChoice = '';
 let running = false;
+// Rows going into the project; when they update the card on screen, it is
+// redrawn, and a run or preview started meanwhile would snapshot it half-done.
+let adding = false;
 let cancelRequested = false;
 
 const nodes = {};
@@ -50,6 +53,8 @@ function availableSlots() {
 
 /** Match a spreadsheet column to a slot: exact id, then label-ish, then contains. */
 function guessSlot(column, slots) {
+  // `_id`, `_qty`… are the app's own bookkeeping, never a slot.
+  if (column.trim().startsWith('_')) return '-';
   const key = column.trim().toLowerCase().replace(/[\s_-]+/g, '');
   const normalised = slots.map((slot) => [slot, slot.toLowerCase().replace(/[\s_-]+/g, '')]);
   const exact = normalised.find(([, s]) => s === key);
@@ -85,7 +90,7 @@ export function openBatchDialog() {
 
   /* --- data source --- */
   const fileInput = el('input', { type: 'file', accept: '.csv,.tsv,.txt,.json', hidden: true });
-  const workspaceSelect = el('select');
+  const workspaceSelect = el('select', { id: 'batchWorkspaceFile', 'aria-label': 'Spreadsheet in workspace/batch' });
   workspaceSelect.append(el('option', { value: '', text: 'workspace/batch …' }));
 
   const summary = el('div', { class: 'hint', id: 'batchSummary', text: 'No data loaded yet.' });
@@ -96,6 +101,7 @@ export function openBatchDialog() {
       workspaceSelect,
       el('button', {
         class: 'btn',
+        id: 'batchOpenFile',
         text: 'Open',
         onClick: async () => {
           if (!workspaceSelect.value) return;
@@ -190,7 +196,8 @@ export function openBatchDialog() {
           class: 'btn',
           id: 'batchAddCards',
           text: 'Add rows as cards',
-          title: 'Add every row to this project as a card you can go on editing, without rendering anything',
+          title: 'Add every row to this project as a card you can go on editing, without rendering anything. '
+            + 'Rows from a sheet saved by the card strip\'s CSV button update their own cards instead.',
           onClick: () => addAsCards(),
         }),
         nodes.count,
@@ -230,6 +237,7 @@ export function openBatchDialog() {
         setStatus('Stopping after this card…', 'warn');
         return false;
       }
+      if (adding) return 'Updating the cards — close again in a moment.';
       return !isRendering() || 'Finishing the preview — close again in a moment.';
     },
     buttons: [
@@ -378,7 +386,7 @@ function renderMapping(slots) {
 async function preview(pattern) {
   // A preview borrows the canvas just as a run does; inside a run it would
   // take its snapshot of a spreadsheet row and unlock history under it.
-  if (running) return;
+  if (running || adding) return;
   if (!table.rows.length) {
     toast('Load a spreadsheet first.', 'warn');
     return;
@@ -399,10 +407,15 @@ async function preview(pattern) {
 /**
  * Turn the table into cards in this project. Nothing is drawn, so this is
  * instant, and the set can then be edited card by card and rendered with
- * Export → every card.
+ * Export → every card. Rows carrying the `_id` of a card already here (a
+ * sheet written by the card strip's CSV button) update that card instead.
  */
-function addAsCards() {
-  if (running) return;
+async function addAsCards() {
+  if (running || adding) return;
+  if (isRendering()) {
+    toast('Wait for the preview to finish first.', 'warn');
+    return;
+  }
   if (!table.rows.length) {
     toast('Load a spreadsheet first.', 'warn');
     return;
@@ -411,10 +424,15 @@ function addAsCards() {
     toast('Map at least one column to a slot.', 'warn');
     return;
   }
+  adding = true;
   try {
-    const { added, missing } = addRows(table.rows, mapping, resolveAsset, { qtyColumn: qtyChoice });
+    const { added, updated, missing } = await addRows(table.rows, mapping, resolveAsset, { qtyColumn: qtyChoice });
+    const done = [
+      updated ? `Updated ${updated} ${updated === 1 ? 'card' : 'cards'}` : '',
+      added || !updated ? `${updated ? 'added' : 'Added'} ${added} ${added === 1 ? 'card' : 'cards'}` : '',
+    ].filter(Boolean).join(' and ');
     setStatus(
-      `Added ${added} cards to this project — it now holds ${cardList().length}. ` +
+      `${done} — the project now holds ${cardList().length}. ` +
         'Switch between them in the strip under the card.' +
         (qtyChoice ? ` Each card's Copies came from “${qtyChoice}”.` : '') +
         (missing.length ? ` No asset named ${missing.map((m) => `"${m}"`).join(', ')}; those slots were left empty.` : ''),
@@ -422,10 +440,13 @@ function addAsCards() {
     );
   } catch (err) {
     setStatus(`Could not add the rows: ${err.message}`, 'warn');
+  } finally {
+    adding = false;
   }
 }
 
 async function start(options) {
+  if (adding) return;
   if (running) {
     cancelRequested = true;
     return;

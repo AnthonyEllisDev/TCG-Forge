@@ -20,6 +20,8 @@ const PUA_END = 0xf8ff;
 
 /* name → { name, char, family } */
 const catalogue = new Map();
+/* code point → { name, family } of the icon that took it first. */
+const claimed = new Map();
 /* Families that hold icons, in the order they were found. */
 const families = [];
 
@@ -151,6 +153,17 @@ export function addIconFont(family, buffer) {
     // The first font to name an icon keeps it; a second font cannot quietly
     // change what {gem} means on cards already made.
     if (catalogue.has(name)) continue;
+    // Nor can it claim a code point another font already maps: the canvas
+    // draws a shared point from whichever family comes first, so {rune} would
+    // insert a character that paints as somebody else's icon.
+    const owner = claimed.get(cp);
+    if (owner) {
+      if (owner.family !== family) {
+        console.warn(`[icons] {${name}} in ${family} shares U+${cp.toString(16).toUpperCase()} with {${owner.name}} in ${owner.family} — left out`);
+      }
+      continue;
+    }
+    claimed.set(cp, { name, family });
     catalogue.set(name, { name, char: String.fromCodePoint(cp), family });
     added += 1;
   }
@@ -178,6 +191,22 @@ export function expandIcons(text) {
   const value = String(text ?? '');
   if (!catalogue.size || !value.includes('{')) return value;
   return value.replace(TOKEN, (whole, name) => catalogue.get(name.toLowerCase())?.char ?? whole);
+}
+
+/**
+ * The other way round: every icon character back to its `{name}`, for text
+ * that leaves the app — a spreadsheet cell is read by people, and a Private
+ * Use Area character shows there as an empty box.
+ */
+export function collapseIcons(text) {
+  const value = String(text ?? '');
+  if (!claimed.size) return value;
+  let out = '';
+  for (const char of value) {
+    const icon = claimed.get(char.codePointAt(0));
+    out += icon ? `{${icon.name}}` : char;
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------- fallback -- */

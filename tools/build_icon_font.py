@@ -17,7 +17,11 @@ folder and its icons appear in Card Fields.
 Code points are kept stable across rebuilds. If the output file already
 exists, every icon it holds keeps its code point and new icons take the next
 free one, because a card's text stores the code point itself — renumbering
-would quietly swap one icon for another on every saved card.
+would quietly swap one icon for another on every saved card. A code point is
+never handed out twice: an icon taken out keeps its point reserved (listed in
+the font's name table), so a card that still holds it shows an empty box rather
+than whatever icon came next, and putting the file back restores it. A new font
+starts after the code points the other fonts beside it already use.
 
 What survives the trip from SVG: filled shapes (path, rect, circle, ellipse,
 polygon, polyline) and stroked lines with round caps and joins, plus the
@@ -599,7 +603,15 @@ def cmap_table(mapping):
     return head + sub
 
 
-def name_table():
+# A font-specific name record (IDs 256 and up are the font's own) listing the
+# icons that have been taken out, with the code points they had. Nothing draws
+# them any more, but no new icon may take their points: a card that still holds
+# one must show an empty box, not some other icon. Written only when there is
+# something to list, so a font with nothing retired is unchanged by it.
+RETIRED_NAME_ID = 256
+
+
+def name_table(retired=None):
     records = {
         1: FAMILY,
         2: "Regular",
@@ -608,6 +620,9 @@ def name_table():
         5: f"Version {VERSION}",
         6: FAMILY.replace(" ", "") + "-Regular",
     }
+    if retired:
+        records[RETIRED_NAME_ID] = "retired " + " ".join(
+            f"{name}=U+{cp:04X}" for name, cp in sorted(retired.items(), key=lambda kv: kv[1]))
     strings, recs, offset = b"", b"", 0
     for nid, text in records.items():
         raw = text.encode("utf-16-be")
@@ -636,8 +651,9 @@ def post_table(names):
     return head + struct.pack(f">H{len(indices)}H", len(indices), *indices) + strings
 
 
-def build_font(glyphs):
-    """glyphs: list of (name, code point or None, contours, advance)."""
+def build_font(glyphs, retired=None):
+    """glyphs: list of (name, code point or None, contours, advance).
+    retired: name -> code point of icons no longer in the font."""
     glyf, loca, hmtx = b"", [], b""
     bboxes, rsbs, max_pts, max_cont = [], [], 0, 0
     for _, _, contours, advance in glyphs:
@@ -689,7 +705,7 @@ def build_font(glyphs):
         b"hmtx": hmtx,
         b"loca": struct.pack(f">{len(loca)}I", *loca),
         b"maxp": maxp,
-        b"name": name_table(),
+        b"name": name_table(retired),
         b"post": post_table([g[0] for g in glyphs]),
     }
     n = len(tables)
@@ -767,6 +783,57 @@ def read_icon_names(data: bytes) -> dict:
 # entry point
 # --------------------------------------------------------------------------
 
+def read_retired(data: bytes) -> dict:
+    """name -> code point of the icons an earlier build took out."""
+    num_tables = struct.unpack_from(">H", data, 4)[0]
+    for k in range(num_tables):
+        tag, _, at, _ = struct.unpack_from(">4sIII", data, 12 + 16 * k)
+        if tag != b"name":
+            continue
+        count, strings_at = struct.unpack_from(">HH", data, at + 2)
+        for r in range(count):
+            pid, _, _, nid, length, off = struct.unpack_from(">HHHHHH", data, at + 6 + 12 * r)
+            if nid != RETIRED_NAME_ID or pid != 3:
+                continue
+            raw = data[at + strings_at + off:at + strings_at + off + length]
+            text = raw.decode("utf-16-be", "replace")
+            if not text.startswith("retired "):
+                continue
+            out = {}
+            for item in text[len("retired "):].split():
+                name, _, cp = item.partition("=U+")
+                try:
+                    out[name] = int(cp, 16)
+                except ValueError:
+                    continue
+            return out
+    return {}
+
+
+def sibling_code_points(out_path: str) -> set:
+    """Private Use Area points claimed by the other fonts beside the output.
+
+    Most icon fonts start at U+E000, and when two fonts in the library map one
+    code point the canvas draws whichever comes first — {rune} would come out
+    as {element-air}. A new font therefore starts after its neighbours."""
+    folder = os.path.dirname(os.path.abspath(out_path))
+    taken = set()
+    if not os.path.isdir(folder):
+        return taken
+    for fn in sorted(os.listdir(folder)):
+        full = os.path.join(folder, fn)
+        if not fn.lower().endswith((".ttf", ".otf")) or os.path.abspath(full) == os.path.abspath(out_path):
+            continue
+        try:
+            with open(full, "rb") as fh:
+                data = fh.read()
+            taken.update(read_icon_names(data).values())
+            taken.update(read_retired(data).values())
+        except (OSError, struct.error, IndexError, KeyError):
+            continue  # not a font this reader understands; it claims nothing
+    return taken
+
+
 def icon_name(filename: str) -> str:
     stem = os.path.splitext(os.path.basename(filename))[0].lower()
     return re.sub(r"[^a-z0-9]+", "-", stem).strip("-")
@@ -780,10 +847,12 @@ def main(argv=None):
                         help="print the name -> code point table of --out and stop")
     args = parser.parse_args(argv)
 
-    previous = {}
+    previous, retired = {}, {}
     if os.path.isfile(args.out):
         with open(args.out, "rb") as fh:
-            previous = read_icon_names(fh.read())
+            data = fh.read()
+        previous = read_icon_names(data)
+        retired = read_retired(data)
     if args.list:
         for name, cp in sorted(previous.items(), key=lambda kv: kv[1]):
             print(f"U+{cp:04X}  {{{name}}}")
@@ -792,7 +861,9 @@ def main(argv=None):
     files = sorted(f for f in os.listdir(args.icons) if f.lower().endswith(".svg"))
     warnings = []
     glyphs = [(".notdef", None, notdef_contours(), ADVANCE), ("space", 0x20, [], SPACE_ADVANCE)]
-    taken = set(previous.values())
+    # A code point is handed out once, ever: never one an icon still holds,
+    # one an icon that was taken out held, or one another font here uses.
+    taken = set(previous.values()) | set(retired.values()) | sibling_code_points(args.out)
     next_cp = max(taken, default=PUA_START - 1) + 1
     seen = set()
     for fn in files:
@@ -809,7 +880,7 @@ def main(argv=None):
         if not contours:
             warnings.append(f"{fn}: nothing drawable — skipped")
             continue
-        cp = previous.get(name)
+        cp = previous.get(name, retired.get(name))
         if cp is None:
             if next_cp > PUA_END:
                 warnings.append(f"{fn}: the Private Use Area is full — skipped")
@@ -821,7 +892,11 @@ def main(argv=None):
     if len(glyphs) == 2:
         print("No icons to build.", file=sys.stderr)
         return 1
-    font = build_font(glyphs)
+    built = {g[0] for g in glyphs[2:]}
+    gone = {name: cp for name, cp in {**retired, **previous}.items() if name not in built}
+    for name in sorted(set(previous) - built):
+        warnings.append(f"{{{name}}} is no longer in the font; U+{previous[name]:04X} stays reserved for it")
+    font = build_font(glyphs, gone)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "wb") as fh:
         fh.write(font)

@@ -120,6 +120,53 @@ The rows are added after the cards already there. Loading a template gives a
 project of one card, so a fresh set from a spreadsheet is: load the template,
 **Add rows as cards**, then delete the template's own card.
 
+## The cards as a spreadsheet, and back
+
+**Save as CSV** in the strip writes every card in the project to
+`workspace/batch/<project-name>.csv` — one row per card, one column per slot,
+plus `qty` for its copies (`copies` if the layout has a slot called `qty`) and
+`_id`, the card's own id. Open it in Excel, Numbers, LibreOffice or Google
+Sheets and edit a whole set at once: proof-read every rules text in one
+column, renumber costs, rename art, change counts.
+
+Bring it back with **Batch → pick the file → Add rows as cards**. A row whose
+`_id` names a card in this project *updates that card* rather than adding
+another:
+
+- only the columns that are mapped change anything — a column left out of the
+  sheet or set to *ignore* keeps each card's own value;
+- a blank text or art cell empties that slot, just as it does for a new card;
+- the card's per-card layer changes and its place in the strip are kept;
+- the card on screen is redrawn with its new values.
+
+A row without an `_id`, or with one this project does not have — a row typed in
+by hand, a sheet from another project — becomes a new card. A row copied in the
+spreadsheet carries its original's `_id`; the first of the two updates the
+card, the copy becomes a card of its own. The dialog says how many cards were
+updated and how many added.
+
+Details worth knowing:
+
+- **Icons are written as their names** (`{element-fire}`), which read in any
+  spreadsheet and turn back into the icon on the way in.
+- **Artwork is written as its workspace path.** A picture that lives only
+  inside the project file (placed while the local server was down) has no
+  path, so its cell is left blank and the toast says so. A blank cell does not
+  clear such a picture when the sheet comes back; put a name or a path in the
+  cell to replace it.
+- **The file is UTF-8 with a byte-order mark**, which is what makes Excel read
+  accented letters and `—` correctly.
+- **Spreadsheets treat a cell starting with `=`, `+`, `-` or `@` as a
+  formula.** Rules text like `+1/+1 until end of turn` comes through Excel or
+  Sheets as an error unless that column is imported as text (LibreOffice and
+  Sheets both offer this in their import dialog; in Excel use *Data → From
+  Text/CSV*).
+- **Leading and trailing spaces in a cell are trimmed** on the way in, as they
+  are for every spreadsheet the batch dialog reads.
+- Saving over a sheet that is already there asks first — it may hold edits not
+  yet brought back — and keeps the replaced file once as a `.bak`. Without the
+  local server the sheet is downloaded instead.
+
 ## Getting the cards out
 
 - **Export → Every card in this project** renders each card into

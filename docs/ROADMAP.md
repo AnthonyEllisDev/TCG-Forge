@@ -41,6 +41,10 @@ it.
   becomes an inline symbol from an icon font, which
   `tools/build_icon_font.py` builds from a folder of SVGs. See
   [`ICONS.md`](ICONS.md).
+- **Cards to a spreadsheet and back** (0.13.0) — *Save as CSV* writes a
+  project's cards as a sheet with each card's id; loading it back with *Add
+  rows as cards* updates those cards in place. See
+  [`CARDS.md`](CARDS.md#the-cards-as-a-spreadsheet-and-back).
 
 ## Next
 

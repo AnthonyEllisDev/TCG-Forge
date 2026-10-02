@@ -1677,7 +1677,7 @@ try {
       const table = batch.parseAny(text, 'sample-set.csv');
       const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
       const before = cards.cardList().length;
-      const added = cards.addRows(table.rows, mapping, batch.resolveAsset);
+      const added = await cards.addRows(table.rows, mapping, batch.resolveAsset);
       await cards.removeCard(0);
       const titles = cards.cardList().map((c) => c.values.title);
       await cards.switchCard(2);
@@ -1822,7 +1822,7 @@ try {
       const table = batch.parseAny(text, 'sample-set.csv');
       const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
       const qtyColumn = batch.guessQtyColumn(table.columns);
-      cards.addRows(table.rows, mapping, batch.resolveAsset, { qtyColumn });
+      await cards.addRows(table.rows, mapping, batch.resolveAsset, { qtyColumn });
       await cards.removeCard(0);
       const wanted = table.rows.map((row) => sheet.readQuantity(row[qtyColumn]));
       const got = cards.cardQuantities();
@@ -3583,6 +3583,302 @@ try {
     batchIcons.seen?.[0] === 'Pay \ue006.' && batchIcons.seen?.[1] === 'Pay \ue006 and \ue00a.' &&
       batchIcons.images === 2 && batchIcons.after,
     JSON.stringify(batchIcons));
+
+  /* ---- 0.13.0: bug guards ---------------------------------------------- */
+
+  /* A path the API hands out can be handed straight back. A `%` in a file
+     name dropped into the workspace by hand was decoded a second time, so the
+     server listed `set 100%41.json` and then looked for `set 100A.json`. */
+  const percentName = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const path = 'projects/smoke 100%41.json';
+      await api.writeJSON(path, { format: 'tcgforge.project', name: 'Percent Probe' });
+      const listed = (await api.listProjects()).some((p) => p.path === path);
+      const wrongTwin = (await api.listProjects()).some((p) => p.path === 'projects/smoke 100A.json');
+      const read = await api.readJSON(path).then((d) => d.name).catch((e) => `error: ${e.message}`);
+      const served = (await fetch(api.fileURL(path))).status;
+      const trashed = await api.trash(path).then(() => true).catch(() => false);
+      return { listed, wrongTwin, read, served, trashed };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const percentTraversal = await rawRequest({ path: '/files/assets/%2e%2e/%2e%2e/launch.py' });
+  check('a file with % in its name reads, serves and trashes by the path the API lists',
+    percentName.listed && !percentName.wrongTwin && percentName.read === 'Percent Probe' &&
+      percentName.served === 200 && percentName.trashed && percentTraversal.status !== 200,
+    JSON.stringify({ ...percentName, traversal: percentTraversal.status }));
+
+  /* A code point is handed out once. Taking the newest icon out and adding
+     another must not give the new one the old one's point — saved cards that
+     held the old icon would quietly show the new one — and putting the file
+     back restores the old point. A second font in the same folder starts
+     after the first, instead of mapping U+E000 again. */
+  const retiredIcons = await (async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const builder = path.join(root, 'tools', 'build_icon_font.py');
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tcg-retired-'));
+    const icons = path.join(scratch, 'icons');
+    const fonts = path.join(scratch, 'fonts');
+    fs.mkdirSync(icons);
+    fs.mkdirSync(fonts);
+    const shippedIcons = path.join(root, 'workspace', 'assets', 'icons');
+    for (const file of fs.readdirSync(shippedIcons)) fs.copyFileSync(path.join(shippedIcons, file), path.join(icons, file));
+    const out = path.join(fonts, 'Forge-Icons.ttf');
+    fs.copyFileSync(path.join(root, 'workspace', 'assets', 'fonts', 'Forge-Icons.ttf'), out);
+    const run = (dir, font, ...args) => spawnSync(python, [builder, '--icons', dir, '--out', font, ...args], { encoding: 'utf8' });
+    const table = (font) => Object.fromEntries(run(icons, font, '--list').stdout.trim().split('\n')
+      .map((line) => line.match(/U\+([0-9A-F]+)\s+\{(.+)\}/)).filter(Boolean).map((m) => [m[2], m[1]]));
+    const before = table(out);
+    fs.rmSync(path.join(icons, 'sword.svg'));
+    const removed = run(icons, out);
+    fs.copyFileSync(path.join(icons, 'gem.svg'), path.join(icons, 'axe.svg'));
+    run(icons, out);
+    const withAxe = table(out);
+    fs.copyFileSync(path.join(shippedIcons, 'sword.svg'), path.join(icons, 'sword.svg'));
+    run(icons, out);
+    const restored = table(out);
+    const runes = path.join(scratch, 'runes');
+    fs.mkdirSync(runes);
+    fs.copyFileSync(path.join(shippedIcons, 'star.svg'), path.join(runes, 'rune.svg'));
+    const second = path.join(fonts, 'Rune-Icons.ttf');
+    run(runes, second);
+    const runeTable = table(second);
+    return {
+      sword: before.sword, warned: /sword/.test(removed.stderr || ''), axe: withAxe.axe,
+      swordGone: !withAxe.sword, back: restored.sword, axeKept: restored.axe, rune: runeTable.rune,
+      runeBytes: [...fs.readFileSync(second)],
+    };
+  })().catch((err) => ({ error: err.message }));
+  check('the icon builder never hands one code point to two icons',
+    retiredIcons.sword === 'E00B' && retiredIcons.warned && retiredIcons.swordGone && retiredIcons.axe === 'E00C' &&
+      retiredIcons.back === 'E00B' && retiredIcons.axeKept === 'E00C' && retiredIcons.rune === 'E00D',
+    JSON.stringify({ ...retiredIcons, runeBytes: retiredIcons.runeBytes?.length }));
+
+  /* The app's side of the same promise: a second icon font that maps a point
+     the first already maps (most icon fonts start at U+E000) is left out of
+     the catalogue, because the canvas would draw the first font's glyph. */
+  const sharedPoint = await page.evaluate(async () => {
+    try {
+      const icons = await import('/js/core/icons.js');
+      // Forge Icons' own bytes under another family and with every name
+      // changed: same code points, new names.
+      const res = await fetch(window.TCGForge.api.fileURL('assets/fonts/Forge-Icons.ttf'));
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const text = new TextDecoder('latin1').decode(bytes);
+      for (const name of ['element-air', 'gem']) {
+        const at = text.indexOf(name);
+        bytes[at] = 'z'.charCodeAt(0);
+      }
+      const added = icons.addIconFont('Smoke Clash Icons', bytes.buffer);
+      const list = icons.iconList();
+      return {
+        added,
+        clash: list.filter((i) => i.name === 'zlement-air' || i.name === 'zem').length,
+        air: list.find((i) => i.name === 'element-air')?.family,
+        families: icons.iconFamilies().includes('Smoke Clash Icons'),
+        collapsed: icons.collapseIcons('Pay \ue006 or \ue000.'),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('an icon font that reuses another font\'s code points cannot claim them',
+    sharedPoint.added === 0 && sharedPoint.clash === 0 && sharedPoint.air === 'Forge Icons' &&
+      !sharedPoint.families && sharedPoint.collapsed === 'Pay {gem} or {element-air}.',
+    JSON.stringify(sharedPoint));
+
+  /* The palette never types into a box that is out of sight. Properties →
+     Text stays in the page, hidden, once the selection is not a text layer;
+     an icon put there changed nothing anyone could see. */
+  const hiddenTarget = await (async () => {
+    await page.evaluate(async () => {
+      const { editor, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      editor.select(editor.findBySlot('title')[0]);
+      editor.emitSelection();
+    });
+    await page.click('#pText');
+    await page.evaluate(() => {
+      const { editor } = window.TCGForge;
+      editor.select([]);
+      editor.emitSelection();
+    });
+    const pTextShown = await page.evaluate(() => document.querySelector('#pText').checkVisibility());
+    const firstField = await page.evaluate(() => document.querySelector('#fieldForm [data-icon-target]')?.id);
+    const before = await page.evaluate((id) => document.getElementById(id).value, firstField);
+    await page.click('#iconPalette [data-icon="star"]');
+    await page.waitForTimeout(200);
+    return page.evaluate(({ id, before }) => ({
+      pTextShown: document.querySelector('#pText').checkVisibility(),
+      pTextHasIcon: document.querySelector('#pText').value.includes('\ue00a'),
+      field: id,
+      fieldGotIcon: !before.includes('\ue00a') && document.getElementById(id).value.includes('\ue00a'),
+      focus: document.activeElement?.id,
+    }), { id: firstField, before }).then((r) => ({ ...r, hiddenBefore: !pTextShown }));
+  })().catch((err) => ({ error: err.message }));
+  check('the icon palette skips a text box that is hidden',
+    hiddenTarget.hiddenBefore && !hiddenTarget.pTextHasIcon && hiddenTarget.fieldGotIcon &&
+      hiddenTarget.focus === hiddenTarget.field,
+    JSON.stringify(hiddenTarget));
+
+  /* ---- 0.13.0: cards out to a spreadsheet and back --------------------- */
+
+  /* Save as CSV in the strip writes one row per card, with its id, every
+     slot, its copies, icons as {name}; the batch parser reads the same cells
+     back. Then the sheet is edited as a person would — the card on screen
+     retitled and given new art, another card's art cleared and its copies
+     changed, one row copied as a new card — and brought back with *Add rows
+     as cards*: the cards are updated in place, per-card layer changes kept,
+     the copied row added, and the card on screen redrawn. A picture kept
+     only inside the project file goes out as a blank cell and survives the
+     blank cell coming back. */
+  const sheetSetup = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      state.project.name = 'Smoke Sheet Set';
+      const text = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+      const table = batch.parseAny(text, 'sample-set.csv');
+      const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
+      await cards.addRows(table.rows.slice(0, 3), mapping, batch.resolveAsset, { qtyColumn: 'qty' });
+      await cards.removeCard(0);
+      await cards.switchCard(1);
+      // Card 2 nudges its title for itself alone.
+      const title = editor.findBySlot('title')[0];
+      cards.setOverride(title, true);
+      title.set({ left: title.left + 40 });
+      editor.touch();
+      await cards.switchCard(0);
+      await cards.switchCard(1);
+      // Card 1's art lives only inside the project file: no path to write.
+      cards.cardList()[0].values.art = 'data:image/svg+xml;base64,' +
+        btoa('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>');
+      return {
+        ids: cards.cardList().map((c) => c.id),
+        titles: cards.cardList().map((c) => c.values.title),
+        arts: cards.cardList().map((c) => c.values.art),
+        rules0: cards.cardList()[0].values.rules,
+        overridden: Object.keys(cards.cardList()[1].overrides || {}).length,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => window.TCGForge.api.trash('batch/smoke-sheet-set.csv').catch(() => {}));
+  await page.click('#cardsCsv');
+  await page.waitForTimeout(600);
+  const sheetFile = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const batch = await import('/js/core/batch.js');
+      // The bytes on disk, not /api/read's text (which reads line ends loosely).
+      const bytes = new Uint8Array(await (await fetch(api.fileURL('batch/smoke-sheet-set.csv'))).arrayBuffer());
+      const raw = new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes);
+      const table = batch.parseAny(raw, 'smoke-sheet-set.csv');
+      return { raw, columns: table.columns, rows: table.rows, bom: raw.charCodeAt(0) === 0xfeff, crlf: raw.includes('\r\n') };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const sheetRows = sheetFile.rows || [];
+  check('Save as CSV writes every card with its id, slots, copies and icons by name',
+    sheetFile.bom && sheetFile.crlf && sheetFile.columns?.[0] === '_id' && sheetFile.columns.includes('qty') &&
+      ['title', 'rules', 'art'].every((c) => sheetFile.columns.includes(c)) &&
+      JSON.stringify(sheetRows.map((r) => r._id)) === JSON.stringify(sheetSetup.ids) &&
+      JSON.stringify(sheetRows.map((r) => r.title)) === JSON.stringify(sheetSetup.titles) &&
+      JSON.stringify(sheetRows.map((r) => r.art)) === JSON.stringify(['', ...(sheetSetup.arts || []).slice(1)]) &&
+      sheetRows[0]?.rules.includes('{element-fire}') && !/[\ue000-\uf8ff]/.test(sheetFile.raw) &&
+      sheetRows[0]?.rules.includes('\n') && sheetRows.map((r) => r.qty).join() === '4,1,4' &&
+      sheetSetup.overridden === 1,
+    JSON.stringify({ setup: sheetSetup, columns: sheetFile.columns, qty: sheetRows.map((r) => r.qty), rules0: sheetRows[0]?.rules, pua: /[\ue000-\uf8ff]/.test(sheetFile.raw || ''), bom: sheetFile.bom, crlf: sheetFile.crlf, error: sheetFile.error }));
+
+  // Edit the sheet as a person would, and save it back where it came from.
+  const sheetEdited = await page.evaluate(async (rows) => {
+    try {
+      const { api } = window.TCGForge;
+      const batch = await import('/js/core/batch.js');
+      const columns = Object.keys(rows[0]);
+      const edited = rows.map((r) => ({ ...r }));
+      edited[1].title = 'Retitled In A Sheet';
+      edited[1].art = 'assets/icons/heart.svg';
+      edited[1].rules = 'Gain {heart}, then +1/+1.';
+      edited[2].art = '';
+      edited[2].qty = '7';
+      edited.push({ ...rows[0], title: 'A Copied Row' });
+      await api.writeText('batch/smoke-sheet-set.csv', batch.toCSV(columns, edited));
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, sheetRows);
+
+  // Bring it back through the batch dialog, the way a person would.
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press('Control+b');
+  await page.waitForSelector('#batchSummary');
+  await page.waitForTimeout(300);
+  await page.waitForFunction(() => !!document.querySelector('#batchWorkspaceFile option[value="batch/smoke-sheet-set.csv"]'),
+    null, { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#batchWorkspaceFile', 'batch/smoke-sheet-set.csv', { timeout: 3000 }).catch(() => {});
+  await page.click('#batchOpenFile', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const idMapping = await page.evaluate(() => document.querySelector('select[aria-label="Slot for column _id"]')?.value);
+  await page.click('#batchAddCards');
+  await page.waitForFunction(() => /Updated/.test(document.querySelector('#batchStatus')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
+  const sheetBack = await page.evaluate(async () => {
+    try {
+      const { editor, state } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      const status = document.querySelector('#batchStatus').textContent;
+      (await import('/js/ui/dialogs.js')).closeModal();
+      const list = cards.cardList();
+      const onScreen = {
+        title: editor.findBySlot('title')[0].text,
+        art: editor.findBySlot('art')[0].tcgAsset || null,
+        rules: editor.findBySlot('rules')[0].text,
+        titleOwn: !!editor.findBySlot('title')[0].tcgBase,
+      };
+      return {
+        status,
+        count: list.length,
+        active: state.project.activeCard,
+        ids: list.map((c) => c.id),
+        titles: list.map((c) => c.values.title),
+        arts: list.map((c) => c.values.art ?? null),
+        qty: list.map((c) => cards.qtyOf(c)),
+        keptOverride: Object.keys(list[1].overrides || {}).length,
+        onScreen,
+        dirty: state.dirty,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a saved sheet comes back as an update to the same cards',
+    sheetEdited.ok && idMapping === '-' && sheetBack.count === 4 &&
+      JSON.stringify(sheetBack.ids?.slice(0, 3)) === JSON.stringify(sheetSetup.ids) &&
+      sheetBack.titles?.[1] === 'Retitled In A Sheet' && sheetBack.titles?.[3] === 'A Copied Row' &&
+      sheetBack.titles?.[0] === sheetSetup.titles?.[0] &&
+      sheetBack.arts?.[0]?.startsWith('data:') && sheetBack.arts?.[3] === null &&
+      sheetBack.arts?.[1] === 'assets/icons/heart.svg' && sheetBack.arts?.[2] === null &&
+      sheetBack.qty?.join() === '4,1,7,4' && sheetBack.keptOverride === 1 &&
+      sheetBack.active === 1 && sheetBack.onScreen.title === 'Retitled In A Sheet' &&
+      sheetBack.onScreen.art === 'assets/icons/heart.svg' && sheetBack.onScreen.rules === 'Gain \ue007, then +1/+1.' &&
+      sheetBack.onScreen.titleOwn && sheetBack.dirty && /Updated 3 cards and added 1 card/.test(sheetBack.status),
+    JSON.stringify({ idMapping, ...sheetBack }));
+  await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    for (const path of ['batch/smoke-sheet-set.csv', 'batch/smoke-sheet-set.csv.bak']) await api.trash(path).catch(() => {});
+  });
 
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();

@@ -69,11 +69,17 @@ function render() {
   host.append(grid);
 }
 
+/*
+ * A box can stay in the page while it is out of sight — Properties → Text is
+ * hidden, not removed, when the selection stops being a text layer — and an
+ * icon typed into it there goes nowhere anyone can see.
+ */
+const usable = (node) => !!node && node.isConnected && !node.disabled
+  && (node.checkVisibility ? node.checkVisibility() : node.offsetParent !== null);
+
 function insert(icon) {
-  const node = target?.isConnected && !target.disabled
-    ? target
-    : $('#fieldForm [data-icon-target]');
-  if (!node || node.disabled) {
+  const node = usable(target) ? target : $('#fieldForm [data-icon-target]');
+  if (!usable(node)) {
     toast('Click into a text field first, then pick the icon.', 'warn');
     return;
   }

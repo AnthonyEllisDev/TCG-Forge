@@ -95,7 +95,14 @@ All take a JSON body.
 Writes atomically (a temp file of its own, then a rename), so two writes to the
 same path at once cannot trip over each other; a write that fails leaves no
 temp file behind, and a path naming a folder is refused. With `backup: true` an existing
-file is copied to `<name>.bak` first. Returns the path and byte count.
+file is copied to `<name>.bak` first. Returns the path and byte count. The text
+is written exactly as sent, UTF-8, with no line-ending translation on any
+platform.
+
+Every `path` in a query string or a JSON body is a plain workspace path — the
+same string the API hands out in listings — and is not percent-decoded again,
+so a file named `100%41.json` stays that file. Only `/files/` URLs are
+percent-encoded.
 
 ### `POST /api/upload`
 

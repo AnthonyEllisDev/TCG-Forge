@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.13.0 — cards to a spreadsheet and back
+
+- **Save as CSV.** A new button in the card strip writes every card in the
+  project to `workspace/batch/<project>.csv`: one row per card, one column per
+  slot, its copies, and its id. Icons are written by name (`{gem}`), artwork by
+  its workspace path, and the file opens cleanly in Excel, Numbers,
+  LibreOffice and Google Sheets.
+- **…and back again.** Load that sheet in the batch dialog and **Add rows as
+  cards** updates the same cards in place — only the mapped columns change, and
+  each card keeps its per-card layer changes and its place in the strip. Rows
+  without a matching id are added as new cards, as before. Proof-read a whole
+  set's rules text in one column, change every cost at once, rebalance the
+  counts. See [`docs/CARDS.md`](docs/CARDS.md#the-cards-as-a-spreadsheet-and-back).
+- Spreadsheet columns whose names start with `_` are never matched to a slot.
+
+### Fixed
+
+- **Files with `%` in their names could not be opened, and saving could write
+  to a different file.** The server decoded workspace paths a second time, so
+  a project it listed as `set 100%41.json` was looked for as `set 100A.json`;
+  such files could not be read or moved to the bin either.
+- **Rebuilding the icon font could give a new icon a removed icon's code
+  point**, so cards that used the removed icon silently showed the new one. A
+  removed icon's code point now stays reserved (and comes back with the file),
+  and the builder says so.
+- **A second icon font drew its icons as the first font's.** Both started at
+  U+E000, and the canvas draws a shared code point from whichever font comes
+  first. The builder now starts a new font after the others in its folder, and
+  the editor leaves out an icon whose code point another font already has,
+  with a warning in the console.
+- **The Icons palette could insert into a text box that was no longer on
+  screen** — Properties → Text after the selection changed — so the click did
+  nothing visible. It now falls back to the first Card Fields box.
+- Workspace files are written exactly as sent, with no line-ending translation
+  on Windows.
+
 ## 0.12.0 — icons in rules text
 
 - **Icons sit in the text.** Type `{gem}`, `{element-fire}` or any icon's name

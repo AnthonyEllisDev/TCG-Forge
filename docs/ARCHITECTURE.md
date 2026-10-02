@@ -285,6 +285,16 @@ start every row from the layout snapshot (`layoutSnapshot()`), and a project's
 rows carry `_overrides`, which `runBatch()`'s `prepare` hook lays over the row
 before it is drawn — `batch.js` itself knows nothing of cards.
 
+**A sheet of the cards, and back** (0.13.0). `cardsTable()` turns the list
+into `{columns, rows, csv}` — `_id`, one column per slot, `qty` — with icons
+collapsed to `{name}` (`icons.collapseIcons()`) and art as workspace paths;
+`batch.toCSV()` is `parseTable()`'s inverse. `addRows()` is the way back: a row
+whose `_id` names a card updates that card's mapped slots (and its count) in
+place, keeping its overrides; any other row is appended. It waits for
+`history.settled()` and `settled()`, refuses while `isRendering()`, and when the
+card on screen is updated redraws it through `showCard()` inside the same
+`switching` window a card switch uses.
+
 Exporting or printing every card turns the list back into batch rows with an
 identity mapping and hands them to `runBatch()`, whose `sink` option collects
 the images for the print sheet instead of writing them. Nothing about cards

@@ -37,11 +37,18 @@ JSON is accepted as an array of objects:
 A worked example ships in `workspace/batch/sample-set.csv` — six cards for the
 *Classic Spell Frame* template, with a `qty` column asking for eighteen.
 
+A multi-card project can write its own cards out as a sheet (**Save as CSV**
+in the card strip), with an `_id` column that lets **Add rows as cards** update
+those same cards when the sheet comes back. See
+[`CARDS.md`](CARDS.md#the-cards-as-a-spreadsheet-and-back).
+
 ## 2 · Mapping
 
 Every column is matched to a slot automatically when the names line up
 (`title` → `title`, `Rules Text` → `rules`). Fix anything it got wrong with the
-dropdowns, or set a column to *ignore*.
+dropdowns, or set a column to *ignore*. Columns whose names start with `_`
+(such as `_id`) are the app's own bookkeeping and are never matched to a
+slot.
 
 - **Text slots** take the cell value verbatim. Line breaks inside a quoted cell
   are preserved, and auto-fit shrinks text that would overflow its box. An

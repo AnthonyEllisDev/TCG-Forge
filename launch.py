@@ -38,7 +38,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.12.0"
+APP_VERSION = "0.13.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -85,8 +85,15 @@ def ensure_workspace(path: str) -> None:
 
 
 def safe_join(rel: str) -> str:
-    """Resolve a workspace-relative path, refusing anything that escapes it."""
-    rel = unquote(rel or "").replace("\\", "/").lstrip("/")
+    """Resolve a workspace-relative path, refusing anything that escapes it.
+
+    `rel` is a path, not a URL: API query values are already decoded by
+    parse_qs and JSON bodies were never encoded. Decoding here again turned a
+    file named `100%41.json` into `100A.json`, so a file the server listed
+    could not be read or trashed, and a write landed on a different file.
+    Only the `/files/` route holds a URL path, and it decodes before calling.
+    """
+    rel = (rel or "").replace("\\", "/").lstrip("/")
     if not rel:
         raise ValueError("empty path")
     if ".." in rel.split("/"):
@@ -420,7 +427,11 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             fd, tmp = tempfile.mkstemp(prefix=".write-", suffix=".tmp",
                                        dir=os.path.dirname(full))
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                # newline="": the file gets exactly the text that was sent.
+                # Text mode on Windows would turn every "\n" into "\r\n",
+                # and a CSV's own "\r\n" into "\r\r\n" — a blank row
+                # after every card in a spreadsheet.
+                with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
                     fh.write(content)
                 # mkstemp makes the file private; the user's file keeps the
                 # permissions an ordinary write would have given it.
@@ -496,7 +507,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
 
     # -- workspace static files -------------------------------------------
     def serve_workspace_file(self, rel):
-        full = safe_join(posixpath.normpath(rel))
+        full = safe_join(posixpath.normpath(unquote(rel)))
         if not os.path.isfile(full):
             raise FileNotFoundError(rel)
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"

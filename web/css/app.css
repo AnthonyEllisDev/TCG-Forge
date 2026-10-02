@@ -529,7 +529,17 @@
   overflow-x: auto;
 }
 .strip-sep { width: 10px; }
-.strip-hint { margin-left: auto; white-space: nowrap; }
+/* The controls keep their size; on a narrow window the hint gives way first,
+   rather than the deck readout wrapping a word to a line. */
+.strip-bar > * { flex: none; }
+.strip-bar > .strip-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .strip-tiles {
   display: flex;
   gap: 8px;
