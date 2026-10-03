@@ -864,7 +864,10 @@ def main(argv=None):
     # A code point is handed out once, ever: never one an icon still holds,
     # one an icon that was taken out held, or one another font here uses.
     taken = set(previous.values()) | set(retired.values()) | sibling_code_points(args.out)
-    next_cp = max(taken, default=PUA_START - 1) + 1
+    # The lowest point nobody holds, not the one after the highest: a
+    # neighbouring font with a glyph at U+F8FF (a common spot for a logo)
+    # would otherwise leave no room for a single new icon.
+    free = (cp for cp in range(PUA_START, PUA_END + 1) if cp not in taken)
     seen = set()
     for fn in files:
         name = icon_name(fn)
@@ -882,14 +885,16 @@ def main(argv=None):
             continue
         cp = previous.get(name, retired.get(name))
         if cp is None:
-            if next_cp > PUA_END:
+            cp = next(free, None)
+            if cp is None:
                 warnings.append(f"{fn}: the Private Use Area is full — skipped")
                 continue
-            cp = next_cp
-            next_cp += 1
         glyphs.append((name, cp, contours, ADVANCE))
 
     if len(glyphs) == 2:
+        # Say why: every icon may have been skipped for a reason above.
+        for w in warnings:
+            print(f"  warning: {w}", file=sys.stderr)
         print("No icons to build.", file=sys.stderr)
         return 1
     built = {g[0] for g in glyphs[2:]}

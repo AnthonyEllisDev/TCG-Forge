@@ -18,6 +18,8 @@
  * one side of one page, either side of a fold, with the backs upside down.
  */
 
+import { mirrorBleed } from './bleed.js';
+
 const MM_PER_INCH = 25.4;
 
 export const PAGE_SIZES = {
@@ -440,6 +442,20 @@ export function parseDeck(data) {
 /* ----------------------------------------------------------------- build -- */
 
 /**
+ * A card image at its trim size, given the plan's bleed by mirroring its own
+ * edges (core/bleed.js). drawCard() then lays it over the slot plus bleed the
+ * same way as an image that carried bleed from the start. The bleed is scaled
+ * from sheet pixels to the image's own, since the two are rarely the same dpi.
+ */
+function withMirroredBleed(image, plan) {
+  const slot = plan.slots[0];
+  if (!plan.bleed || !slot) return image;
+  const w = image.naturalWidth || image.width;
+  const h = image.naturalHeight || image.height;
+  return mirrorBleed(image, (plan.bleed * w) / slot.width, (plan.bleed * h) / slot.height);
+}
+
+/**
  * Turn a list of image URLs into finished sheets.
  *
  * Returns one entry per page: the canvas it was painted on, how many cards
@@ -450,7 +466,7 @@ export function parseDeck(data) {
 export async function buildSheets(
   urls,
   plan,
-  { backs = [], guides = 'crop', pageLabel = '', onProgress = () => {} } = {}
+  { backs = [], guides = 'crop', pageLabel = '', mirror = false, onProgress = () => {} } = {}
 ) {
   const wantBacks = plan.backMode !== 'off' && plan.backSlots;
   const backURLs = wantBacks ? pairBacks(backs, urls.length) : [];
@@ -463,7 +479,10 @@ export async function buildSheets(
   for (let i = 0; i < queue.length; i += 1) {
     onProgress({ loaded: i, total: queue.length });
     const url = queue[i];
-    if (!decoded.has(url)) decoded.set(url, await loadImage(url));
+    if (!decoded.has(url)) {
+      const image = await loadImage(url);
+      decoded.set(url, mirror ? withMirroredBleed(image, plan) : image);
+    }
     images.push(decoded.get(url));
   }
   onProgress({ loaded: queue.length, total: queue.length });

@@ -193,7 +193,10 @@ class AssetLibrary {
 }
 
 function fontFamilyName(stem) {
-  const clean = String(stem).replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // A quote or backslash cannot survive being written into a CSS font list
+  // (icons.js quotes every family), so the name registered here must not have
+  // one either, or the two names disagree and the font is never used.
+  const clean = String(stem).replace(/["\\]/g, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
   return clean || slugify(stem, 'Custom Font');
 }
 

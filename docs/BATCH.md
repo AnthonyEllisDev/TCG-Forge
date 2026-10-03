@@ -75,6 +75,7 @@ slot.
 | Subfolder | Groups the run inside `workspace/exports/`, e.g. `core-set`. |
 | Format | PNG (lossless, transparency) or JPEG. |
 | Resolution | 1× to 4× of the card's pixel size. 2× of a 750 × 1050 card is 1500 × 2100. |
+| Bleed (mm) | Millimetres added on every side by mirroring the card's own edges, for a print shop. 0 is none. See [`PRINT.md`](PRINT.md#bleed-for-a-print-shop). |
 | Save project files | Also writes an editable `.json` per card into `workspace/projects/<subfolder>/`, so any single card can be opened and tweaked afterwards. |
 | Quantity column | How many of each card the deck wants. See below. |
 

@@ -52,7 +52,8 @@ sixty-card deck costs no more to lay out than twenty-three separate cards did.
 | **Orientation** | Portrait or landscape. Landscape often fits one more column. |
 | **Margin** | Millimetres of blank paper around the block of cards. Most home printers cannot print closer than about 5 mm to the edge. |
 | **Gap** | Millimetres between neighbouring cards. Zero butts them together, which fits the most cards and gives you one cut line to follow between each pair. |
-| **Bleed** | Millimetres of artwork that your source images carry *beyond* the trim line. See below. |
+| **Bleed** | Millimetres of artwork beyond the trim line on every side. See below. |
+| **Bleed comes from** | *Mirrored from the card edges* (the default) or *Already in the images*. See below. |
 | **Cut guides** | Crop marks, full-page cut lines, or nothing. |
 | **Resolution** | The sheet's own pixel density. 300 dpi is right for almost everything; 600 dpi doubles the file size and only helps if your cards were designed above 300 dpi. |
 
@@ -77,16 +78,48 @@ producing a sheet with one card on it.
 
 If your card art runs off the edge of the card — a full-bleed illustration, a
 frame that reaches the border — a tiny misalignment when cutting leaves a white
-sliver. The usual answer is to design the card slightly oversized and cut inside
-it.
+sliver. The usual answer is to print the card slightly oversized and cut inside
+it. Set **Bleed** to how far past the trim line the artwork should run; each
+card is then drawn that much larger than its slot, spilling into the gutter,
+while the cut guides stay on the trim line. Cutting on the guides removes the
+bleed and leaves artwork right to the edge.
 
-Set **Bleed** to the number of millimetres your images carry beyond the trim
-line. Each card is then drawn that much larger than its slot, spilling into the
-gutter, while the cut guides stay on the trim line. Cutting on the guides
-removes the bleed and leaves artwork right to the edge.
+**Bleed comes from** says where that extra artwork is found:
+
+- **Mirrored from the card edges** (the default) is for cards designed at their
+  finished size — which is how TCG Forge cards are made, and what the current
+  card and *Every card in this project* always are. The card is drawn at its
+  trim size with square corners, and the outermost strip of it is mirrored
+  outwards into the bleed: the border, the frame or the painting carries on
+  past the cut line, so a slightly-off cut still lands on the card's own
+  colours. The mirrored part is cut away, so it never has to look right — only
+  continue the edge.
+- **Already in the images** is for images that were made oversized: a folder of
+  cards exported with bleed (below), or art from another tool. The image is
+  drawn over the slot plus the bleed as it stands.
+
+Card backs follow the same choice as the fronts.
+
+Mirroring a folder of images exported *with rounded corners* mirrors their
+transparent corners too; export them with a bleed (which draws square corners)
+or with a corner radius of zero.
 
 Bleed forces the gap to at least twice the bleed, so neighbouring cards cannot
 print over each other.
+
+### Bleed for a print shop
+
+Print-on-demand shops want one image per card, with the bleed already on it —
+usually 3 mm or ⅛ in (3.175 mm) on every side. **Export** (`Ctrl/⌘ + E`), its
+*Every card in this project* option and the batch dialog each have a **Bleed
+(mm)** box that does the same mirroring as the print sheet, on the exported
+image: a 750 × 1050 px card at 300 dpi with 3 mm of bleed comes out at 820 ×
+1120 px, with square corners (the shop cuts its own). The export dialog shows
+the size before you export, and remembers the amount for next time. With JPEG,
+the card is mirrored first and encoded once.
+
+A folder exported this way prints on a home sheet with **Bleed** set to the same
+amount and **Bleed comes from** → *Already in the images*.
 
 ### Cut guides
 

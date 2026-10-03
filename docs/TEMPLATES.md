@@ -176,5 +176,7 @@ expects.
 | Mini | 1.75 × 2.5 | 525 × 750 | 1050 × 1500 |
 
 Most print shops want 300 dpi minimum plus a 1/8 in bleed. Design at the final
-size, turn on the **Bleed guide** to see the trim margin, and export at 1× — or
-design at 1× and export at 2× if you want headroom.
+size, keep anything that must survive the cut inside the **Safe zone**, and
+export at 1× with **Bleed** set to 3 mm: the card's own edges are mirrored out
+to make the bleed (see [`PRINT.md`](PRINT.md#bleed-for-a-print-shop)). Design at
+1× and export at 2× if you want headroom.

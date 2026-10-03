@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.14.0 — bleed made from the card's edges
+
+- **Bleed without redesigning the card.** Print shops trim inside what they
+  print and ask for artwork that runs about 3 mm (⅛ in) past the edge. Export,
+  Export → Every card and batch runs now take a **Bleed (mm)** amount: the card
+  is rendered at its finished size with square corners, and its outermost
+  strip is mirrored outwards to make the margin — the border, the frame or a
+  full-bleed painting simply carries on. The dialog shows the size you will
+  get (3 mm on a 750 × 1050 px card at 300 dpi is 820 × 1120 px).
+- **Print sheets make the same bleed.** *Bleed comes from* in the print dialog
+  chooses between *Mirrored from the card edges* (new, and the default) and
+  *Already in the images*. The first suits every card designed at its finished
+  size, which includes everything the print dialog draws itself; until now a
+  bleed setting stretched those cards over the bleed, pushing the edge of the
+  design past the cut line. See [`docs/PRINT.md`](docs/PRINT.md#bleed).
+
+### Fixed
+
+- **Exported images were a pixel or two off the card's size** — 749 or 751 px
+  for a 750 px card, depending on the zoom at the time — so prints came out a
+  hair too narrow or too wide. Exports are now exactly the card's size times
+  the resolution.
+- **Saving with *Embed images* on while switching cards could split the file
+  between two cards**: its layout showed one card while it named the other as
+  the one on screen, and reopening it put the first card's words over the
+  second.
+- **Art placed while a card switch was still loading its picture ended up
+  beside it**, leaving two images in the slot and a stray one on every card.
+  The new art now replaces whatever holds the slot.
+- **A layout with a slot called `qty` lost its copy counts on the way back from
+  a sheet.** The sheet writes the counts as `copies` in that case, but the batch
+  dialog chose the `qty` column as the count. A column that feeds a slot is now
+  the last choice for the count.
+- **Save as template silently replaced a template of the same name** — and the
+  name it suggests is the project's, so this was easy to do, shipped templates
+  included. It now asks first, and *Cancel* goes back to the dialog as typed.
+- **A card whose art cell held a `/files/…` URL was left out of an embedded
+  project** without a word. Such a cell is now read as the workspace path it
+  points at.
+- **A font file with a `"` in its name never drew**, though it was listed (and,
+  for an icon font, its icons appeared in the palette).
+- **`tools/build_icon_font.py` refused to build when another font in the folder
+  used U+F8FF**, saying only "No icons to build". New icons now take the lowest
+  free code point, and the warnings that explain an empty build are printed.
+
 ## 0.13.0 — cards to a spreadsheet and back
 
 - **Save as CSV.** A new button in the card strip writes every card in the

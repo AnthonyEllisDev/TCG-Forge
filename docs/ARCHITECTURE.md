@@ -87,6 +87,7 @@ web/
     │   ├── cards.js    multi-card projects: the card list and switching
     │   ├── batch.js    spreadsheet parsing and set rendering
     │   ├── printSheet.js page geometry and sheet composition
+    │   ├── bleed.js    bleed made by mirroring a rendered card's edges
     │   ├── pdf.js      a small one-JPEG-per-page PDF writer
     │   └── project.js  serialise, save, open, export
     └── ui/
@@ -346,6 +347,27 @@ name, so a list can never reach outside the folder it was found in — and
 fronts and, where a folder holds one back per design, the backs by the same
 counts, so "one back per card" keeps meaning one per design and not one per
 copy.
+
+Bleed (0.14.0) is image composition too. `core/bleed.js` has no imports:
+`mirrorBleed()` takes a rendered card and returns a canvas a few pixels larger
+on every side, with each side strip flipped across its edge and each corner
+across both, and `bleedPixels()` turns millimetres into pixels at a dpi. Two
+callers use it. `project.renderCard()` is the one export path — the export
+dialog, `runBatch()` (so *Every card* and batch runs) and the batch preview all
+render through it — and with a bleed it draws the card with
+`editor.toDataURL({ squareCorners: true })` (the rounded-corner clip is left
+off, or its transparent corners would be mirrored into the margin as notches),
+mirrors it, and only then encodes JPEG on a white backdrop. And
+`buildSheets({ mirror: true })` replaces each decoded image with its mirrored
+version, the bleed scaled from sheet pixels to the image's own, after which
+`drawCard()` lays it over slot + bleed exactly as it does an image that carried
+bleed from the start; the print dialog renders its own cards with square
+corners for it. Neither path knows anything about slots or layers.
+
+Exports are the card's exact size times the resolution: `editor.toDataURL()`
+passes Fabric an explicit `width`/`height`, because the canvas element is a
+whole number of screen pixels at the current zoom and Fabric otherwise sizes the
+picture from it (0.14.0; a 750 px card came out 749 or 751 px wide).
 
 `core/pdf.js` turns the finished sheets into a PDF: a catalogue, a page tree and
 one DCTDecode image per page, about 150 lines. It exists because an image file

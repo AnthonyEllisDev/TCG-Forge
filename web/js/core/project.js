@@ -9,6 +9,7 @@ import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
 import { forEachImageJSON, toLayoutJSON } from './objects.js';
+import { bleedPixels, mirrorBleed } from './bleed.js';
 import { loadCards, resetCards, serializeCards, settled, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
 
@@ -23,9 +24,11 @@ export async function serializeProject({ embed = state.settings.embedImages, onl
   // The file's canvas is the layout; what the card on screen changed for
   // itself goes with that card, in the list.
   const canvas = toLayoutJSON(editor.toJSON());
+  // Taken in the same tick as the canvas: embedding awaits every picture, and
+  // a card switch that starts meanwhile would move the active card under it.
+  const { cards, activeCard } = serializeCards({ onlyActive });
   if (embed) await embedImageSources(canvas);
   else dereferenceImages(canvas);
-  const { cards, activeCard } = serializeCards({ onlyActive });
   if (embed) await embedCardImages(cards);
 
   return {
@@ -237,14 +240,59 @@ export async function newProject({ width, height, dpi, radius, background, prese
 
 /* --------------------------------------------------------------- export -- */
 
+function decodeImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('could not read the rendered card back'));
+    img.src = url;
+  });
+}
+
+/**
+ * Render the card on the canvas, `bleedMm` larger on every side.
+ *
+ * With no bleed this is `editor.toDataURL()` exactly. With bleed the card is
+ * drawn with square corners — a shop cuts its own radius, and a rounded
+ * corner's transparent pixels would be mirrored into the bleed as notches —
+ * and as PNG, so a JPEG is only encoded once, after the edges are added.
+ */
+export async function renderCard({
+  multiplier = 2,
+  format = 'png',
+  quality = 0.94,
+  transparent = false,
+  bleedMm = 0,
+  squareCorners = false,
+} = {}) {
+  const bleed = bleedPixels(bleedMm, state.card.dpi || 300, multiplier);
+  if (!bleed) return editor.toDataURL({ multiplier, format, quality, transparent, squareCorners });
+
+  const trimmed = editor.toDataURL({ multiplier, format: 'png', transparent, squareCorners: true });
+  const canvas = mirrorBleed(await decodeImage(trimmed), bleed);
+  if (format === 'jpeg') {
+    // JPEG has no transparency; without a backdrop it would turn black.
+    const flat = document.createElement('canvas');
+    flat.width = canvas.width;
+    flat.height = canvas.height;
+    const ctx = flat.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, flat.width, flat.height);
+    ctx.drawImage(canvas, 0, 0);
+    return flat.toDataURL('image/jpeg', quality);
+  }
+  return canvas.toDataURL('image/png');
+}
+
 export async function exportImage({
   multiplier = 2,
   format = 'png',
   transparent = false,
+  bleedMm = 0,
   toWorkspace = true,
   filename,
 } = {}) {
-  const dataURL = editor.toDataURL({ multiplier, format, transparent });
+  const dataURL = await renderCard({ multiplier, format, transparent, bleedMm });
   const ext = format === 'jpeg' ? 'jpg' : format;
   const name = filename || `${slugify(state.project.name, 'card')}.${ext}`;
 

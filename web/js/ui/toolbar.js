@@ -20,6 +20,9 @@ import {
 } from '../core/project.js';
 import { cardList, exportCards } from '../core/cards.js';
 import { isRendering } from '../core/batch.js';
+import { bleedPixels } from '../core/bleed.js';
+
+const MAX_BLEED_MM = 10;
 import { confirmDialog, openModal, promptDialog, toast } from './dialogs.js';
 
 export function initToolbar() {
@@ -218,6 +221,14 @@ export function openExportDialog() {
   format.append(el('option', { value: 'jpeg', text: 'JPEG (smaller, no transparency)' }));
 
   const transparent = el('input', { type: 'checkbox' });
+  const bleed = bleedInput('exportBleed');
+  const bleedHint = el('p', { class: 'hint', id: 'exportBleedHint' });
+  const syncBleed = () => {
+    bleedHint.textContent = bleedSummary(Number(bleed.value), Number(scale.value));
+  };
+  on(bleed, 'input', syncBleed);
+  on(scale, 'change', syncBleed);
+  syncBleed();
   const toWorkspace = el('input', { type: 'checkbox', checked: api.online });
   toWorkspace.disabled = !api.online;
 
@@ -240,6 +251,8 @@ export function openExportDialog() {
     el('label', { class: 'field' }, [el('span', { text: 'Resolution' }), scale]),
     el('label', { class: 'field' }, [el('span', { text: 'Format' }), format]),
     el('label', { class: 'check' }, [transparent, ' Transparent background']),
+    el('label', { class: 'field' }, [el('span', { text: 'Bleed (mm, mirrored from the edges)' }), bleed]),
+    bleedHint,
     el('label', { class: 'check' }, [toWorkspace, api.online ? ' Also save into workspace/exports' : ' Save to workspace (needs the local server)']),
     everyRow,
     el('p', { class: 'hint', text: 'Print tip: 300 dpi at 2.5 × 3.5 in is 750 × 1050 px. Export at 1× if your card is already sized for print.' }),
@@ -259,11 +272,14 @@ export function openExportDialog() {
         onClick: async (close) => {
           try {
             state.set('lastExportScale', Number(scale.value));
+            const bleedMm = readBleed(bleed);
+            state.set('lastExportBleed', bleedMm);
             if (everyCard.checked) {
               await exportEveryCard({
                 multiplier: Number(scale.value),
                 format: format.value,
                 transparent: transparent.checked,
+                bleedMm,
               });
               close();
               return;
@@ -272,6 +288,7 @@ export function openExportDialog() {
               multiplier: Number(scale.value),
               format: format.value,
               transparent: transparent.checked,
+              bleedMm,
               toWorkspace: toWorkspace.checked,
             });
             close();
@@ -287,6 +304,29 @@ export function openExportDialog() {
       },
     ],
   });
+}
+
+/* Bleed is shared by the export and batch dialogs: the same box, the same
+   arithmetic, the same remembered value. */
+export function bleedInput(id) {
+  return el('input', {
+    type: 'number', id, min: '0', max: String(MAX_BLEED_MM), step: '0.5',
+    value: String(state.settings.lastExportBleed || 0),
+  });
+}
+
+export function readBleed(input) {
+  const value = Number(input.value);
+  return value > 0 ? Math.min(value, MAX_BLEED_MM) : 0;
+}
+
+export function bleedSummary(mm, multiplier) {
+  const dpi = state.card.dpi || 300;
+  const each = bleedPixels(Math.min(mm, MAX_BLEED_MM), dpi, multiplier);
+  if (!each) return 'No bleed: the image stops at the trim line. Print shops usually ask for 3 mm (⅛ in).';
+  const w = state.card.width * multiplier + each * 2;
+  const h = state.card.height * multiplier + each * 2;
+  return `${each} px added on every side → ${w} × ${h} px, with square corners for the shop to cut.`;
 }
 
 /** Render the whole project — the other end of it is the print dialog's folder source. */

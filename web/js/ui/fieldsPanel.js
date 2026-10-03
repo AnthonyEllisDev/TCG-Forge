@@ -18,6 +18,7 @@ import {
   setFieldImage,
   setFieldText,
 } from '../core/templates.js';
+import { settled } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 
@@ -149,6 +150,7 @@ function pickArt(slot) {
     if (!file) return;
     try {
       const source = await assets.sourceForFile(file, 'art');
+      await settled();
       await setFieldImage(slot, source.url, { assetPath: source.path });
       toast(`Placed ${file.name} in “${slot}”.`, 'ok');
     } catch (err) {

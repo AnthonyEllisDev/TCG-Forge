@@ -928,19 +928,32 @@ class Editor {
     }
   }
 
-  /** Render the card to a data URL at the requested multiplier. */
-  toDataURL({ multiplier = 2, format = 'png', quality = 0.94, transparent = false } = {}) {
+  /**
+   * Render the card to a data URL at the requested multiplier.
+   * `squareCorners` leaves the rounded-corner clip off, for a picture that is
+   * going to have bleed added around it (core/bleed.js).
+   */
+  toDataURL({ multiplier = 2, format = 'png', quality = 0.94, transparent = false, squareCorners = false } = {}) {
     const canvas = this.canvas;
     const previousBg = canvas.backgroundColor;
+    const previousClip = canvas.clipPath;
     this.exporting = true;
     canvas.discardActiveObject();
     try {
       if (transparent) canvas.backgroundColor = '';
+      if (squareCorners) canvas.clipPath = null;
       canvas.renderAll();
+      // Fabric sizes the picture from the canvas element, which is a whole
+      // number of screen pixels at the current zoom — so a 750 px card came
+      // out 749 px wide. Ask for the card's own size instead; the half pixel
+      // stops a product like 1499.9999 truncating to 1499.
+      const scale = multiplier / this.zoom;
       return canvas.toDataURL({
         format,
         quality,
-        multiplier: multiplier / this.zoom,
+        multiplier: scale,
+        width: (state.card.width * multiplier + 0.5) / scale,
+        height: (state.card.height * multiplier + 0.5) / scale,
         enableRetinaScaling: false,
       });
     } finally {
@@ -948,6 +961,7 @@ class Editor {
       // or the safe zone and smart guides stay invisible for the rest of the
       // session — and the transparent background must not stick either.
       canvas.backgroundColor = previousBg;
+      canvas.clipPath = previousClip;
       this.exporting = false;
       canvas.requestRenderAll();
     }

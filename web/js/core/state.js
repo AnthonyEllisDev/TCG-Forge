@@ -33,6 +33,7 @@ const defaultSettings = {
   collapsed: {},
   assetCategory: 'frames',
   lastExportScale: 2,
+  lastExportBleed: 0,
 };
 
 function loadSettings() {

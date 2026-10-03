@@ -4,7 +4,10 @@ import { $, activatable, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
-import { applyTemplate, listTemplates, loadTemplateFile, saveTemplate } from '../core/templates.js';
+import { wouldReplace } from '../core/project.js';
+import {
+  applyTemplate, listTemplates, loadTemplateFile, saveTemplate, templateTarget,
+} from '../core/templates.js';
 import { confirmDialog, openModal, toast } from './dialogs.js';
 
 let templates = [];
@@ -115,11 +118,11 @@ async function load(tpl) {
   }
 }
 
-function openSaveDialog() {
-  const name = el('input', { type: 'text', value: state.project.name || 'My Template' });
-  const description = el('input', { type: 'text', placeholder: 'Short description shown in the browser' });
-  const author = el('input', { type: 'text', placeholder: 'Your name (optional)' });
-  const tags = el('input', { type: 'text', placeholder: 'fantasy, monster, holo' });
+function openSaveDialog(typed = null) {
+  const name = el('input', { type: 'text', value: typed?.name ?? (state.project.name || 'My Template') });
+  const description = el('input', { type: 'text', value: typed?.description ?? '', placeholder: 'Short description shown in the browser' });
+  const author = el('input', { type: 'text', value: typed?.author ?? '', placeholder: 'Your name (optional)' });
+  const tags = el('input', { type: 'text', value: typed?.tags ?? '', placeholder: 'fantasy, monster, holo' });
 
   const body = el('div', { class: 'stack' }, [
     el('p', { class: 'hint', text: 'Templates store the full layout plus the card size. Any layer with a slot name becomes an editable field.' }),
@@ -138,14 +141,31 @@ function openSaveDialog() {
         label: 'Save template',
         primary: true,
         onClick: async (close) => {
+          const meta = {
+            name: name.value.trim() || 'Untitled template',
+            description: description.value.trim(),
+            author: author.value.trim(),
+            tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean),
+          };
+          const typedNow = { name: name.value, description: description.value, author: author.value, tags: tags.value };
+          close();
           try {
-            const res = await saveTemplate({
-              name: name.value.trim() || 'Untitled template',
-              description: description.value.trim(),
-              author: author.value.trim(),
-              tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean),
-            });
-            close();
+            // The name is the file name, and the default name is the project's,
+            // so a clash with an earlier template (or a shipped one) is easy.
+            const target = templateTarget(meta.name);
+            if (await wouldReplace(target)) {
+              const replace = await confirmDialog({
+                title: 'Replace an existing template?',
+                message: `${target} already holds a template. Saving replaces it; the file it replaces is kept once as a .bak beside it.`,
+                confirmLabel: 'Replace',
+                danger: true,
+              });
+              if (!replace) {
+                openSaveDialog(typedNow);
+                return;
+              }
+            }
+            const res = await saveTemplate(meta);
             if (res.saved === 'workspace') {
               toast(`Saved to ${res.path}`, 'ok');
               refresh();
@@ -154,6 +174,7 @@ function openSaveDialog() {
             }
           } catch (err) {
             toast(`Save failed: ${err.message}`, 'err');
+            openSaveDialog(typedNow);
           }
         },
       },

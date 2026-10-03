@@ -22,6 +22,7 @@ import {
 import { addRows, cardList } from '../core/cards.js';
 import { readQuantity } from '../core/printSheet.js';
 import { openModal, toast } from './dialogs.js';
+import { bleedInput, readBleed } from './toolbar.js';
 
 let table = { columns: [], rows: [] };
 let mapping = {};
@@ -142,6 +143,7 @@ export function openBatchDialog() {
     scale.append(el('option', { value: String(value), text: `${value}×  (${state.card.width * value} × ${state.card.height * value})` }));
   }
   scale.value = String(state.settings.lastExportScale || 2);
+  const bleed = bleedInput('batchBleed');
   const saveProjects = el('input', { type: 'checkbox' });
   const qtyColumn = el('select', { id: 'batchQtyColumn' });
 
@@ -171,6 +173,7 @@ export function openBatchDialog() {
       el('div', { class: 'field-row' }, [
         el('label', { class: 'field' }, [el('span', { text: 'Format' }), format]),
         el('label', { class: 'field' }, [el('span', { text: 'Resolution' }), scale]),
+        el('label', { class: 'field' }, [el('span', { text: 'Bleed (mm)' }), bleed]),
         el('label', { class: 'field' }, [el('span', { text: 'Quantity column' }), qtyColumn]),
       ]),
       el('label', { class: 'check' }, [saveProjects, ' Also save an editable project file per card']),
@@ -190,7 +193,7 @@ export function openBatchDialog() {
           class: 'btn',
           id: 'batchPreview',
           text: 'Preview first row',
-          onClick: () => preview(options().pattern),
+          onClick: () => preview(options()),
         }),
         el('button', {
           class: 'btn',
@@ -212,6 +215,7 @@ export function openBatchDialog() {
   const options = () => ({
     multiplier: Number(scale.value),
     format: format.value,
+    bleedMm: readBleed(bleed),
     pattern: pattern.value.trim() || '{n:3}',
     subfolder: subfolder.value.trim(),
     saveProjects: saveProjects.checked,
@@ -293,9 +297,14 @@ function loadData(text, filename, slots) {
   mapping = {};
   ignored = new Set();
   for (const column of table.columns) mapping[column] = guessSlot(column, slots);
-  qtyChoice = guessQtyColumn(table.columns);
+  qtyChoice = guessQtyColumn(table.columns, slotColumns());
 
   showTable(slots);
+}
+
+/** The columns the mapping sends to a slot. */
+function slotColumns() {
+  return new Set(Object.keys(mapping).filter((column) => mapping[column] && mapping[column] !== '-'));
 }
 
 /**
@@ -317,7 +326,7 @@ function showTable(slots) {
       mapping[column] = guessSlot(column, slots);
     }
   }
-  if (!table.columns.includes(qtyChoice)) qtyChoice = guessQtyColumn(table.columns);
+  if (!table.columns.includes(qtyChoice)) qtyChoice = guessQtyColumn(table.columns, slotColumns());
 
   nodes.summary.textContent =
     `${table.rows.length} rows × ${table.columns.length} columns from ${sourceName}`;
@@ -383,7 +392,7 @@ function renderMapping(slots) {
 
 /* -------------------------------------------------------------- actions --- */
 
-async function preview(pattern) {
+async function preview({ pattern, bleedMm }) {
   // A preview borrows the canvas just as a run does; inside a run it would
   // take its snapshot of a spreadsheet row and unlock history under it.
   if (running || adding) return;
@@ -394,7 +403,7 @@ async function preview(pattern) {
   setStatus('Rendering preview…');
   try {
     const url = await renderRow(table.rows[0], mapping, {
-      multiplier: 1, number: { n: 1, total: table.rows.length },
+      multiplier: 1, number: { n: 1, total: table.rows.length }, bleedMm,
     });
     nodes.preview.innerHTML = '';
     nodes.preview.append(el('img', { src: url, alt: 'First row preview' }));
@@ -466,6 +475,7 @@ async function start(options) {
   nodes.log.innerHTML = '';
   nodes.renderButton.textContent = 'Cancel';
   state.set('lastExportScale', options.multiplier);
+  state.set('lastExportBleed', options.bleedMm);
   setProgress(0, table.rows.length);
   setStatus(`Rendering ${table.rows.length} cards…`);
 

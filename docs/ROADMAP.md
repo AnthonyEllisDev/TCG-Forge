@@ -45,6 +45,10 @@ it.
   project's cards as a sheet with each card's id; loading it back with *Add
   rows as cards* updates those cards in place. See
   [`CARDS.md`](CARDS.md#the-cards-as-a-spreadsheet-and-back).
+- **Bleed made from the card's edges** (0.14.0) — exports, batch runs and print
+  sheets mirror the card's outermost strip into a print shop's bleed, so cards
+  designed at their finished size need no redesign. See
+  [`PRINT.md`](PRINT.md#bleed).
 
 ## Next
 

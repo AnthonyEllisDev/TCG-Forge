@@ -3880,6 +3880,537 @@ try {
     for (const path of ['batch/smoke-sheet-set.csv', 'batch/smoke-sheet-set.csv.bak']) await api.trash(path).catch(() => {});
   });
 
+  /* ---- 0.14.0: bug guards ---------------------------------------------- */
+
+  /* Embedding awaits every picture. A card switch that started in that wait
+     moved the active card under the save: the file's canvas showed one card
+     while its activeCard named the other, so reopening and stepping off wrote
+     the first card's words over the second. */
+  const raceSaved = await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const b = await import('/js/core/batch.js');
+    const c = await import('/js/core/cards.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'Race Alpha');
+    await b.applyRow({ art: 'assets/backgrounds/ember.svg' }, { art: 'art' });
+    await c.addCard();
+    t.setFieldText('title', 'Race Beta');
+    await c.switchCard(0);
+    window.TCGForge.state.settings.embedImages = true;
+    await p.saveProject({ name: 'Smoke Embed Race', path: 'projects/smoke-embed-race.json' });
+    document.activeElement?.blur?.();
+    return (await api.readJSON('projects/smoke-embed-race.json')).meta.modified;
+  });
+  await page.route('**/files/assets/**', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    route.continue().catch(() => {});
+  });
+  await page.click('#canvasScroll', { position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('Control+s');
+  await page.waitForTimeout(150);
+  await page.keyboard.press('PageDown');
+  // Every picture on the layout is slowed, so the save takes several seconds.
+  for (let waited = 0; waited < 30000; waited += 500) {
+    await page.waitForTimeout(500);
+    const modified = await page.evaluate(async () =>
+      (await window.TCGForge.api.readJSON('projects/smoke-embed-race.json').catch(() => null))?.meta.modified);
+    if (modified && modified !== raceSaved) break;
+  }
+  await page.unroute('**/files/assets/**');
+  const embedRace = await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    state.settings.embedImages = false;
+    const data = await api.readJSON('projects/smoke-embed-race.json').catch(() => null);
+    for (const path of ['projects/smoke-embed-race.json', 'projects/smoke-embed-race.json.bak']) await api.trash(path).catch(() => {});
+    if (!data) return { error: 'no file' };
+    const canvasTitle = data.canvas.objects.find((o) => o.tcgSlot === 'title')?.text;
+    return { canvasTitle, active: data.activeCard, cards: data.cards.map((card) => card.values.title) };
+  });
+  check('a card switch during an embedding save cannot split the file between two cards',
+    embedRace.cards?.join() === 'Race Alpha,Race Beta' && embedRace.canvasTitle === embedRace.cards[embedRace.active],
+    JSON.stringify(embedRace));
+
+  /* Art picked while a switch is still loading the incoming card's picture
+     landed beside it: the slot held two images, and the stray one stayed on
+     the layout for every card. */
+  await page.evaluate(async () => {
+    const c = await import('/js/core/cards.js');
+    const t = await import('/js/core/templates.js');
+    const b = await import('/js/core/batch.js');
+    await c.switchCard(0);
+    await b.applyRow({ art: null }, { art: 'art' });
+    t.setFieldText('title', 'Art Race A');
+    await c.switchCard(1);
+    await b.applyRow({ art: 'assets/backgrounds/ember.svg' }, { art: 'art' });
+    await c.switchCard(0);
+    document.activeElement?.blur?.();
+  });
+  await page.route('**/files/assets/backgrounds/ember.svg', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    route.continue().catch(() => {});
+  });
+  await page.click('#canvasScroll', { position: { x: 5, y: 5 } }).catch(() => {});
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(200);
+  await page.evaluate(async () => {
+    const a = await import('/js/ui/assetPanel.js');
+    await a.placeAsset({ category: 'art', name: 'abyss', path: 'assets/backgrounds/abyss.svg' });
+  });
+  await page.waitForTimeout(2500);
+  await page.unroute('**/files/assets/backgrounds/ember.svg');
+  const artRace = await page.evaluate(async () => {
+    try {
+      const c = await import('/js/core/cards.js');
+      const { editor, state } = window.TCGForge;
+      const onB = editor.findBySlot('art').map((o) => o.tcgAsset || o.type);
+      await c.switchCard(0);
+      const onA = editor.findBySlot('art').map((o) => o.tcgAsset || o.type);
+      return { onB, onA, records: state.project.cards.map((card) => card.values.art) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('art picked during a card switch replaces the slot instead of joining it',
+    artRace.onB?.join() === 'assets/backgrounds/abyss.svg' && artRace.onA?.length === 1 &&
+      artRace.onA[0] !== 'assets/backgrounds/abyss.svg' && artRace.records?.[1] === 'assets/backgrounds/abyss.svg',
+    JSON.stringify(artRace));
+
+  /* A layout with a slot called `qty` writes the card counts as `copies`; the
+     way back picked `qty` (the slot's text) as the count and overwrote every
+     card's Copies with it. */
+  await page.evaluate(async () => {
+    const { api, editor, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const c = await import('/js/core/cards.js');
+    const o = await import('/js/core/objects.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    editor.place(o.makeText('2', { tcgSlot: 'qty', tcgName: 'Printed count' }));
+    t.setFieldText('title', 'Qty Alpha');
+    t.setFieldText('qty', '7');
+    c.setCardQty(0, 4);
+    await c.addCard();
+    t.setFieldText('title', 'Qty Beta');
+    t.setFieldText('qty', '9');
+    c.setCardQty(1, 3);
+    state.project.name = 'Smoke Qty Slot';
+    document.activeElement?.blur?.();
+  });
+  await page.click('#cardsCsv');
+  await page.waitForTimeout(900);
+  await page.keyboard.press('Control+b');
+  await page.waitForSelector('#batchWorkspaceFile', { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#batchWorkspaceFile', 'batch/smoke-qty-slot.csv').catch(() => {});
+  await page.click('#batchOpenFile', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  const qtyChosen = await page.inputValue('#batchQtyColumn').catch(() => '');
+  await page.click('#batchAddCards', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(1200);
+  const qtySlotSheet = await page.evaluate(async () => {
+    const { state, api } = window.TCGForge;
+    const d = await import('/js/ui/dialogs.js');
+    d.closeModal();
+    const out = state.project.cards.map((card) => ({ qtySlot: card.values.qty, copies: card.qty ?? 1 }));
+    for (const path of ['batch/smoke-qty-slot.csv', 'batch/smoke-qty-slot.csv.bak']) await api.trash(path).catch(() => {});
+    return out;
+  });
+  check('a slot called qty does not take over the copy count on the way back from a sheet',
+    qtyChosen === 'copies' && JSON.stringify(qtySlotSheet) === '[{"qtySlot":"7","copies":4},{"qtySlot":"9","copies":3}]',
+    JSON.stringify({ qtyChosen, qtySlotSheet }));
+
+  /* Save as template wrote templates/<name>.json without looking, so the
+     default name (the project's) silently replaced an earlier template, or a
+     shipped one. It asks now, and No goes back to the dialog as typed. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'Clash Original');
+    await t.saveTemplate({ name: 'Smoke Clash' });
+    t.setFieldText('title', 'Clash Replacement');
+    state.project.name = 'Smoke Clash';
+    document.activeElement?.blur?.();
+  });
+  const clashFoot = async (label) => {
+    for (const button of await page.$$('#modalFoot .btn')) {
+      if ((await button.textContent()) === label) return button;
+    }
+    return null;
+  };
+  const clashTitle = () => page.$eval('#modalTitle', (n) => n.textContent).catch(() => '');
+  const clashFile = () => page.evaluate(async () => {
+    const data = await window.TCGForge.api.readJSON('templates/smoke-clash.json').catch(() => null);
+    return data?.canvas.objects.find((o) => o.tcgSlot === 'title')?.text ?? null;
+  });
+  await page.click('[data-action="save-template"]');
+  await page.waitForTimeout(300);
+  await (await clashFoot('Save template'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  const askedTitle = await clashTitle();
+  const hasDanger = !!(await page.$('#modalFoot .btn.danger'));
+  await (await clashFoot('Cancel'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const backTitle = await clashTitle();
+  const keptName = await page.$eval('#modalBody input', (n) => n.value).catch(() => '');
+  const afterNo = await clashFile();
+  await (await clashFoot('Save template'))?.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  await page.click('#modalFoot .btn.danger', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  const afterYes = await clashFile();
+  const templateClash = { askedTitle, hasDanger, backTitle, keptName, afterNo, afterYes };
+  await page.evaluate(async () => {
+    const { api } = window.TCGForge;
+    (await import('/js/ui/dialogs.js')).closeModal();
+    for (const path of ['templates/smoke-clash.json', 'templates/smoke-clash.json.bak']) await api.trash(path).catch(() => {});
+  });
+  check('saving a template over one of the same name asks first, and No keeps the old file',
+    /Replace an existing template/.test(askedTitle) && hasDanger && backTitle === 'Save as template' &&
+      keptName === 'Smoke Clash' && afterNo === 'Clash Original' && afterYes === 'Clash Replacement',
+    JSON.stringify(templateClash));
+
+  /* A `/files/…` cell (a URL copied out of a saved file) was stored as the
+     URL, so embedding fetched /files/files/… and quietly left the art out. */
+  const filesCell = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const c = await import('/js/core/cards.js');
+      const b = await import('/js/core/batch.js');
+      const p = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      await c.addRows([{ title: 'URL art', art: '/files/assets/backgrounds/ember.svg' }], { title: 'title', art: 'art' }, b.resolveAsset);
+      const stored = c.cardList()[1]?.values.art;
+      const data = await p.serializeProject({ embed: true });
+      return { stored, embedded: String(data.cards[1]?.values.art).slice(0, 22) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a /files/ cell is stored as a workspace path, so the art embeds',
+    filesCell.stored === 'assets/backgrounds/ember.svg' && filesCell.embedded === 'data:image/svg+xml;bas',
+    JSON.stringify(filesCell));
+
+  /* A font file named with a quote registered its family with the quote, but
+     every CSS font list writes the family without one — so the font was never
+     drawn. Measured by painting a glyph only that font has. */
+  const quotedFont = await page.evaluate(async () => {
+    try {
+      const { assets } = window.TCGForge;
+      const bytes = await (await fetch('/files/assets/fonts/Forge-Icons.ttf')).arrayBuffer();
+      const family = await assets.registerFontFromFile(new File([bytes], 'Smoke"Quote.ttf'));
+      const css = `"${family.replace(/["\\]/g, '')}"`;
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.font = `300px ${css}, monospace`;
+      return { family, width: Math.round(ctx.measureText('\ue007').width) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a font whose file name holds a quote is still drawn',
+    quotedFont.family === 'SmokeQuote' && quotedFont.width === 291, JSON.stringify(quotedFont));
+
+  /* New icons took the point after the highest one in use, so a neighbouring
+     font with a glyph at U+F8FF left no room for any — and the build said only
+     "No icons to build." without the warnings that explained it. */
+  const iconRoom = await (async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const python = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+    const tools = path.join(root, 'tools');
+    const builder = path.join(tools, 'build_icon_font.py');
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'tcg-room-'));
+    const fonts = path.join(scratch, 'fonts');
+    const icons = path.join(scratch, 'icons');
+    const broken = path.join(scratch, 'broken');
+    for (const dir of [fonts, icons, broken]) fs.mkdirSync(dir);
+    const neighbour = path.join(fonts, 'Vendor-Logo.ttf');
+    const made = spawnSync(python, ['-c', [
+      'import sys', `sys.path.insert(0, ${JSON.stringify(tools)})`, 'import build_icon_font as b',
+      "g = [('.notdef', None, b.notdef_contours(), b.ADVANCE), ('space', 0x20, [], b.SPACE_ADVANCE),"
+        + " ('logo', 0xF8FF, b.notdef_contours(), b.ADVANCE)]",
+      `open(${JSON.stringify(neighbour)}, 'wb').write(b.build_font(g, {}))`,
+    ].join('\n')], { encoding: 'utf8' });
+    fs.copyFileSync(path.join(root, 'workspace', 'assets', 'icons', 'gem.svg'), path.join(icons, 'gem.svg'));
+    const built = spawnSync(python, [builder, '--icons', icons, '--out', path.join(fonts, 'Mine.ttf')], { encoding: 'utf8' });
+    fs.writeFileSync(path.join(broken, 'bad.svg'), '<svg');
+    const empty = spawnSync(python, [builder, '--icons', broken, '--out', path.join(scratch, 'Empty.ttf')], { encoding: 'utf8' });
+    return {
+      neighbour: made.status, status: built.status, gem: (built.stdout.match(/U\+([0-9A-F]+)\s+\{gem\}/) || [])[1],
+      emptyStatus: empty.status, said: /bad\.svg/.test(empty.stderr || ''),
+    };
+  })().catch((err) => ({ error: err.message }));
+  check('the icon builder uses the lowest free code point, and says why when nothing builds',
+    iconRoom.neighbour === 0 && iconRoom.status === 0 && iconRoom.gem === 'E000' &&
+      iconRoom.emptyStatus === 1 && iconRoom.said, JSON.stringify(iconRoom));
+
+  /* The canvas element is a whole number of screen pixels at the current
+     zoom, and Fabric sized exports from it: a 750 px card at most zooms came
+     out 749 px wide — a card that prints a hair narrow on every sheet. */
+  const exactSize = await page.evaluate(async () => {
+    try {
+      const { editor, state } = window.TCGForge;
+      const before = editor.zoom;
+      const sizes = [];
+      for (const zoom of [0.37, 0.61, 0.83]) {
+        editor.setZoom(zoom);
+        for (const multiplier of [1, 2]) {
+          const img = new Image();
+          img.src = editor.toDataURL({ multiplier, format: 'png' });
+          await img.decode();
+          sizes.push(`${img.naturalWidth}x${img.naturalHeight}`);
+        }
+      }
+      editor.setZoom(before);
+      return { card: `${state.card.width}x${state.card.height}`, sizes };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('an export is the card\'s own size at any zoom',
+    exactSize.card === '750x1050' && exactSize.sizes?.join() === '750x1050,1500x2100,750x1050,1500x2100,750x1050,1500x2100',
+    JSON.stringify(exactSize));
+
+  /* ---- 0.14.0: bleed made from the card's edges ------------------------ */
+
+  /* The mirror itself, pixel for pixel: every pixel of the margin is the
+     pixel the same distance inside the edge, sides across one axis and
+     corners across both. A source whose colour encodes its own coordinates
+     makes any wrong strip, flip or offset show up. */
+  const bleedMirror = await page.evaluate(async () => {
+    try {
+      const { mirrorBleed, bleedPixels } = await import('/js/core/bleed.js');
+      const w = 40;
+      const h = 20;
+      const src = document.createElement('canvas');
+      src.width = w;
+      src.height = h;
+      const sctx = src.getContext('2d');
+      for (let y = 0; y < h; y += 1) {
+        for (let x = 0; x < w; x += 1) {
+          sctx.fillStyle = `rgb(${x * 6},${y * 12},200)`;
+          sctx.fillRect(x, y, 1, 1);
+        }
+      }
+      const out = mirrorBleed(src, 5, 3);
+      const data = out.getContext('2d').getImageData(0, 0, out.width, out.height).data;
+      const fold = (i, n) => (i < 0 ? -1 - i : i >= n ? 2 * n - 1 - i : i);
+      let wrong = 0;
+      let first = null;
+      for (let y = 0; y < out.height; y += 1) {
+        for (let x = 0; x < out.width; x += 1) {
+          const sx = fold(x - 5, w);
+          const sy = fold(y - 3, h);
+          const at = (y * out.width + x) * 4;
+          if (data[at] !== sx * 6 || data[at + 1] !== sy * 12) {
+            wrong += 1;
+            first ??= { x, y, got: [data[at], data[at + 1]], want: [sx * 6, sy * 12] };
+          }
+        }
+      }
+      return { size: [out.width, out.height], wrong, first, px: [bleedPixels(3, 300), bleedPixels(3, 300, 2), bleedPixels(0), bleedPixels(-1)] };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('mirrored bleed copies each edge outward, sides and corners',
+    bleedMirror.size?.join() === '50,26' && bleedMirror.wrong === 0 && bleedMirror.px?.join() === '35,71,0,0',
+    JSON.stringify(bleedMirror));
+
+  /* The export dialog, driven for real: 3 mm on a 750 × 1050 card at 300 dpi
+     is 35 px a side, the corners come out square (no transparent pixels where
+     the radius was), the margin mirrors the edge, and the trim inside is the
+     card itself, not a stretched copy. */
+  await page.evaluate(async () => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'Bleed Probe');
+    state.project.name = 'Smoke Bleed';
+    document.activeElement?.blur?.();
+  });
+  await page.keyboard.press('Control+e');
+  await page.waitForSelector('#exportBleed', { timeout: 5000 }).catch(() => {});
+  await page.$eval('#modalBody select', (s) => { s.value = '1'; s.dispatchEvent(new Event('change')); }).catch(() => {});
+  await page.fill('#exportBleed', '3').catch(() => {});
+  const bleedHint = await page.$eval('#exportBleedHint', (n) => n.textContent).catch(() => '');
+  for (const button of await page.$$('#modalFoot .btn')) {
+    if ((await button.textContent()) === 'Export') { await button.click({ timeout: 3000 }).catch(() => {}); break; }
+  }
+  await page.waitForTimeout(1500);
+  const bleedExport = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const pixels = async (url) => {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return { w: c.width, h: c.height, at: (x, y) => [...ctx.getImageData(x, y, 1, 1).data] };
+      };
+      const out = await pixels(`${api.fileURL('exports/smoke-bleed.png')}?t=${Date.now()}`);
+      const trim = await pixels(editor.toDataURL({ multiplier: 1, format: 'png', squareCorners: true }));
+      const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 2);
+      const mid = 500;
+      let mirrored = true;
+      for (let k = 0; k < 6; k += 1) {
+        if (!same(out.at(34 - k, mid), out.at(35 + k, mid))) mirrored = false;
+        if (!same(out.at(mid, 34 - k), out.at(mid, 35 + k))) mirrored = false;
+      }
+      let inside = true;
+      for (const [x, y] of [[0, 0], [375, 525], [749, 1049], [10, 600], [700, 40]]) {
+        if (!same(out.at(x + 35, y + 35), trim.at(x, y))) inside = false;
+      }
+      await api.trash('exports/smoke-bleed.png').catch(() => {});
+      return { size: [out.w, out.h], corner: out.at(2, 2)[3], innerCorner: out.at(36, 36)[3], mirrored, inside };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('Export with bleed writes a larger, square-cornered card with its edges mirrored out',
+    /35 px/.test(bleedHint) && /820 × 1120/.test(bleedHint) && bleedExport.size?.join() === '820,1120' &&
+      bleedExport.corner === 255 && bleedExport.innerCorner === 255 && bleedExport.mirrored && bleedExport.inside,
+    JSON.stringify({ bleedHint, ...bleedExport }));
+
+  /* Every card, and a batch preview through the batch dialog's own box: the
+     bleed reaches runBatch() for both. */
+  const bleedCards = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const c = await import('/js/core/cards.js');
+      t.setFieldText('title', 'Bleed One');
+      await c.addCard();
+      t.setFieldText('title', 'Bleed Two');
+      const result = await c.exportCards({ multiplier: 1, bleedMm: 3 });
+      const sizes = [];
+      for (const card of result.rendered) {
+        const img = new Image();
+        img.src = `${api.fileURL(card.path)}?t=${Date.now()}`;
+        await img.decode();
+        sizes.push(`${img.naturalWidth}x${img.naturalHeight}`);
+      }
+      for (const card of result.rendered) await api.trash(card.path).catch(() => {});
+      if (result.deckPath) await api.trash(result.deckPath).catch(() => {});
+      return { sizes, failed: result.failed.length };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.keyboard.press('Control+b');
+  await page.waitForSelector('#batchBleed', { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#batchWorkspaceFile', 'batch/sample-set.csv').catch(() => {});
+  await page.click('#batchOpenFile', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(500);
+  const rememberedBleed = await page.inputValue('#batchBleed').catch(() => '');
+  await page.fill('#batchBleed', '2').catch(() => {});
+  await page.click('#batchPreview', { timeout: 3000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('.batch-preview img')?.complete, null, { timeout: 15000 }).catch(() => {});
+  const previewSize = await page.$eval('.batch-preview img', (img) => `${img.naturalWidth}x${img.naturalHeight}`).catch(() => '');
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check('every-card export and the batch preview carry the bleed too',
+    bleedCards.sizes?.join() === '820x1120,820x1120' && bleedCards.failed === 0 &&
+      rememberedBleed === '3' && previewSize === '798x1098',
+    JSON.stringify({ ...bleedCards, rememberedBleed, previewSize }));
+
+  /* The print sheet makes the bleed from a trim-size image instead of
+     stretching it over the bleed. A card with a 4 px green band down its left
+     edge, laid out 1:1: two pixels inside the trim are still green when
+     mirrored, red when stretched (the band was pushed out into the bleed). */
+  const bleedSheet = await page.evaluate(async () => {
+    try {
+      const ps = await import('/js/core/printSheet.js');
+      const card = document.createElement('canvas');
+      card.width = 100;
+      card.height = 140;
+      const cctx = card.getContext('2d');
+      cctx.fillStyle = '#ff0000';
+      cctx.fillRect(0, 0, 100, 140);
+      cctx.fillStyle = '#00ff00';
+      cctx.fillRect(0, 0, 4, 140);
+      const url = card.toDataURL('image/png');
+      const plan = ps.planSheet({ cardWidth: 100, cardHeight: 140, cardDpi: 100, dpi: 100, page: 'a4', marginMm: 6, bleedMm: 0.762 });
+      const sample = async (mirror) => {
+        const [page] = await ps.buildSheets([url], plan, { guides: 'none', mirror });
+        const ctx = page.canvas.getContext('2d');
+        const s = plan.slots[0];
+        const at = (x, y) => [...ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data].slice(0, 3).join();
+        return { inside: at(s.left + 2, s.top + 70), outside: at(s.left - 2, s.top + 70), corner: at(s.left - 2, s.top - 2) };
+      };
+      return { bleed: plan.bleed, mirror: await sample(true), stretch: await sample(false) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('a print sheet mirrors bleed out of trim-size cards rather than stretching them',
+    Math.abs(bleedSheet.bleed - 3) < 1e-6 && bleedSheet.mirror?.inside === '0,255,0' && bleedSheet.mirror.outside === '0,255,0' &&
+      bleedSheet.mirror.corner === '0,255,0' && bleedSheet.stretch?.inside === '255,0,0',
+    JSON.stringify(bleedSheet));
+
+  /* And the print dialog uses it: its preview of the current card with 3 mm
+     bleed is compared with the two ways the same page could be built. */
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.keyboard.press('Control+p');
+  await page.waitForSelector('#printBleedFrom', { timeout: 5000 }).catch(() => {});
+  const bleedDefault = await page.inputValue('#printBleedFrom').catch(() => '');
+  await page.selectOption('#printSource', 'card').catch(() => {});
+  await page.fill('#printBleed', '3').catch(() => {});
+  await page.$eval('#printPageLabels', (n) => { n.checked = false; n.dispatchEvent(new Event('change')); }).catch(() => {});
+  for (const button of await page.$$('#modalFoot .btn')) {
+    if ((await button.textContent()) === 'Preview') { await button.click({ timeout: 3000 }).catch(() => {}); break; }
+  }
+  await page.waitForFunction(() => /showing page 1/.test(document.getElementById('printStatus')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
+  const bleedDialog = await page.evaluate(async () => {
+    try {
+      const { editor, state } = window.TCGForge;
+      const ps = await import('/js/core/printSheet.js');
+      const shown = document.querySelector('#modalBody .batch-preview img');
+      if (!shown) return { error: 'no preview' };
+      await shown.decode();
+      const plan = ps.planSheet({
+        cardWidth: state.card.width, cardHeight: state.card.height, cardDpi: state.card.dpi || 300,
+        page: document.getElementById('printPage')?.value || 'a4', dpi: 300, marginMm: 6, bleedMm: 3,
+      });
+      const count = plan.perPage;
+      const build = async (mirror) => {
+        const url = editor.toDataURL({ multiplier: 1, format: 'png', squareCorners: mirror });
+        const [first] = await ps.buildSheets(Array.from({ length: Math.min(count, 9) }, () => url), plan, { guides: 'crop', mirror });
+        return first.canvas;
+      };
+      const small = (source) => {
+        const c = document.createElement('canvas');
+        c.width = 200;
+        c.height = 283;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(source, 0, 0, c.width, c.height);
+        return ctx.getImageData(0, 0, c.width, c.height).data;
+      };
+      const seen = small(shown);
+      const diff = (canvas) => {
+        const d = small(canvas);
+        let total = 0;
+        for (let i = 0; i < d.length; i += 4) total += Math.abs(d[i] - seen[i]) + Math.abs(d[i + 1] - seen[i + 1]) + Math.abs(d[i + 2] - seen[i + 2]);
+        return Math.round(total / (d.length / 4));
+      };
+      return { mirrorDiff: diff(await build(true)), stretchDiff: diff(await build(false)) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(async () => {
+    (await import('/js/ui/dialogs.js')).closeModal();
+    window.TCGForge.state.set('lastExportBleed', 0);
+  });
+  check('the print dialog mirrors bleed by default',
+    bleedDefault === 'mirror' && bleedDialog.mirrorDiff * 2 < bleedDialog.stretchDiff,
+    JSON.stringify({ bleedDefault, ...bleedDialog }));
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

@@ -88,12 +88,16 @@ command away. See [`docs/ICONS.md`](docs/ICONS.md).
 
 **Print-ready output.** Card presets are sized in real inches at your chosen dpi
 (Poker 2.5 × 3.5 in at 300 dpi = 750 × 1050 px). Export PNG or JPEG at 1× to 4×,
-with optional transparency, saved straight into `workspace/exports`. Safe-zone
-and bleed guides are on-screen only and never appear in the export.
+with optional transparency, saved straight into `workspace/exports`. Add a
+print shop's **bleed** in millimetres and the card's own edges are mirrored out
+to make it, so a card designed at its finished size goes to the printer as it
+is. Safe-zone and bleed guides are on-screen only and never appear in the
+export.
 
 **Sheets you can actually cut.** **Print** (`Ctrl/⌘ + P`) lays the current card
 or a whole rendered set onto A4, Letter, Legal, A3 or Tabloid at the cards' true
-physical size, with crop marks or cut lines, margins, gaps and bleed. Save as a
+physical size, with crop marks or cut lines, margins, gaps and bleed (mirrored
+from the card's edges, or taken from images that already carry it). Save as a
 PDF — which carries a real page size, so "print at 100%" means something — or as
 one PNG per page. See [`docs/PRINT.md`](docs/PRINT.md).
 

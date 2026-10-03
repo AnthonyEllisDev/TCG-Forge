@@ -175,7 +175,6 @@ export async function setFieldImage(slot, url, { assetPath = null } = {}) {
         height: state.card.height * 0.45,
       };
 
-  const index = target ? canvas.getObjects().indexOf(target) : canvas.getObjects().length;
   const img = await makeImage(url, {
     assetPath,
     tcgSlot: slot,
@@ -197,7 +196,12 @@ export async function setFieldImage(slot, url, { assetPath = null } = {}) {
     })
   );
 
-  if (target) canvas.remove(target);
+  // Whatever holds the slot *now*: a card switch may have put its own art in
+  // while this picture loaded, and replacing the layer seen before the wait
+  // would leave both pictures in the slot, on every card.
+  const current = editor.findBySlot(slot)[0] || null;
+  const index = current ? canvas.getObjects().indexOf(current) : canvas.getObjects().length;
+  if (current) canvas.remove(current);
   canvas.add(img);
   canvas.moveObjectTo(img, Math.max(0, index));
   canvas.setActiveObject(img);
@@ -299,9 +303,12 @@ export function collectFields() {
   return Array.from(seen.values());
 }
 
+/** Where a template of this name is saved. */
+export const templateTarget = (name) => `templates/${slugify(name, 'template')}.json`;
+
 export async function saveTemplate(meta) {
   const template = buildTemplate(meta);
-  const path = `templates/${template.id}.json`;
+  const path = templateTarget(template.name);
   if (api.online) {
     await api.writeJSON(path, template, { backup: true });
     bus.emit(EVT.TEMPLATES);

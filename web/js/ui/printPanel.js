@@ -109,7 +109,14 @@ export function openPrintDialog() {
   }
   const margin = el('input', { type: 'number', min: '0', max: '40', step: '0.5', value: '6' });
   const gap = el('input', { type: 'number', min: '0', max: '40', step: '0.5', value: '0' });
-  const bleed = el('input', { type: 'number', min: '0', max: '10', step: '0.5', value: '0' });
+  const bleed = el('input', { type: 'number', id: 'printBleed', min: '0', max: '10', step: '0.5', value: '0' });
+  // Bleed either comes with the images or is made from their edges. Cards
+  // designed at their finished size — the usual case — have none of their own.
+  const bleedFrom = el('select', { id: 'printBleedFrom' });
+  bleedFrom.append(
+    el('option', { value: 'mirror', text: 'Mirrored from the card edges' }),
+    el('option', { value: 'images', text: 'Already in the images' })
+  );
   const dpi = el('select');
   for (const value of [150, 300, 600]) {
     dpi.append(el('option', { value: String(value), text: `${value} dpi` }));
@@ -298,6 +305,7 @@ export function openPrintDialog() {
         el('label', { class: 'field' }, [el('span', { text: 'Margin (mm)' }), margin]),
         el('label', { class: 'field' }, [el('span', { text: 'Gap (mm)' }), gap]),
         el('label', { class: 'field' }, [el('span', { text: 'Bleed (mm)' }), bleed]),
+        el('label', { class: 'field' }, [el('span', { text: 'Bleed comes from' }), bleedFrom]),
       ]),
       el('div', { class: 'field-row' }, [
         el('label', { class: 'field' }, [el('span', { text: 'Cut guides' }), guides]),
@@ -306,7 +314,7 @@ export function openPrintDialog() {
       fit,
       el('p', {
         class: 'hint',
-        text: 'Cards are placed at the size their dpi says they are, so print at 100% — never "fit to page". Bleed assumes the source images already carry it; the guides mark the trim line inside it.',
+        text: 'Cards are placed at the size their dpi says they are, so print at 100% — never "fit to page". Bleed is either mirrored out from each card\'s own edges or taken from images that already carry it; either way the guides mark the trim line inside it.',
       }),
     ]),
     el('div', { class: 'subgroup' }, [
@@ -392,12 +400,16 @@ export function openPrintDialog() {
       };
     }
     const multiplier = Number(dpi.value) / (state.card.dpi || 300);
+    // Mirrored bleed is made around the trim, so the corners are drawn square
+    // for it to continue; buildSheets() adds the edges.
+    const squareCorners = mirrorEdges();
     if (source.value === 'project') {
       // Drawn straight onto the sheet, once per card, without writing a folder
       // first; the cards' copies repeat the drawn images like a deck list's.
       const counts = cardQuantities();
       const urls = await renderCards({
         multiplier,
+        squareCorners,
         onProgress: ({ index, total }) => {
           status.textContent = `Drawing cards… ${index + 1} / ${total}`;
         },
@@ -407,10 +419,12 @@ export function openPrintDialog() {
     }
     // One render of the current card, reused for every copy: the browser
     // caches the decode, and a data URL costs nothing to repeat.
-    const url = editor.toDataURL({ multiplier, format: 'png' });
+    const url = editor.toDataURL({ multiplier, format: 'png', squareCorners });
     const count = Math.max(1, Math.min(500, Math.round(num(copies, plan.perPage))));
     return { urls: Array.from({ length: count }, () => url), quantities: null };
   }
+
+  const mirrorEdges = () => num(bleed, 0) > 0 && bleedFrom.value === 'mirror';
 
   async function backURLs() {
     if (backMode.value === 'off') return [];
@@ -448,6 +462,7 @@ export function openPrintDialog() {
         backs: pairedBacks,
         guides: guides.value,
         pageLabel: pageLabels.checked ? stem : '',
+        mirror: mirrorEdges(),
         onProgress: ({ loaded, total }) => {
           status.textContent = `Loading cards… ${loaded} / ${total}`;
         },

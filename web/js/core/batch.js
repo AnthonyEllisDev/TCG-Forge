@@ -13,7 +13,7 @@ import { editor } from './editor.js';
 import { history } from './history.js';
 import { state } from './state.js';
 import { clearFieldImage, isImageSlot, setFieldImage, setFieldText } from './templates.js';
-import { serializeProject } from './project.js';
+import { renderCard, serializeProject } from './project.js';
 import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
 import { toLayoutJSON } from './objects.js';
 import { downloadURL, slugify } from '../util/dom.js';
@@ -139,12 +139,19 @@ export function parseAny(text, filename = '') {
 /** Column names that mean "how many of this card", in the order tools use them. */
 const QTY_COLUMNS = ['qty', 'quantity', 'count', 'copies', 'number', 'amount'];
 
-/** Pick the quantity column out of a header row, or '' when there is none. */
-export function guessQtyColumn(columns = []) {
+/**
+ * Pick the quantity column out of a header row, or '' when there is none.
+ * `mapped` names columns already feeding a slot: a layout with a slot called
+ * `qty` writes its counts as `copies` (cardsTable), so a column that is not
+ * card content wins over one that is.
+ */
+export function guessQtyColumn(columns = [], mapped = new Set()) {
   const normalise = (name) => String(name).trim().toLowerCase().replace(/[\s_-]+/g, '');
-  for (const want of QTY_COLUMNS) {
-    const hit = columns.find((column) => normalise(column) === want);
-    if (hit) return hit;
+  for (const pool of [columns.filter((column) => !mapped.has(column)), columns]) {
+    for (const want of QTY_COLUMNS) {
+      const hit = pool.find((column) => normalise(column) === want);
+      if (hit) return hit;
+    }
   }
   return '';
 }
@@ -195,6 +202,17 @@ const SEARCH_ORDER = ['art', 'icons', 'frames', 'backgrounds', 'textures'];
 export function resolveAsset(value) {
   const raw = String(value || '').trim();
   if (!raw) return null;
+  if (/^\/files\//i.test(raw)) {
+    // A workspace URL is a path in disguise. Kept as a URL it has no path, so
+    // a card holding it could not be embedded (fileURL would make it
+    // /files/files/…) and the art was quietly left out of the file.
+    try {
+      const path = raw.slice('/files/'.length).split('/').map(decodeURIComponent).join('/');
+      if (path) return { url: api.fileURL(path), path };
+    } catch {
+      // A malformed escape: use it as it stands, like any other URL.
+    }
+  }
   if (/^(data:|blob:|https?:|\/files\/)/i.test(raw)) return { url: raw, path: null };
   if (/^(assets|projects|templates|exports)\//i.test(raw)) {
     return { url: api.fileURL(raw), path: raw };
@@ -285,7 +303,7 @@ export async function applyRow(row, mapping) {
 
 /** Render a single row to a data URL without saving anything — used for preview. */
 export async function renderRow(row, mapping, {
-  multiplier = 1, format = 'png', transparent = false, number = null,
+  multiplier = 1, format = 'png', transparent = false, number = null, bleedMm = 0,
 } = {}) {
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
   const wasDirty = state.dirty;
@@ -298,7 +316,7 @@ export async function renderRow(row, mapping, {
     if (layout !== snapshot) await restoreSnapshot(layout);
     await applyRow(row, mapping);
     await nextFrame();
-    return editor.toDataURL({ multiplier, format, transparent });
+    return await renderCard({ multiplier, format, transparent, bleedMm });
   } finally {
     // Releasing the lock is nested inside its own finally because the restore
     // can throw — an image the row referenced may have gone from the
@@ -333,6 +351,10 @@ export async function runBatch({
     multiplier = 2,
     format = 'png',
     transparent = false,
+    // Millimetres mirrored out from each edge (core/bleed.js); 0 is none.
+    bleedMm = 0,
+    // Corners left square (the print sheet adds its own bleed around them).
+    squareCorners = false,
     pattern = '{n:3}-{title}',
     subfolder = '',
     saveProjects = false,
@@ -380,7 +402,7 @@ export async function runBatch({
         if (prepare) await prepare(row, index);
         await nextFrame();
 
-        const dataURL = editor.toDataURL({ multiplier, format, transparent });
+        const dataURL = await renderCard({ multiplier, format, transparent, bleedMm, squareCorners });
         const filename = `${name}.${extension}`;
 
         const qty = qtyColumn ? readQuantity(row[qtyColumn]) : 1;

@@ -553,7 +553,7 @@ function cardRows() {
  * the folder is overwritten on each export, and a list left from an export
  * whose counts have since changed would print the old deck.
  */
-export function exportCards({ multiplier = 2, format = 'png', transparent = false, onProgress } = {}) {
+export function exportCards({ multiplier = 2, format = 'png', transparent = false, bleedMm = 0, onProgress } = {}) {
   const { rows, mapping } = cardRows();
   const subfolder = slugify(state.project.name, 'cards');
   return runBatch({
@@ -564,6 +564,7 @@ export function exportCards({ multiplier = 2, format = 'png', transparent = fals
       multiplier,
       format,
       transparent,
+      bleedMm,
       subfolder,
       pattern: '{n:3}-{_card}',
       toWorkspace: api.online,
@@ -574,7 +575,7 @@ export function exportCards({ multiplier = 2, format = 'png', transparent = fals
 }
 
 /** Render every card to data URLs, in order, without writing anything. */
-export async function renderCards({ multiplier = 1, onProgress } = {}) {
+export async function renderCards({ multiplier = 1, squareCorners = false, onProgress } = {}) {
   const { rows, mapping } = cardRows();
   const urls = [];
   const result = await runBatch({
@@ -584,6 +585,7 @@ export async function renderCards({ multiplier = 1, onProgress } = {}) {
     options: {
       multiplier,
       format: 'png',
+      squareCorners,
       sink: (url) => urls.push(url),
       prepare: (row) => showOverrides(row._overrides),
     },
