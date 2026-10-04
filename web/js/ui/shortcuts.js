@@ -3,11 +3,12 @@
 import { editor, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
 import {
-  deleteSelection, distributeSelection, handleSave, openExportDialog, openProjectDialog, openShortcuts,
+  deleteSelection, distributeSelection, groupSelection, handleSave, openExportDialog, openProjectDialog,
+  openShortcuts,
 } from './toolbar.js';
 import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
-import { stepCard } from './cardStrip.js';
+import { focusFilter, stepCard } from './cardStrip.js';
 import { isModalOpen } from './dialogs.js';
 
 /* Keys whose browser default opens something of the browser's own — a save,
@@ -105,7 +106,7 @@ export function initShortcuts() {
         case 'g':
           if (typing) return;
           e.preventDefault();
-          editor.toggleGroup();
+          groupSelection();
           return;
         case '0':
           e.preventDefault();
@@ -137,6 +138,12 @@ export function initShortcuts() {
     if (e.key === 'PageUp' || e.key === 'PageDown') {
       e.preventDefault();
       stepCard(e.key === 'PageUp' ? -1 : 1);
+      return;
+    }
+
+    if (e.key === '/' && !e.altKey) {
+      e.preventDefault();
+      focusFilter();
       return;
     }
 

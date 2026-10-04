@@ -38,6 +38,7 @@ to one card's art is not stored with that card.
 | **⇠ / ⇢** | move this card earlier or later in the list |
 | **Delete** | remove this card, after asking. The last card cannot be deleted |
 | **Copies** | how many of this card the deck wants — see below |
+| **Filter** box | show only the cards that match — see [Finding a card](#finding-a-card) |
 
 Tiles show a thumbnail once a card has been on screen this session, and the
 card's first words either way. Thumbnails are not saved in the project file:
@@ -47,10 +48,46 @@ Undo history belongs to the card it was made on and starts afresh whenever you
 switch — a step recorded on one card would otherwise put its words back on the
 next.
 
+Layers that are card fields cannot be put in a group: Card Fields, card
+switching and batch runs look for fields among the card's top-level layers
+only. Group the decoration around a field instead. A copied and pasted field
+layer becomes a plain layer, the same as **Duplicate** makes.
+
 Art slots now have a **Clear** button in Card Fields, which takes the artwork out
 and puts back the layer it replaced (usually the dashed art box). Artwork
 remembers that layer when it is placed (`tcgPlaceholder`); art placed before
 0.7.0 gets a plain art box in its window instead.
+
+## Finding a card
+
+In a set of a hundred cards, Page Down is a slow way to reach the one you
+want. The **Filter** box in the strip (or **/** from anywhere in the editor)
+narrows the strip to the cards whose fields contain what you type:
+
+| You type | Shows |
+| --- | --- |
+| `flying` | cards with "flying" in any field (case does not matter) |
+| `flying dragon` | cards with both words, in any fields |
+| `"draw a card"` | the words together, in that order |
+| `type:sorcery` | cards whose *type* field contains "sorcery" — any field name works |
+| `rules:{gem}` | an icon, written as it is in Card Fields |
+| `art:wyrm` | cards whose artwork's file name contains "wyrm" |
+| `#12` | the twelfth card in the strip |
+
+A word with a colon that does not name a field (`10:30`) is searched as it is.
+
+While a filter is on, **‹ / ›** and Page Up / Page Down step through the
+matching cards only, and in the box **Enter** goes to the next match (Shift+Enter
+the previous one), carrying on from the other end like a find. **Escape** in
+the box clears it. The count beside the box says how many cards match.
+
+The card on screen always stays in the strip; if it does not match, its tile
+is faded so you can see it is only there to keep your place. It is matched by
+what it shows now, so a word you have just typed into Card Fields counts.
+
+A filter changes nothing in the project. The strip keeps its order, card
+numbers still count the whole set, *Export → Every card* and *Print → Every
+card* still take every card, and the filter is not saved with the project.
 
 ## Copies
 

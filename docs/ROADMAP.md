@@ -49,6 +49,9 @@ it.
   sheets mirror the card's outermost strip into a print shop's bleed, so cards
   designed at their finished size need no redesign. See
   [`PRINT.md`](PRINT.md#bleed).
+- **Filtering the card strip** (0.15.0) — find cards in a big set by any
+  field, a field's words, an icon, artwork or number, and step through the
+  matches. See [`CARDS.md`](CARDS.md#finding-a-card).
 
 ## Next
 

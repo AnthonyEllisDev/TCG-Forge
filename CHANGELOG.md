@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.15.0 — finding a card in a big set
+
+- **Filter the card strip.** A box beside the card count narrows the strip to
+  the cards whose fields contain every word typed — `flying`, `"draw a card"`
+  for words that belong together, `type:sorcery` to look in one field,
+  `rules:{gem}` to find an icon, `art:wyrm` for a picture, `#12` for the
+  twelfth card. ‹ / › and Page Up / Page Down then step through the matches
+  only, Enter and Shift+Enter cycle through them from the box, Escape clears
+  it and **/** jumps to it. The card on screen stays in the strip, faded, when
+  it does not match, so you never lose your place. Filtering is a way of
+  looking at the set, not a change to it: order, numbering, exports and prints
+  are still the whole set, and nothing is saved. See
+  [`docs/CARDS.md`](docs/CARDS.md#finding-a-card).
+
+### Fixed
+
+- **Loading a template or opening a project while a card was still being
+  shown** — a card switch waiting on its artwork — finished the switch into
+  the new layout: it showed the card being left, words and picture, marked as
+  saved, and the next save wrote them into the project just opened. Both now
+  wait for the switch to finish.
+- **Copy and paste of a field layer kept the field**, so two layers shared one
+  slot and the copy carried one card's words or art onto every card.
+  Pasting now makes a plain layer, as Duplicate always has.
+- **Grouping field layers took them out of Card Fields**, and the next card
+  switch saved the card without its words and left them showing over the next
+  card. Field layers can no longer be grouped; grouping the layers around them
+  works as before.
+- **Long batch file names lost their `.png`** — the server cut names at 120
+  characters, extension included — and two cards whose names only differed
+  past that point overwrote each other. Names are now cut before they are made
+  unique, and the server keeps the extension when it shortens one.
+- **The local server answered the body of a refused `POST` as a second
+  request** (a `POST` outside `/api/`, or one whose `Content-Length` was not a
+  number). It now closes the connection, as it already did for other refusals.
+
 ## 0.14.0 — bleed made from the card's edges
 
 - **Bleed without redesigning the card.** Print shops trim inside what they

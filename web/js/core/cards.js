@@ -274,6 +274,77 @@ export function cardLabel(card, index, kinds = slotKinds()) {
   return `Card ${index + 1}`;
 }
 
+/* ---------------------------------------------------------------- filter -- */
+
+/**
+ * Split a filter into terms. Words are matched separately and all must be
+ * found; "quoted words" are one term; `slot:words` looks in that field only;
+ * `#12` is the card at that place in the strip. A prefix that names no field
+ * is left as text, so `10:30` still searches for itself.
+ */
+export function parseFilter(query, slots = new Set(slotKinds().keys())) {
+  const terms = [];
+  const pattern = /(?:([^\s:"]+):)?(?:"([^"]*)"?|(\S+))/g;
+  for (const match of String(query || '').matchAll(pattern)) {
+    let [whole, slot, quoted, word] = match;
+    if (slot !== undefined && !slots.has(slot)) {
+      slot = undefined;
+      quoted = undefined;
+      word = whole.replace(/"/g, '');
+    }
+    const text = (quoted ?? word ?? '').toLowerCase().trim();
+    if (!slot && /^#\d+$/.test(text)) {
+      terms.push({ number: Number(text.slice(1)) });
+    } else if (text) {
+      terms.push({ slot: slot || null, text });
+    }
+  }
+  return terms;
+}
+
+/**
+ * What a filter searches in one value: text as the sheet writes it, so
+ * `{gem}` finds the icon, and artwork by its path. A picture held only as a
+ * data URL has no name to find, and its base64 would match almost anything.
+ */
+function searchable(value) {
+  const text = String(value ?? '');
+  if (/^(data|blob):/i.test(text)) return '';
+  return collapseIcons(text).toLowerCase();
+}
+
+/** Does a card's set of values pass every term? */
+export function cardMatches(values, terms, number = 0) {
+  return terms.every((term) => {
+    if (term.number !== undefined) return term.number === number;
+    if (term.slot) return searchable(values?.[term.slot]).includes(term.text);
+    return Object.values(values || {}).some((value) => searchable(value).includes(term.text));
+  });
+}
+
+/**
+ * The places in the strip of the cards a filter lets through, or `null` when
+ * the filter is blank. The card on screen is read from its slots, since its
+ * record is only brought up to date when another card is shown. Only slots the
+ * layout still has are searched, so a value left over from a removed field
+ * cannot match.
+ */
+export function matchingCards(query) {
+  if (!String(query || '').trim()) return null;
+  const kinds = slotKinds();
+  const terms = parseFilter(query, new Set(kinds.keys()));
+  if (!terms.length) return null;
+  const active = activeIndex();
+  const out = [];
+  cardList().forEach((card, index) => {
+    const source = index === active ? captureValues() : card.values || {};
+    const values = {};
+    for (const slot of kinds.keys()) values[slot] = source[slot];
+    if (cardMatches(values, terms, index + 1)) out.push(index);
+  });
+  return out;
+}
+
 /* ----------------------------------------------------------------- apply -- */
 
 /**

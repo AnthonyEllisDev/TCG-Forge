@@ -612,6 +612,21 @@
   white-space: nowrap;
 }
 .strip-qty input { width: 56px; }
+/* Narrow while idle, so the bar still fits a 1440 px window; wide while it is
+   in use. */
+.strip-bar .strip-filter { width: 70px; }
+.strip-bar .strip-filter:focus,
+.strip-bar .strip-filter:not(:placeholder-shown) { width: 170px; }
+#cardFilterCount:empty { display: none; }
+/* The card on screen stays in a filtered strip so the place is never lost;
+   faded, it says it is only there for that reason. */
+.card-tile.no-match { opacity: 0.45; }
+.card-tile.no-match.active { border-style: dashed; }
+.strip-empty {
+  align-self: center;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
 
 /* --------------------------------------------------------------------------
    status bar

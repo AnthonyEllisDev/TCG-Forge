@@ -38,7 +38,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.14.0"
+APP_VERSION = "0.15.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -122,7 +122,12 @@ def safe_filename(name: str) -> str:
     name = os.path.basename(name or "").strip()
     name = re.sub(r"[^A-Za-z0-9._ \-()]", "_", name)
     name = name.lstrip(".") or "untitled"
-    return name[:120]
+    # Cut the stem, not the whole name: a long batch pattern otherwise lost its
+    # ".png", and the "-2" that kept two cards apart along with it.
+    stem, ext = os.path.splitext(name)
+    if len(ext) > 16:
+        stem, ext = name, ""
+    return stem[: 120 - len(ext)] + ext
 
 
 def unique_path(directory: str, filename: str) -> str:
@@ -259,7 +264,11 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             # the next request on this connection into nonsense.
             self.close_connection = True
             raise ValueError("send a Content-Length, not a chunked body")
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self.close_connection = True
+            raise ValueError("Content-Length is not a number") from None
         if length <= 0:
             return {}
         if length > MAX_REQUEST_BYTES:
@@ -336,6 +345,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             return self._refuse()
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
+            # The body is not read, so it must not be parsed as the next request.
+            self.close_connection = True
             return self._error("not found", 404)
         try:
             return self.handle_api_post(parsed.path[5:], self._read_body())

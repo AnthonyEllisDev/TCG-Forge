@@ -281,10 +281,25 @@ after its values, on every switch and when a project opens. Files hold the
 layout only: `toLayoutJSON()` writes each `tcgBase` back over its layer before
 a project or template is saved, so an older build opens the layout it expects.
 Art slots and group members cannot be changed per card; a copied layer drops
-`tcgBase`, and grouping hands its members back to the layout first. Batch runs
+`tcgBase`, and grouping hands its members back to the layout first. (A copied
+or pasted layer drops `tcgSlot` too, and `editor.toggleGroup()` refuses a
+selection holding a slot — the slot system only sees top-level layers, so a
+slot inside a group would vanish from the card.) Batch runs
 start every row from the layout snapshot (`layoutSnapshot()`), and a project's
 rows carry `_overrides`, which `runBatch()`'s `prepare` hook lays over the row
 before it is drawn — `batch.js` itself knows nothing of cards.
+
+**Filtering the strip** (0.15.0). `cards.parseFilter()` turns the box's text
+into terms (`{slot, text}` or `{number}`); a `slot:` prefix counts only when it
+names a slot the layout has. `cardMatches()` tests one card's values — text
+through `collapseIcons()` so `{gem}` matches, art by path, `data:`/`blob:`
+values never — and `matchingCards()` returns the strip positions that pass,
+reading the card on screen from its slots. All of it is read-only; the filter
+itself lives in `ui/cardStrip.js` (not in `state`, not in the file), which
+skips non-matching tiles except the active one and makes `stepCard()` step to
+the next match. Anything that loads a new canvas — `applyTemplate()` and
+`applyProject()` — first awaits `history.settled()` and `cards.settled()`, so a
+switch still loading its art cannot finish into it.
 
 **A sheet of the cards, and back** (0.13.0). `cardsTable()` turns the list
 into `{columns, rows, csv}` — `_id`, one column per slot, `qty` — with icons

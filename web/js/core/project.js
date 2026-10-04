@@ -111,6 +111,10 @@ export async function applyProject(data) {
   if (data.format && data.format !== PROJECT_FORMAT && data.format !== 'tcgforge.template') {
     throw new Error(`Unsupported file format: ${data.format}`);
   }
+  // Same window as for templates: a switch that lands after the load would
+  // paint the outgoing card over the project just opened.
+  await history.settled();
+  await settled();
   return editor.replaceCard(() => loadProject(data));
 }
 

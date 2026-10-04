@@ -485,6 +485,11 @@ export function deleteSelection() {
   if (!editor.remove()) toast('Locked layers are kept — unlock a layer to delete it.', 'warn');
 }
 
+/** Shared by the Layers panel button and Ctrl+G. */
+export function groupSelection() {
+  if (!editor.toggleGroup()) toast('Card fields cannot go in a group — group the layers around them instead.', 'warn');
+}
+
 /** Shared by the toolbar buttons and Alt+Shift+H / V. */
 export function distributeSelection(axis) {
   if (!editor.distribute(axis)) toast('Select three or more unlocked layers to distribute.', 'warn');
@@ -587,7 +592,8 @@ export function openShortcuts() {
     ['Arrow keys', 'Nudge 1 px (Shift = 10 px)'],
     ['[ / ]', 'Send backward / bring forward'],
     ['Alt + Shift + H / V', 'Distribute three or more layers evenly'],
-    ['Page Up / Down', 'Previous / next card'],
+    ['Page Up / Down', 'Previous / next card (of the filtered cards, while filtering)'],
+    ['/', 'Filter the cards; Enter / Shift+Enter step through the matches'],
     ['Ctrl/⌘ + 0', 'Fit card to window'],
     ['Ctrl/⌘ + + / −', 'Zoom in / out'],
     ['Ctrl/⌘ + wheel', 'Zoom at pointer'],

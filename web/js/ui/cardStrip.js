@@ -4,6 +4,12 @@
  * One tile per card: a thumbnail once the card has been on screen this
  * session, its first words either way. Pictures are not saved in the project
  * file; they would be most of its size and all of its diff noise.
+ *
+ * The filter box narrows the tiles to the cards whose fields match, and the
+ * previous / next buttons and Page Up / Down then step through those only. It
+ * is a way of looking at the set, not a change to it: the strip order, the
+ * numbering, exports and prints are all still the whole set, and the filter
+ * is not saved.
  */
 
 import { $, downloadText, el, on, slugify } from '../util/dom.js';
@@ -21,6 +27,7 @@ import {
   cardList,
   cardsTable,
   captureValues,
+  matchingCards,
   moveCard,
   qtyOf,
   removeCard,
@@ -33,6 +40,7 @@ import { confirmDialog, toast } from './dialogs.js';
 const thumbs = new Map();   // card id -> data URL, this session only
 let busy = false;
 let thumbTimer = null;
+let filter = '';
 
 export function initCardStrip() {
   on(document, 'click', (e) => {
@@ -51,6 +59,21 @@ export function initCardStrip() {
     qty.value = String(qtyOf(cardList()[activeIndex()]));
   });
 
+  const box = $('#cardFilter');
+  on(box, 'input', () => {
+    filter = box.value;
+    render();
+  });
+  on(box, 'keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      stepMatch(e.shiftKey ? -1 : 1, { wrap: true });
+    } else if (e.key === 'Escape' && box.value) {
+      e.preventDefault();
+      clearFilter();
+    }
+  });
+
   bus.on(EVT.CARDS, render);
   bus.on(EVT.TEMPLATE_APPLIED, render);
   bus.on(EVT.PROJECT, render);
@@ -62,9 +85,46 @@ export function initCardStrip() {
   render();
 }
 
-/** Show the card before or after this one. */
+/** Show the card before or after this one — among the filtered cards, if any. */
 export function stepCard(delta) {
-  return goTo(activeIndex() + delta);
+  return stepMatch(delta);
+}
+
+/** Put the keyboard in the filter box (the `/` shortcut). */
+export function focusFilter() {
+  const box = $('#cardFilter');
+  box?.focus();
+  box?.select();
+}
+
+export function clearFilter() {
+  const box = $('#cardFilter');
+  if (box) box.value = '';
+  filter = '';
+  render();
+}
+
+/**
+ * The next card in `delta`'s direction that the filter lets through. With
+ * `wrap`, the search carries on from the other end, as a find does.
+ */
+function neighbour(delta, { wrap = false, matches = matchingCards(filter) } = {}) {
+  const count = cardList().length;
+  const active = activeIndex();
+  const allowed = matches ? new Set(matches) : null;
+  for (let step = 1; step < count; step += 1) {
+    let index = active + delta * step;
+    if (wrap) index = ((index % count) + count) % count;
+    else if (index < 0 || index >= count) return -1;
+    if (!allowed || allowed.has(index)) return index;
+  }
+  return -1;
+}
+
+function stepMatch(delta, options) {
+  const index = neighbour(delta, options);
+  if (index < 0) return Promise.resolve();
+  return goTo(index);
 }
 
 async function goTo(index) {
@@ -98,9 +158,9 @@ async function runAction(action) {
         busy = false;
       }
     } else if (action === 'prev') {
-      await goTo(index - 1);
+      await stepMatch(-1);
     } else if (action === 'next') {
-      await goTo(index + 1);
+      await stepMatch(1);
     } else if (action === 'left' || action === 'right') {
       moveCard(index, action === 'left' ? -1 : 1);
     } else if (action === 'sheet') {
@@ -190,9 +250,13 @@ function render() {
   const kinds = slotKinds();
   // Rebuilding the tiles must not throw keyboard focus back to the page.
   const hadFocus = host.contains(document.activeElement);
+  const matches = matchingCards(filter);
+  const shown = matches ? new Set(matches) : null;
 
   host.innerHTML = '';
   cards.forEach((card, index) => {
+    const matched = !shown || shown.has(index);
+    if (!matched && index !== active) return;
     // The card on screen is labelled from its slots, not from its record,
     // which is only brought up to date when another card is shown.
     const label = cardLabel(index === active ? { values: captureValues() } : card, index, kinds);
@@ -200,13 +264,14 @@ function render() {
     const tile = el(
       'button',
       {
-        class: `card-tile${index === active ? ' active' : ''}`,
+        class: `card-tile${index === active ? ' active' : ''}${matched ? '' : ' no-match'}`,
         type: 'button',
         // Plain buttons, not listbox options: a listbox promises arrow-key
         // movement, and here Tab and Page Up / Down are the keys.
         'aria-current': index === active ? 'true' : null,
         'aria-label': `Card ${index + 1} of ${cards.length}: ${label}` +
-          (qtyOf(card) > 1 ? `, ${qtyOf(card)} copies` : ''),
+          (qtyOf(card) > 1 ? `, ${qtyOf(card)} copies` : '') +
+          (matched ? '' : ', not matching the filter'),
         title: label,
         dataset: { cardId: card.id },
         onClick: () => goTo(index),
@@ -221,9 +286,12 @@ function render() {
     );
     host.append(tile);
   });
+  if (shown && !shown.size) host.append(el('span', { class: 'strip-empty', text: 'No card matches the filter.' }));
 
   const count = $('#cardCount');
   if (count) count.textContent = `${active + 1} / ${cards.length}`;
+  const found = $('#cardFilterCount');
+  if (found) found.textContent = shown ? `${shown.size} of ${cards.length} match` : '';
   const qty = $('#cardQty');
   if (qty && document.activeElement !== qty) qty.value = String(qtyOf(cards[active]));
   // The deck only needs saying when it is not simply one of each.
@@ -233,8 +301,8 @@ function render() {
   const single = cards.length <= 1;
   for (const [action, disabled] of [
     ['delete', single],
-    ['prev', active === 0],
-    ['next', active === cards.length - 1],
+    ['prev', neighbour(-1, { matches }) < 0],
+    ['next', neighbour(1, { matches }) < 0],
     ['left', active === 0],
     ['right', active === cards.length - 1],
   ]) {

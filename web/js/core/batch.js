@@ -158,6 +158,9 @@ export function guessQtyColumn(columns = [], mapped = new Set()) {
 
 /* -------------------------------------------------------------- patterns -- */
 
+/** Room for uniqueNamer()'s "-NNN" and an extension inside the server's 120. */
+const MAX_NAME = 100;
+
 /**
  * Expand `{column}` tokens in an output-name pattern.
  * `{n}` is the 1-based row number, `{n:3}` pads it to three digits.
@@ -169,7 +172,10 @@ export function fillPattern(pattern, row, index) {
     const value = row[key];
     return value === undefined ? '' : String(value);
   });
-  return slugify(filled, `card-${index + 1}`);
+  // The server cuts file names at 120 characters. Cutting here instead, before
+  // uniqueNamer() sees the name, keeps its "-2" and the extension on the end.
+  const slug = slugify(filled, `card-${index + 1}`).slice(0, MAX_NAME).replace(/-+$/, '');
+  return slug || `card-${index + 1}`;
 }
 
 /**

@@ -118,7 +118,9 @@ one edit. Add, duplicate, reorder and delete cards, turn a spreadsheet into
 cards you can go on editing, give each card a number of copies, nudge or
 recolour a layer on one card without touching the rest, and export or print
 every card at once. **Save as CSV** writes the whole set out as a spreadsheet;
-edit it there and load it back, and the same cards are updated in place. See
+edit it there and load it back, and the same cards are updated in place. In a
+big set, the strip's **filter** finds cards by any field — `type:sorcery`,
+`"draw a card"`, `#12` — and Page Down steps through the matches. See
 [`docs/CARDS.md`](docs/CARDS.md).
 
 **Decks, not just sets.** A count column in the spreadsheet — `qty`, `copies`,

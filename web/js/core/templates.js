@@ -22,7 +22,7 @@ import {
 } from './objects.js';
 import { fitImage } from './effects.js';
 import { expandIcons } from './icons.js';
-import { resetCards } from './cards.js';
+import { resetCards, settled } from './cards.js';
 import { slugify } from '../util/dom.js';
 
 export const TEMPLATE_FORMAT = 'tcgforge.template';
@@ -40,6 +40,11 @@ export async function loadTemplateFile(path) {
 
 export async function applyTemplate(data, { keepName = false } = {}) {
   if (!data?.canvas) throw new Error('Template has no canvas data.');
+  // A card switch still loading its art would finish writing that card into
+  // the template's layout — and put the dirty flag back as it found it, so the
+  // stray words looked saved.
+  await history.settled();
+  await settled();
   return editor.replaceCard(() => loadTemplate(data, { keepName }));
 }
 

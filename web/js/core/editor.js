@@ -502,7 +502,16 @@ class Editor {
     const pasted = [];
     for (const source of this.clipboard) {
       const clone = await source.clone(CUSTOM_PROPS);
-      clone.set({ left: (clone.left || 0) + 28, top: (clone.top || 0) + 28, tcgId: undefined, tcgBase: undefined });
+      // A pasted layer is a new layer, not a second home for the slot: two
+      // layers in one slot meant the copy kept the first card's art or words
+      // on every card.
+      clone.set({
+        left: (clone.left || 0) + 28,
+        top: (clone.top || 0) + 28,
+        tcgId: undefined,
+        tcgSlot: undefined,
+        tcgBase: undefined,
+      });
       styleObject(clone);
       this.canvas.add(clone);
       pasted.push(clone);
@@ -557,9 +566,16 @@ class Editor {
 
   /* -------------------------------------------------------------- grouping */
 
+  /**
+   * Group the selection, or ungroup a group. Returns false — and changes
+   * nothing — when a layer in the selection is a card field: the slot system
+   * only looks at top-level layers, so a slot inside a group vanished from
+   * Card Fields, and the next card switch saved the card without its words and
+   * left them on screen over the next card.
+   */
   toggleGroup() {
     const active = this.active();
-    if (!active) return;
+    if (!active) return true;
 
     if (active.type === 'group') {
       const items = active.removeAll ? active.removeAll() : active.getObjects();
@@ -571,6 +587,7 @@ class Editor {
       this.select(items);
     } else if (this.selection().length > 1) {
       const items = this.selection().slice();
+      if (items.some((o) => o.tcgSlot)) return false;
       this.canvas.discardActiveObject();
       // A group is part of the layout, so a change the card on screen made to
       // one of its members for itself cannot come along into it.
@@ -581,6 +598,7 @@ class Editor {
       this.select(group);
     }
     this.touch();
+    return true;
   }
 
   /* ------------------------------------------------------------- alignment */

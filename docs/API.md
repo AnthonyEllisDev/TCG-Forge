@@ -128,7 +128,8 @@ absolute one, so the UI can tell you where the file landed.
 `folder` puts the file in a subfolder of `exports/` (used by batch runs to keep
 a set together). `overwrite` replaces an existing file instead of writing
 `name-2.png`; batch runs set it so re-rendering a set replaces it, single
-exports leave it off.
+exports leave it off. A name longer than 120 characters is shortened before its
+extension, which is always kept.
 
 ### `POST /api/mkdir`
 

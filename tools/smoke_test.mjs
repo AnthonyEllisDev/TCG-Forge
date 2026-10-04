@@ -4411,6 +4411,357 @@ try {
     bleedDefault === 'mirror' && bleedDialog.mirrorDiff * 2 < bleedDialog.stretchDiff,
     JSON.stringify({ bleedDefault, ...bleedDialog }));
 
+  /* ---- 0.15.0: bug guards ---------------------------------------------- */
+
+  /* Opening a template or a project while a card switch is still loading its
+     art: the switch used to finish into the new canvas, so the template (or
+     the project just opened) showed the outgoing card's words and picture,
+     marked saved. The art is slowed so the switch is still in flight. */
+  const switchSetup = async () => page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      editor.findBySlot('title')[0].set({ text: 'Alpha' });
+      editor.touch();
+      await cards.addCard();
+      const { setFieldImage, setFieldText } = t;
+      setFieldText('title', 'Bravo');
+      await setFieldImage('art', api.fileURL('assets/backgrounds/ember.svg'), { assetPath: 'assets/backgrounds/ember.svg' });
+      await cards.switchCard(0);
+      state.setDirty(false);
+      return { ok: cards.cardList().length === 2 };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const slowEmber = async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue().catch(() => {});
+  };
+  const midSwitch = async (open) => {
+    await page.route('**/files/assets/backgrounds/ember.svg*', slowEmber);
+    const result = await page.evaluate(async (open) => {
+      try {
+        const { state, api, editor } = window.TCGForge;
+        const strip = await import('/js/ui/cardStrip.js');
+        const t = await import('/js/core/templates.js');
+        const project = await import('/js/core/project.js');
+        const stepping = strip.stepCard(1);
+        await new Promise((r) => setTimeout(r, 150));
+        if (open === 'template') await t.applyTemplate(await api.readJSON('templates/minimal-modern.json'));
+        else await project.openProjectPath('projects/smoke-other-set.json');
+        await stepping;
+        await new Promise((r) => setTimeout(r, 300));
+        return {
+          title: editor.findBySlot('title')[0]?.text,
+          art: editor.findBySlot('art').map((o) => o.tcgAsset || o.type),
+          dirty: state.dirty,
+          path: state.project.path,
+        };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }, open);
+    await page.unroute('**/files/assets/backgrounds/ember.svg*', slowEmber);
+    return result;
+  };
+  const otherSet = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const project = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      editor.findBySlot('title')[0].set({ text: 'Other card' });
+      editor.touch();
+      state.project.name = 'Smoke Other Set';
+      await project.saveProject({ path: 'projects/smoke-other-set.json' });
+      return { saved: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await switchSetup();
+  const switchTpl = await midSwitch('template');
+  check('loading a template during a card switch shows the template, not the card being left',
+    switchTpl.title !== 'Bravo' && !String(switchTpl.title).includes('Alpha') &&
+      !(switchTpl.art || []).includes('assets/backgrounds/ember.svg') && switchTpl.path === null,
+    JSON.stringify(switchTpl));
+  await switchSetup();
+  const switchOpen = await midSwitch('project');
+  check('opening a project during a card switch shows that project\'s card',
+    otherSet.saved && switchOpen.title === 'Other card' &&
+      !(switchOpen.art || []).includes('assets/backgrounds/ember.svg') &&
+      switchOpen.path === 'projects/smoke-other-set.json',
+    JSON.stringify({ otherSet, ...switchOpen }));
+  await page.evaluate(() => window.TCGForge.api.trash('projects/smoke-other-set.json').catch(() => {}));
+
+  /* Ctrl+C / Ctrl+V of a field layer kept its slot (Ctrl+D did not), so two
+     layers held one slot and the copy carried the first card's words or art
+     onto every card. */
+  const pasteSlot = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      editor.select([editor.findBySlot('title')[0]]);
+      document.activeElement?.blur?.();
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.keyboard.press('Control+c');
+  await page.waitForTimeout(150);
+  await page.keyboard.press('Control+v');
+  await page.waitForTimeout(300);
+  Object.assign(pasteSlot, await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const pasted = editor.active();
+    return {
+      titles: editor.findBySlot('title').length,
+      pastedSlot: pasted?.tcgSlot ?? null,
+      pastedText: pasted?.text ?? null,
+      layers: editor.objects().length,
+    };
+  }));
+  check('a pasted field layer is a plain layer, not a second home for the slot',
+    pasteSlot.titles === 1 && pasteSlot.pastedSlot === null && !!pasteSlot.pastedText,
+    JSON.stringify(pasteSlot));
+
+  /* Grouping field layers took them out of the slot system (it looks at
+     top-level layers), and the next card switch saved the card without its
+     words and left them over the next card. Grouping them is refused with a
+     reason; grouping other layers still works. */
+  const groupSlots = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      editor.select([editor.findBySlot('title')[0], editor.findBySlot('rules')[0]]);
+      document.activeElement?.blur?.();
+      return { before: editor.objects().length };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.keyboard.press('Control+g');
+  await page.waitForTimeout(200);
+  Object.assign(groupSlots, await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const plain = editor.objects().filter((o) => !o.tcgSlot && !o.tcgShowIf && !o.lockMovementX).slice(0, 2);
+    const result = {
+      after: editor.objects().length,
+      groups: editor.objects().filter((o) => o.type === 'group').length,
+      title: editor.findBySlot('title').length,
+      rules: editor.findBySlot('rules').length,
+      fields: document.querySelectorAll('#fieldForm [data-icon-target]').length,
+      toast: Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '',
+      plain: plain.length,
+    };
+    editor.select(plain);
+    document.activeElement?.blur?.();
+    return result;
+  }));
+  await page.keyboard.press('Control+g');
+  await page.waitForTimeout(200);
+  groupSlots.plainGrouped = await page.evaluate(() =>
+    window.TCGForge.editor.objects().filter((o) => o.type === 'group').length);
+  await page.keyboard.press('Control+g');
+  await page.waitForTimeout(200);
+  check('field layers cannot be grouped out of the slot system, other layers still can',
+    groupSlots.after === groupSlots.before && groupSlots.groups === 0 && groupSlots.title === 1 &&
+      groupSlots.rules === 1 && groupSlots.fields >= 2 && /cannot go in a group/.test(groupSlots.toast) &&
+      groupSlots.plain === 2 && groupSlots.plainGrouped === 1,
+    JSON.stringify(groupSlots));
+
+  /* Long batch names: the server cut the whole name at 120 characters, so
+     the ".png" went, and with it the "-2" that kept two cards apart. */
+  const longNames = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const long = 'When this creature enters the battlefield draw two cards then discard a card unless you control another creature';
+      const rows = [
+        { title: 'Long One', rules: `${long} with flying` },
+        { title: 'Long One', rules: `${long} with flying, it gains haste` },
+        { title: 'Short', rules: 'x' },
+      ];
+      const res = await batch.runBatch({
+        rows,
+        mapping: { title: 'title', rules: 'rules' },
+        options: { pattern: '{title}-{rules}', subfolder: 'smoke-long', multiplier: 0.2 },
+      });
+      const direct = await api.exportImage({
+        filename: `${'a'.repeat(140)}.png`,
+        dataURL: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==',
+        folder: 'smoke-long',
+        overwrite: true,
+      });
+      const listed = await api.request('/api/list?path=exports/smoke-long');
+      return {
+        rendered: (res.rendered || []).length,
+        files: (listed.entries || []).map((f) => f.name).filter((n) => n !== 'deck.json'),
+        direct: direct.path,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check('long batch file names keep their extension and stay apart',
+    longNames.rendered === 3 && longNames.files?.length === 4 &&
+      longNames.files.every((n) => /\.png$/.test(n)) && /\/a{100,116}\.png$/.test(longNames.direct || ''),
+    JSON.stringify(longNames));
+  await page.evaluate(() => window.TCGForge.api.trash('exports/smoke-long').catch(() => {}));
+
+  /* A POST outside /api/ was answered without its body being read, so the
+     body was then parsed as a second request on the same connection. */
+  const smuggled = await new Promise((resolve) => {
+    const url = new URL(BASE);
+    const inner = `GET /api/status HTTP/1.1\r\nHost: ${url.host}\r\n\r\n`;
+    const badLength = `POST /api/write HTTP/1.1\r\nHost: ${url.host}\r\nContent-Length: 1x\r\n\r\n${inner}`;
+    const results = [];
+    for (const head of [
+      `POST /index.html HTTP/1.1\r\nHost: ${url.host}\r\nContent-Length: ${inner.length}\r\n\r\n${inner}`,
+      badLength,
+    ]) {
+      results.push(new Promise((done) => {
+        let text = '';
+        const socket = net.connect(Number(url.port), url.hostname, () => socket.write(head));
+        socket.setTimeout(2500, () => socket.destroy());
+        socket.on('data', (chunk) => { text += chunk; });
+        // Not anchored to a line: a second response starts straight after the
+        // first one's body.
+        socket.on('close', () => done((text.match(/HTTP\/1\.[01] \d{3}/g) || []).join(', ')));
+        socket.on('error', () => done(text));
+      }));
+    }
+    Promise.all(results).then(resolve);
+  });
+  check('a POST body the server does not read is never answered as a second request',
+    /^HTTP\/1\.[01] 404$/.test(smuggled[0]) && /^HTTP\/1\.[01] 400$/.test(smuggled[1]),
+    JSON.stringify(smuggled));
+
+  /* ---- 0.15.0: filtering the card strip --------------------------------- */
+
+  /* The parser: words, "quoted words", field:words, #number, and a prefix
+     that names no field kept as text. */
+  const filterParse = await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    const terms = cards.parseFilter('title:"Ember Wyrm" FIRE 10:30 #12 nope:"a b"', new Set(['title', 'rules']));
+    const values = { title: 'Ember Wyrm', rules: 'Deals 2 \ue005 damage', art: 'data:image/png;base64,QUFBemJ' };
+    return {
+      terms,
+      fieldOnly: cards.cardMatches(values, cards.parseFilter('rules:wyrm', new Set(['rules'])), 1),
+      anywhere: cards.cardMatches(values, cards.parseFilter('wyrm deals', new Set()), 1),
+      number: [cards.cardMatches(values, cards.parseFilter('#3'), 3), cards.cardMatches(values, cards.parseFilter('#3'), 4)],
+      dataUrl: cards.cardMatches(values, cards.parseFilter('azb'), 1),
+    };
+  });
+  check('the card filter reads words, quotes, field:words and #number',
+    JSON.stringify(filterParse.terms) === JSON.stringify([
+      { slot: 'title', text: 'ember wyrm' }, { slot: null, text: 'fire' }, { slot: null, text: '10:30' },
+      { number: 12 }, { slot: null, text: 'nope:a b' },
+    ]) && filterParse.fieldOnly === false && filterParse.anywhere === true &&
+      filterParse.number.join() === 'true,false' && filterParse.dataUrl === false,
+    JSON.stringify(filterParse));
+
+  /* The real box over the six sample cards: it narrows the tiles, the card on
+     screen stays (faded) when it does not match, Page Down and the › button
+     step through the matches only, Enter wraps like a find, field:words and
+     {icon} work, the card on screen is matched by what it shows now, Escape
+     clears, and none of it touches the project. */
+  const filterSetup = await page.evaluate(async () => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const text = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+      const table = batch.parseAny(text, 'sample-set.csv');
+      const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
+      await cards.addRows(table.rows, mapping, batch.resolveAsset);
+      await cards.removeCard(0);
+      await cards.switchCard(0);
+      state.setDirty(false);
+      return { ids: cards.cardList().map((c) => c.id) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const stripState = () => page.evaluate(() => ({
+    tiles: Array.from(document.querySelectorAll('#cardTiles .card-tile')).map((n) =>
+      `${n.querySelector('.tile-label').textContent.split('.')[0]}${n.classList.contains('no-match') ? '~' : ''}`).join(' '),
+    count: document.querySelector('#cardFilterCount').textContent,
+    active: window.TCGForge.state.project.activeCard,
+    prev: document.querySelector('[data-card-action="prev"]').disabled,
+    next: document.querySelector('[data-card-action="next"]').disabled,
+  }));
+  const filterUi = {};
+  await page.fill('#cardFilter', 'flying');
+  filterUi.flying = await stripState();
+  await page.click('#canvasScroll', { position: { x: 5, y: 5 } });
+  await page.keyboard.press('PageDown');
+  await page.waitForTimeout(700);
+  filterUi.pageDown = await stripState();
+  await page.click('#cardFilter');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(700);
+  filterUi.enterWraps = await stripState();
+  await page.fill('#cardFilter', 'rules:{element-fire}');
+  filterUi.fieldIcon = await stripState();
+  await page.fill('#cardFilter', 'art:starfield');
+  filterUi.art = await stripState();
+  await page.click('[data-card-action="next"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  filterUi.nextButton = await stripState();
+  await page.fill('#cardFilter', 'type:sorcery #5');
+  filterUi.scoped = await stripState();
+  // The card on screen is matched by what it shows, not by its stale record.
+  await page.fill('#ff_title', 'Zebra Herald');
+  await page.fill('#cardFilter', 'zebra');
+  filterUi.live = await stripState();
+  await page.fill('#cardFilter', 'nothing-matches-this');
+  filterUi.none = await stripState();
+  filterUi.emptyNote = await page.$eval('#cardTiles', (n) => n.querySelector('.strip-empty')?.textContent || '');
+  await page.focus('#cardFilter');
+  await page.keyboard.press('Escape');
+  filterUi.cleared = await stripState();
+  filterUi.clearedBox = await page.$eval('#cardFilter', (n) => n.value);
+  await page.click('#canvasScroll', { position: { x: 5, y: 5 } });
+  await page.keyboard.press('/');
+  filterUi.slashFocus = await page.evaluate(() => document.activeElement?.id);
+  filterUi.project = await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    return { cards: cards.cardList().length, order: cards.cardList().map((c) => c.id).join('|') };
+  });
+  check('the strip filter narrows the tiles and the card on screen stays, faded',
+    filterUi.flying.tiles === '1 3' && filterUi.flying.count === '2 of 6 match' &&
+      filterUi.fieldIcon.tiles === '1 5' && filterUi.fieldIcon.count === '2 of 6 match' &&
+      filterUi.art.tiles === '1~ 3 6',
+    JSON.stringify({ flying: filterUi.flying, fieldIcon: filterUi.fieldIcon }));
+  check('Page Down, the next button and Enter step through the matching cards only',
+    filterUi.pageDown.active === 2 && filterUi.pageDown.next === true && filterUi.pageDown.prev === false &&
+      filterUi.enterWraps.active === 0 &&
+      filterUi.nextButton.active === 2,
+    JSON.stringify({ pageDown: filterUi.pageDown, enterWraps: filterUi.enterWraps, art: filterUi.art, next: filterUi.nextButton }));
+  check('the strip filter searches one field, a card number and the card on screen as it is now',
+    filterUi.scoped.tiles === '3~ 5' && filterUi.scoped.count === '1 of 6 match' &&
+      filterUi.live.tiles === '3' && filterUi.live.count === '1 of 6 match' &&
+      filterUi.none.count === '0 of 6 match' && /No card matches/.test(filterUi.emptyNote),
+    JSON.stringify({ scoped: filterUi.scoped, live: filterUi.live, none: filterUi.none, note: filterUi.emptyNote }));
+  check('Escape clears the filter, / comes back to it, and the project is untouched',
+    filterUi.cleared.tiles === '1 2 3 4 5 6' && filterUi.cleared.count === '' && filterUi.clearedBox === '' &&
+      filterUi.slashFocus === 'cardFilter' && filterUi.project.cards === 6 &&
+      filterUi.project.order === (filterSetup.ids || []).join('|'),
+    JSON.stringify({ cleared: filterUi.cleared, slash: filterUi.slashFocus, project: filterUi.project }));
+  await page.evaluate(async () => (await import('/js/ui/cardStrip.js')).clearFilter());
+  await page.evaluate(() => document.activeElement?.blur?.());
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

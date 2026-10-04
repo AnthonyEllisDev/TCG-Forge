@@ -4,7 +4,7 @@ import { $, activatable, el, on } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { editor, parseShowIf } from '../core/editor.js';
 import { kindOf, labelOf } from '../core/objects.js';
-import { deleteSelection } from './toolbar.js';
+import { deleteSelection, groupSelection } from './toolbar.js';
 
 const KIND_BADGE = {
   text: 'T',
@@ -36,7 +36,7 @@ export function initLayers() {
     else if (action === 'layer-top') editor.order('top');
     else if (action === 'layer-bottom') editor.order('bottom');
     else if (action === 'duplicate') editor.duplicate();
-    else if (action === 'group') editor.toggleGroup();
+    else if (action === 'group') groupSelection();
     else if (action === 'delete') deleteSelection();
   });
 
