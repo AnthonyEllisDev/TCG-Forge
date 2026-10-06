@@ -4922,19 +4922,47 @@ try {
   );
 
   /* Real keys into Card Fields while the switch draws: refused, rather than
-     landing on the card being left and vanishing a moment later. */
+     landing on the card being left and vanishing a moment later. The art is
+     held until the keys are in, so the switch is still drawing however slowly
+     the clicks and keys arrive — a fixed delay let a slow runner finish the
+     switch first and type into the new card, which proved nothing. Beta's
+     art is a picture this page has never loaded, so no browser cache can
+     hand it over without the held request. */
   await switchTwo();
+  const heldArt = `assets/art/smoke-held-${Date.now()}.svg`;
+  await page.evaluate(async (path) => {
+    const { api, state } = window.TCGForge;
+    await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#0f0"/></svg>');
+    state.project.cards[1].values.art = path;
+  }, heldArt);
+  let releaseHeld = () => {};
+  const heldGate = new Promise((resolve) => { releaseHeld = resolve; });
+  const heldRoute = `**/files/${heldArt}`;
+  await page.route(heldRoute, async (route) => {
+    await heldGate;
+    route.continue().catch(() => {});
+  });
   await page.waitForTimeout(400);
   await page.click('[data-card-action="next"]', { timeout: 3000 }).catch(() => {});
-  await page.waitForTimeout(150);
+  let typedMidSwitch = false;
+  for (let i = 0; i < 30 && !typedMidSwitch; i += 1) {
+    await page.waitForTimeout(100);
+    typedMidSwitch = await page.evaluate(() => {
+      const { state, editor } = window.TCGForge;
+      return state.project.activeCard === 1 && editor.findBySlot('title')[0]?.text === 'Alpha';
+    });
+  }
   await page.click('#ff_title', { timeout: 3000 }).catch(() => {});
   await page.keyboard.press('End');
   await page.keyboard.type('Typed');
   const typedDuring = await page.evaluate(() => ({
     box: document.querySelector('#ff_title')?.value,
     canvas: window.TCGForge.editor.findBySlot('title')[0]?.text,
+    // Beta's art is still held, so the switch cannot have finished.
+    stillSwitching: window.TCGForge.state.project.activeCard === 1 &&
+      !window.TCGForge.editor.findBySlot('art')[0]?.tcgAsset,
   }));
-  await page.waitForTimeout(1600);
+  releaseHeld();
   await page.evaluate(async () => (await import('/js/core/cards.js')).settled());
   await page.waitForTimeout(100);
   const typedAfter = await page.evaluate(() => ({
@@ -4943,11 +4971,14 @@ try {
     records: (window.TCGForge.state.project.cards || []).map((c) => c.values.title).join(' '),
   }));
   await page.evaluate(() => document.activeElement?.blur?.());
+  await page.unroute(heldRoute);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), heldArt);
   check(
     'typing into Card Fields during a switch is held, and the box then shows the new card',
-    !/Typed/.test(typedDuring.canvas || '') && !/Typed/.test(typedDuring.box || '') &&
+    typedMidSwitch && typedDuring.stillSwitching &&
+      !/Typed/.test(typedDuring.canvas || '') && !/Typed/.test(typedDuring.box || '') &&
       typedAfter.box === 'Beta' && typedAfter.canvas === 'Beta' && typedAfter.records === 'Alpha Beta',
-    JSON.stringify({ typedDuring, typedAfter })
+    JSON.stringify({ typedMidSwitch, typedDuring, typedAfter })
   );
   await page.unroute(slowEmberRoute);
 
