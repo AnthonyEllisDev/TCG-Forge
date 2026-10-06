@@ -20,7 +20,7 @@ import {
   buildTabletopSheets,
   planTabletop,
 } from '../core/tabletop.js';
-import { listExportFolders, listExportImages, loadDeck } from './printPanel.js';
+import { imageFileName, listExportFolders, listExportImages, loadDeck } from './printPanel.js';
 import { openModal, toast } from './dialogs.js';
 
 const JPEG_QUALITY = 0.9;
@@ -81,7 +81,7 @@ export function openTabletopDialog() {
       deck = found;
       useQty.disabled = !deck;
       if (deck && useQty.checked) {
-        const names = new Set(images.map((url) => url.split('/').pop()));
+        const names = new Set(images.map(imageFileName));
         count = deck.filter((card) => names.has(card.file)).reduce((n, card) => n + card.qty, 0);
         note = ` · copies from ${DECK_FILE}`;
       } else {
@@ -170,7 +170,7 @@ export function openTabletopDialog() {
       const urls = await listExportImages(folder.value);
       if (!urls.length) throw new Error(`no images in ${folder.value}`);
       if (!deck || !useQty.checked) return urls;
-      const byName = new Map(urls.map((url) => [url.split('/').pop(), url]));
+      const byName = new Map(urls.map((url) => [imageFileName(url), url]));
       const present = deck.filter((card) => byName.has(card.file));
       if (!present.length) throw new Error(`${DECK_FILE} in ${folder.value} names none of the images that are there`);
       return expandByQuantity(present.map((card) => byName.get(card.file)), present.map((card) => card.qty));

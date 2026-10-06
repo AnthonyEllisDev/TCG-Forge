@@ -50,7 +50,13 @@ website you happen to have open. Two checks close that:
 
 A refused request is answered `403` and the connection is closed, because its
 body was never read and the socket can no longer be trusted to start at a
-request line. Nothing sends `Access-Control-Allow-Origin`.
+request line. `HEAD` answers to the same checks. Nothing sends
+`Access-Control-Allow-Origin`.
+
+Workspace files under `/files/` are served with `Content-Security-Policy:
+sandbox`. They are pictures, fonts and data to the app, which is unaffected;
+but an SVG from an asset pack can carry a script, and opened on its own it
+would otherwise run as this origin and could call the API.
 
 If the API is unreachable — the server was stopped, or the page was opened some
 other way — `core/api.js` detects it at startup and the app degrades instead of
@@ -290,6 +296,22 @@ slot inside a group would vanish from the card.) Batch runs
 start every row from the layout snapshot (`layoutSnapshot()`), and a project's
 rows carry `_overrides`, which `runBatch()`'s `prepare` hook lays over the row
 before it is drawn — `batch.js` itself knows nothing of cards.
+
+**A card frames its own artwork** (0.17.0). The art layer is replaced from
+card to card, so its position cannot be a per-layer override; it is kept as a
+relation to the window instead. `templates.readFraming(img)` reads placed art
+against its `tcgArtBox` as `{zoom, x, y, angle?}` — scale over the cover
+scale, centre offset as a fraction of the window — or `null` for the plain
+cover fit; `applyFraming(img, framing)` sets it back (a `null` framing is the
+cover fit). `syncActive()` stores the card's framings as `framing: {<slot>:
+…}`; `showFraming()` runs after `showOverrides()` on every switch and in the
+`prepare` hook of *every card* renders (rows carry `_framing`), and sets
+*every* art slot, so a picture kept on the canvas because the next card names
+the same file does not keep the last card's zoom. `addRows()` drops a slot's
+framing when the sheet changes its picture. Art the user places goes through
+`cards.placeArt()`, which a switch, a save and every render wait for through
+`settled()` — otherwise a switch started while the picture loaded carried it
+to the next card.
 
 **Filtering the strip** (0.15.0). `cards.parseFilter()` turns the box's text
 into terms (`{slot, text}` or `{number}`); a `slot:` prefix counts only when it

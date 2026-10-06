@@ -64,6 +64,15 @@ export async function loadDeck(path) {
   }
 }
 
+/**
+ * The file name an image URL points at, as the folder and a deck list spell
+ * it. A URL encodes each name, so `fire card.png` arrives as `fire%20card.png`
+ * and would never match the list.
+ */
+export function imageFileName(url) {
+  return decodeURIComponent(url.split('/').pop());
+}
+
 export async function listExportImages(path) {
   const data = await api.request(`/api/list?path=${encodeURIComponent(path)}`);
   return (data.entries || [])
@@ -389,7 +398,7 @@ export function openPrintDialog() {
       // The list names files; the folder holds them. Match on the name alone
       // and print what is actually there, so a card deleted from the folder is
       // simply missing rather than fatal.
-      const byName = new Map(urls.map((url) => [url.split('/').pop(), url]));
+      const byName = new Map(urls.map((url) => [imageFileName(url), url]));
       const present = deck.filter((card) => byName.has(card.file));
       if (!present.length) {
         throw new Error(`${DECK_FILE} in ${folder.value} names none of the images that are there`);

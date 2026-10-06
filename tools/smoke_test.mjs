@@ -5238,6 +5238,264 @@ try {
     JSON.stringify({ tabletopFolder, tabletopFolderFit })
   );
 
+  /* ---- 0.17.0: art framing per card, and the bugs found with it ------- */
+
+  /* Art placed from the library, then a switch before the picture loads: the
+     picture belongs to the card it was placed on. The request is held until
+     the switch has been asked for, so the race is open however slow the
+     runner is; the picture is new to this page, so no cache can skip it. */
+  const placeArtPath = `assets/art/smoke-place-${Date.now()}.svg`;
+  let releasePlace = () => {};
+  const placeGate = new Promise((resolve) => { releasePlace = resolve; });
+  let placeHeld = false;
+  const placeRoute = `**/files/${placeArtPath}`;
+  await page.route(placeRoute, async (route) => {
+    placeHeld = true;
+    await placeGate;
+    route.continue().catch(() => {});
+  });
+  const placeSetup = await page.evaluate(async (path) => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#f0f"/></svg>');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Alpha');
+      await t.clearFieldImage('art');
+      cards.cardList().push({ id: 'card-place-b', values: { title: 'Beta', art: null } });
+      cards.syncActive();
+      state.setDirty(false);
+      const panel = await import('/js/ui/assetPanel.js');
+      window.__smokePlace = panel.placeAsset({ category: 'art', path, name: 'held' }).catch((err) => err.message);
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, placeArtPath);
+  for (let i = 0; i < 40 && !placeHeld; i += 1) await page.waitForTimeout(100);
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    window.__smokePlaceSwitch = cards.switchCard(1).catch((err) => err.message);
+  });
+  await page.waitForTimeout(300);
+  const placeWhileHeld = await page.evaluate(() => window.TCGForge.state.project.activeCard);
+  releasePlace();
+  const placedOn = await page.evaluate(async () => {
+    try {
+      await window.__smokePlace;
+      await window.__smokePlaceSwitch;
+      const { state, editor } = window.TCGForge;
+      const art = editor.findBySlot('art')[0];
+      const records = state.project.cards.map((c) => `${c.values.title}:${c.values.art ? 'art' : 'none'}`).join(' ');
+      return { active: state.project.activeCard, shown: art?.tcgAsset ? 'art' : 'none', records };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.unroute(placeRoute);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), placeArtPath);
+  check(
+    'art placed just before a card switch lands on the card it was placed on',
+    placeSetup.ok && placeHeld && placeWhileHeld === 0 &&
+      placedOn.active === 1 && placedOn.shown === 'none' && placedOn.records === 'Alpha:art Beta:none',
+    JSON.stringify({ placeSetup, placeHeld, placeWhileHeld, placedOn })
+  );
+
+  /* A deck list names files as the folder spells them; a space in a name
+     must not make the card's copies disappear. */
+  const spacedDeck = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const c = document.createElement('canvas');
+      c.width = 30; c.height = 42;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#c33'; ctx.fillRect(0, 0, 30, 42);
+      await api.exportImage({ filename: 'fire card.png', dataURL: c.toDataURL(), folder: 'smoke-deck-space', overwrite: true });
+      ctx.fillStyle = '#33c'; ctx.fillRect(0, 0, 30, 42);
+      await api.exportImage({ filename: 'water.png', dataURL: c.toDataURL(), folder: 'smoke-deck-space', overwrite: true });
+      await api.writeJSON('exports/smoke-deck-space/deck.json', {
+        format: 'tcgforge.deck',
+        cards: [{ file: 'fire card.png', qty: 3 }, { file: 'water.png', qty: 2 }],
+      });
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.click('[data-action="tabletop"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForSelector('#tabletopSource', { timeout: 5000 }).catch(() => {});
+  await page.selectOption('#tabletopSource', 'folder', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  await page.selectOption('#tabletopFolder', 'exports/smoke-deck-space', { timeout: 3000 }).catch(() => {});
+  let spacedFit = '';
+  for (let i = 0; i < 30 && !/copies/.test(spacedFit); i += 1) {
+    await page.waitForTimeout(100);
+    spacedFit = await page.evaluate(() => document.querySelector('#tabletopFit')?.textContent || '');
+  }
+  for (const b of await page.$$('#modalFoot button')) {
+    if ((await b.textContent()) === 'Preview') { await b.click({ timeout: 3000 }).catch(() => {}); break; }
+  }
+  let spacedStatus = '';
+  for (let i = 0; i < 50 && !/Number|failed/.test(spacedStatus); i += 1) {
+    await page.waitForTimeout(100);
+    spacedStatus = await page.evaluate(() => document.querySelector('#tabletopStatus')?.textContent || '');
+  }
+  await page.evaluate(async () => {
+    const dialogs = await import('/js/ui/dialogs.js');
+    dialogs.closeModal();
+    await window.TCGForge.api.trash('exports/smoke-deck-space').catch(() => {});
+  });
+  check(
+    'a deck list naming a file with a space keeps that card\'s copies',
+    spacedDeck.ok && spacedFit.startsWith('5 cards') && /Number 5\b/.test(spacedStatus),
+    JSON.stringify({ spacedDeck, spacedFit, spacedStatus })
+  );
+
+  /* HEAD answers to the same Host and Origin checks as GET, and a workspace
+     file opened on its own cannot run a script as this origin. */
+  const headForeign = await rawRequest({ method: 'HEAD', path: '/index.html', headers: { Origin: 'http://evil.example' } }).catch((err) => ({ error: err.message }));
+  const headRebound = await rawRequest({ method: 'HEAD', path: '/index.html', headers: { Host: 'evil.example' } }).catch((err) => ({ error: err.message }));
+  const headOwn = await rawRequest({ method: 'HEAD', path: '/index.html' }).catch((err) => ({ error: err.message }));
+  check(
+    'HEAD is refused for a foreign Origin or a rebound Host',
+    headForeign.status === 403 && headRebound.status === 403 && headOwn.status === 200,
+    JSON.stringify({ foreign: headForeign.status, rebound: headRebound.status, own: headOwn.status })
+  );
+
+  const scriptSvg = `assets/art/smoke-script-${Date.now()}.svg`;
+  const scriptTarget = `projects/smoke-svg-wrote-${Date.now()}.json`;
+  await page.evaluate(([svgPath, target]) => window.TCGForge.api.writeText(
+    svgPath,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>' +
+      `fetch('/api/write',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:'${target}',content:'{}'})})` +
+      '</script></svg>'
+  ), [scriptSvg, scriptTarget]);
+  const svgPage = await browser.newPage();
+  const svgResponse = await svgPage.goto(`${BASE}/files/${scriptSvg}`).catch(() => null);
+  await svgPage.waitForTimeout(1200);
+  await svgPage.close();
+  const svgWrote = await page.evaluate(async (target) => {
+    const res = await fetch(window.TCGForge.api.fileURL(target));
+    if (res.ok) await window.TCGForge.api.trash(target).catch(() => {});
+    return res.ok;
+  }, scriptTarget);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), scriptSvg);
+  check(
+    'a script inside a workspace picture cannot call the API when the picture is opened',
+    svgWrote === false && /sandbox/.test(svgResponse?.headers()['content-security-policy'] || ''),
+    JSON.stringify({ svgWrote, csp: svgResponse?.headers()['content-security-policy'] })
+  );
+
+  /* The feature. A tall picture, left half red and right half blue, covers
+     the art window edge to edge across its width. */
+  const framePath = `assets/art/smoke-frame-${Date.now()}.svg`;
+  const frameSetup = await page.evaluate(async (path) => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80">' +
+        '<rect width="10" height="80" fill="#f00"/><rect x="10" width="10" height="80" fill="#00f"/></svg>');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      state.project.name = 'Smoke Framing';
+      t.setFieldText('title', 'Framed');
+      await t.setFieldImage('art', api.fileURL(path), { assetPath: path });
+      const art = editor.findBySlot('art')[0];
+      // Move the picture right by half its window, as a drag would.
+      art.set({ left: art.left + art.tcgArtBox.width / 2 });
+      art.setCoords();
+      editor.touch();
+      // Same picture on the second card, not framed.
+      cards.cardList().push({ id: 'card-frame-b', values: { title: 'Plain', art: path } });
+      await cards.switchCard(1);
+      const plain = t.readFraming(editor.findBySlot('art')[0]);
+      await cards.switchCard(0);
+      const back = t.readFraming(editor.findBySlot('art')[0]);
+      const file = await (await import('/js/core/project.js')).serializeProject({ embed: false });
+      return {
+        plain,
+        back,
+        records: cards.cardList().map((c) => c.framing || null),
+        fileFraming: file?.cards?.map((c) => c.framing || null) ?? null,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, framePath);
+  check(
+    'a card keeps how its art is framed across a switch, and the same picture on another card starts plain',
+    frameSetup.plain === null && frameSetup.back?.x === 0.5 && frameSetup.back?.zoom === 1 &&
+      frameSetup.records?.[0]?.art?.x === 0.5 && frameSetup.records?.[1] === null &&
+      frameSetup.fileFraming?.[0]?.art?.x === 0.5 && frameSetup.fileFraming?.[1] === null,
+    JSON.stringify(frameSetup)
+  );
+
+  /* Every card drawn: the framed one shows the picture's red half three
+     quarters across the window, the plain one its blue half. */
+  const framePaint = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      const box = editor.findBySlot('art')[0].tcgArtBox;
+      const urls = await cards.renderCards({ multiplier: 1, squareCorners: true });
+      const sample = async (url) => {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const [r, g, b] = ctx.getImageData(Math.round(box.left + box.width * 0.75), Math.round(box.top + box.height * 0.5), 1, 1).data;
+        return r > 200 && b < 60 ? 'red' : b > 200 && r < 60 ? 'blue' : `${r},${g},${b}`;
+      };
+      return { colours: await Promise.all(urls.map(sample)) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'every card is drawn with its own art framing',
+    framePaint.colours?.join() === 'red,blue',
+    JSON.stringify(framePaint)
+  );
+
+  /* Card Fields: the zoom slider (driven by keys) and Refit. */
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await page.focus('#ffz_art', { timeout: 3000 }).catch(() => {});
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
+  const zoomed = await page.evaluate(async () => {
+    const t = await import('/js/core/templates.js');
+    const art = window.TCGForge.editor.findBySlot('art')[0];
+    return {
+      framing: t.readFraming(art),
+      readout: document.querySelector('#ffzo_art')?.textContent,
+      refit: document.querySelector('[data-refit-slot="art"]')?.disabled,
+    };
+  });
+  await page.click('[data-refit-slot="art"]', { timeout: 3000 }).catch(() => {});
+  const refitted = await page.evaluate(async () => {
+    const t = await import('/js/core/templates.js');
+    return {
+      framing: t.readFraming(window.TCGForge.editor.findBySlot('art')[0]),
+      slider: document.querySelector('#ffz_art')?.value,
+      refit: document.querySelector('[data-refit-slot="art"]')?.disabled,
+    };
+  });
+  await page.evaluate(async (path) => {
+    document.activeElement?.blur?.();
+    window.TCGForge.state.setDirty(false);
+    await window.TCGForge.api.trash(path).catch(() => {});
+  }, framePath);
+  check(
+    'the Card Fields zoom keeps the picture where it was moved to, and Refit fills the window again',
+    zoomed.framing?.zoom === 7.95 && zoomed.framing?.x === 0.5 && zoomed.readout === '795%' && zoomed.refit === false &&
+      refitted.framing === null && refitted.slider === '100' && refitted.refit === true,
+    JSON.stringify({ zoomed, refitted })
+  );
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

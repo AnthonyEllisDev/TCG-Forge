@@ -254,6 +254,99 @@ export async function clearFieldImage(slot) {
   return true;
 }
 
+/* ---------------------------------------------------------- framing ----- */
+
+/** How far a picture may be zoomed into its window, as a multiple of cover. */
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 8;
+
+const close = (a, b, eps) => Math.abs(a - b) < eps;
+const finite = (value, fallback) => (Number.isFinite(value) ? value : fallback);
+
+/**
+ * How placed artwork sits in its window, relative to the window, so it means
+ * the same thing for any picture: `zoom` is its scale over the scale that
+ * just covers the window, `x`/`y` move its centre by a fraction of the
+ * window's width/height, `angle` turns it. `null` is the plain cover fit
+ * every picture gets when it is placed — which is most cards, so they store
+ * nothing.
+ */
+export function readFraming(img) {
+  if (!isPlacedArt(img) || !img.width || !img.height) return null;
+  const box = img.tcgArtBox;
+  const cover = Math.max(box.width / img.width, box.height / img.height);
+  const centre = img.getCenterPoint();
+  const framing = {
+    zoom: round(img.scaleX / cover, 4),
+    x: round((centre.x - (box.left + box.width / 2)) / box.width, 4),
+    y: round((centre.y - (box.top + box.height / 2)) / box.height, 4),
+    angle: round(((img.angle % 360) + 360) % 360, 2),
+  };
+  if (framing.angle === 360) framing.angle = 0;
+  const plain =
+    close(framing.zoom, 1, 1e-3) && close(framing.x, 0, 1e-3) && close(framing.y, 0, 1e-3) && !framing.angle;
+  if (plain) return null;
+  if (!framing.angle) delete framing.angle;
+  return framing;
+}
+
+/** A framing as read from a file or a record: clamped, or null for plain. */
+export function cleanFraming(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const framing = {
+    zoom: Math.min(MAX_ZOOM, Math.max(0.05, finite(raw.zoom, 1))),
+    x: Math.min(2, Math.max(-2, finite(raw.x, 0))),
+    y: Math.min(2, Math.max(-2, finite(raw.y, 0))),
+  };
+  const angle = finite(raw.angle, 0) % 360;
+  if (angle) framing.angle = angle;
+  const plain = close(framing.zoom, 1, 1e-3) && close(framing.x, 0, 1e-3) && close(framing.y, 0, 1e-3) && !angle;
+  return plain ? null : framing;
+}
+
+/**
+ * Sit placed artwork in its window as a framing says; `null` is the cover
+ * fit. The window's clip does not move, so the picture is cropped by it as
+ * it was when the framing was read. Returns false for anything that is not
+ * placed artwork.
+ */
+export function applyFraming(img, framing) {
+  if (!isPlacedArt(img) || !img.width || !img.height) return false;
+  const box = img.tcgArtBox;
+  const f = cleanFraming(framing) || { zoom: 1, x: 0, y: 0 };
+  const scale = Math.max(box.width / img.width, box.height / img.height) * f.zoom;
+  img.set({ scaleX: scale, scaleY: scale, angle: f.angle || 0, flipX: false, flipY: false });
+  img.setPositionByOrigin(
+    new fabric.Point(box.left + box.width / 2 + f.x * box.width, box.top + box.height / 2 + f.y * box.height),
+    'center',
+    'center'
+  );
+  img.setCoords();
+  return true;
+}
+
+/**
+ * Zoom the artwork in a slot, keeping where its centre sits in the window, or
+ * put it back to the cover fit (`zoom` null). For the Card Fields controls;
+ * moving the picture is done by dragging it on the card.
+ */
+export function frameFieldImage(slot, zoom = null) {
+  const img = editor.findBySlot(slot)[0];
+  if (!isPlacedArt(img)) return false;
+  const framing =
+    zoom === null ? null : { ...(readFraming(img) || { x: 0, y: 0 }), zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) };
+  applyFraming(img, framing);
+  editor.canvas.requestRenderAll();
+  editor.touch();
+  bus.emit(EVT.OBJECTS, editor.objects());
+  return true;
+}
+
+function round(value, places) {
+  const f = 10 ** places;
+  return Math.round(value * f) / f;
+}
+
 /** The layer that artwork dropped on `target` will hand the slot back to. */
 function placeholderFor(target) {
   if (!target) return undefined;

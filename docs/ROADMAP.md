@@ -55,6 +55,10 @@ it.
 - **Tabletop deck sheets** (0.16.0) — a project's cards or a rendered folder
   laid out as Tabletop Simulator custom-deck sheets, with the hidden-card slot,
   copies and a back. See [`TABLETOP.md`](TABLETOP.md).
+- **Art framing per card** (0.17.0) — move, zoom and turn a card's picture in
+  its art window, kept with the card through switches, saves, exports, prints
+  and tabletop sheets. See
+  [`CARDS.md`](CARDS.md#framing-a-cards-artwork).
 
 ## Next
 

@@ -17,6 +17,10 @@
  * badge, recolour a plate (`overrides`, keyed by the layer's `tcgId`). Such a
  * layer carries the layout's own values in `tcgBase` while its card is shown;
  * every other card, and every file, sees the layout.
+ *
+ * How a card's artwork sits in its window — zoomed, moved, turned — is the
+ * card's too (`framing`, keyed by slot). The art layer is replaced from card
+ * to card, so that is kept as a relation to the window, not as a layer.
  */
 
 import { api } from './api.js';
@@ -27,7 +31,14 @@ import { history } from './history.js';
 import { applyRow, isRendering, runBatch, toCSV } from './batch.js';
 import { collapseIcons, expandIcons } from './icons.js';
 import { readQuantity } from './printSheet.js';
-import { collectFields, isImageSlot, isPlacedArt } from './templates.js';
+import {
+  applyFraming,
+  cleanFraming,
+  collectFields,
+  isImageSlot,
+  isPlacedArt,
+  readFraming,
+} from './templates.js';
 import { OVERRIDE_KEYS, overrideKeysFor, revertToLayout } from './objects.js';
 import { slugify, uid } from '../util/dom.js';
 
@@ -143,8 +154,35 @@ let unresolved = {};
  */
 let switching = null;
 
-/** Resolves once no card switch is in progress. */
-export const settled = () => switching || Promise.resolve();
+/**
+ * Artwork the user has placed that is still loading. A switch that started
+ * meanwhile would carry the picture onto the incoming card, so switches and
+ * renders wait for these as they wait for a switch.
+ */
+const placing = new Set();
+
+/** Resolves once no card switch, and no placing of art, is in progress. */
+export async function settled() {
+  while (switching || placing.size) {
+    await (switching || Promise.allSettled([...placing]));
+  }
+}
+
+/**
+ * Place artwork on the card on screen, holding back any switch until it has
+ * landed. `work` starts only once the canvas is settled, so it always lands
+ * on the card that was showing when it began.
+ */
+export async function placeArt(work) {
+  await settled();
+  const job = work();
+  placing.add(job);
+  try {
+    return await job;
+  } finally {
+    placing.delete(job);
+  }
+}
 
 /** True while a card switch is drawing the incoming card. */
 export const isSwitching = () => !!switching;
@@ -160,7 +198,49 @@ export function syncActive() {
   const overrides = captureOverrides();
   if (Object.keys(overrides).length) card.overrides = overrides;
   else delete card.overrides;
+  const framing = captureFraming();
+  if (framing) card.framing = framing;
+  else delete card.framing;
   return cards;
+}
+
+/* --------------------------------------------------------------- framing -- */
+
+/** How the card on screen frames its artwork, by slot; null when all is plain. */
+function captureFraming() {
+  const out = {};
+  readLayers(() => {
+    for (const [slot, kind] of slotKinds()) {
+      if (kind !== 'image') continue;
+      const framing = readFraming(editor.findBySlot(slot)[0]);
+      if (framing) out[slot] = framing;
+    }
+  });
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * Frame the artwork on screen as a card says. Every art slot is set, not
+ * only the ones the card names: a picture carried over from the previous
+ * card (same file, so not reloaded) would otherwise keep that card's zoom.
+ */
+export function showFraming(framing) {
+  for (const [slot, kind] of slotKinds()) {
+    if (kind !== 'image') continue;
+    applyFraming(editor.findBySlot(slot)[0], framing?.[slot] || null);
+  }
+  editor.canvas?.requestRenderAll();
+}
+
+/** A card's framing as read from a file: `{}` when it has none. */
+function readFramingMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const framing = {};
+  for (const [slot, value] of Object.entries(raw)) {
+    const clean = cleanFraming(value);
+    if (clean) framing[slot] = clean;
+  }
+  return Object.keys(framing).length ? { framing } : {};
 }
 
 /* -------------------------------------------------------------- overrides -- */
@@ -397,6 +477,9 @@ export async function switchCard(index) {
   // An undo still loading would release the history lock halfway through the
   // switch and put the old card's step over the new card.
   await history.settled();
+  // Art still loading belongs to the card it was placed on, so it lands there
+  // first; this also keeps two switches from running into each other.
+  await settled();
   const cards = cardList();
   if (index === state.project.activeCard || index < 0 || index >= cards.length) return [];
   syncActive();
@@ -419,6 +502,7 @@ async function showCard(index, cards) {
     state.project.activeCard = index;
     failed = await applyValues(cards[index].values);
     showOverrides(cards[index].overrides);
+    showFraming(cards[index].framing);
   } finally {
     history.locked = false;
     // Placing art selects it; a card switch should not leave anything picked.
@@ -442,6 +526,7 @@ export async function addCard({ copy = false } = {}) {
   const values = copy ? { ...source.values } : {};
   const card = { id: uid('card'), values, qty: copy ? qtyOf(source) : 1 };
   if (copy && source.overrides) card.overrides = JSON.parse(JSON.stringify(source.overrides));
+  if (copy && source.framing) card.framing = JSON.parse(JSON.stringify(source.framing));
   cards.splice(at, 0, card);
   // The copy is the card the list now points at, so leave the pointer where it
   // was and let the switch do the work.
@@ -539,6 +624,12 @@ export async function addRows(rows, mapping, resolve, { qtyColumn = '' } = {}) {
       }
     }
     if (card) {
+      // A new picture starts at the cover fit; another picture's zoom would
+      // mean nothing on it.
+      for (const slot of Object.keys(card.framing || {})) {
+        if (values[slot] !== card.values[slot]) delete card.framing[slot];
+      }
+      if (card.framing && !Object.keys(card.framing).length) delete card.framing;
       card.values = values;
       if (qtyColumn) card.qty = readQuantity(row[qtyColumn]);
       touched.add(id);
@@ -612,7 +703,12 @@ function cardRows() {
   const kinds = slotKinds();
   const mapping = Object.fromEntries([...kinds.keys()].map((slot) => [slot, slot]));
   const rows = cards.map((card, index) => {
-    const row = { _card: cardLabel(card, index, kinds), _qty: qtyOf(card), _overrides: card.overrides || null };
+    const row = {
+      _card: cardLabel(card, index, kinds),
+      _qty: qtyOf(card),
+      _overrides: card.overrides || null,
+      _framing: card.framing || null,
+    };
     for (const [slot, kind] of kinds) {
       const value = card.values?.[slot];
       row[slot] = kind === 'image' ? value || null : value ?? '';
@@ -645,9 +741,15 @@ export function exportCards({ multiplier = 2, format = 'png', transparent = fals
       pattern: '{n:3}-{_card}',
       toWorkspace: api.online,
       qtyColumn: '_qty',
-      prepare: (row) => showOverrides(row._overrides),
+      prepare: showCardChanges,
     },
   });
+}
+
+/** Lay a card's own changes over a batch row: its layers, then its art. */
+function showCardChanges(row) {
+  showOverrides(row._overrides);
+  showFraming(row._framing);
 }
 
 /** Render every card to data URLs, in order, without writing anything. */
@@ -663,7 +765,7 @@ export async function renderCards({ multiplier = 1, squareCorners = false, onPro
       format: 'png',
       squareCorners,
       sink: (url) => urls.push(url),
-      prepare: (row) => showOverrides(row._overrides),
+      prepare: showCardChanges,
     },
   });
   if (result.failed.length) {
@@ -687,6 +789,8 @@ export function serializeCards({ onlyActive = false } = {}) {
     const card = { id: uid('card'), values: captureValues({ remembered: false }) };
     const overrides = captureOverrides();
     if (Object.keys(overrides).length) card.overrides = overrides;
+    const framing = captureFraming();
+    if (framing) card.framing = framing;
     return { cards: [card], activeCard: 0 };
   }
   const cards = syncActive();
@@ -702,6 +806,8 @@ export function serializeCards({ onlyActive = false } = {}) {
       if (qtyOf(card) !== 1) out.qty = qtyOf(card);
       const overrides = Object.entries(card.overrides || {}).filter(([id]) => layers.has(id));
       if (overrides.length) out.overrides = Object.fromEntries(overrides);
+      const framing = Object.entries(card.framing || {}).filter(([slot, value]) => card.values?.[slot] && value);
+      if (framing.length) out.framing = Object.fromEntries(framing);
       return out;
     }),
     activeCard: state.project.activeCard,
@@ -722,6 +828,7 @@ export function loadCards(data) {
         values: card?.values && typeof card.values === 'object' ? { ...card.values } : {},
         qty: readQuantity(card?.qty),
         ...readOverrides(card?.overrides),
+        ...readFramingMap(card?.framing),
       }))
     : null;
   state.project.activeCard = Number.isInteger(data?.activeCard) ? data.activeCard : 0;

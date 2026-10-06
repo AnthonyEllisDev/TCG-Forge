@@ -130,7 +130,8 @@ version of a marked layer, do it from a card that has not marked it.
 
 - A layer's words already belong to each card through its slot; its stacking
   order, font and effects stay with the layout.
-- Artwork slots cannot be marked: the picture changes with every card already.
+- Artwork slots cannot be marked: the picture changes with every card already,
+  and how it is framed is each card's own (below).
   Nor can layers inside a group, and grouping a marked layer hands it back to
   the layout first.
 - **Duplicate** copies a card's changes along with its words. A copied or
@@ -144,6 +145,31 @@ version of a marked layer, do it from a card that has not marked it.
 
 This is Magic Set Editor's *options specific to this card*, for layout rather
 than style settings.
+
+## Framing a card's artwork
+
+Each card keeps how its picture sits in the art window. Select the art layer
+(**Card Fields → Select layer**) and drag it on the card to move it, or turn
+it with the rotate handle; the **Zoom** slider under the art field enlarges it
+inside the window, keeping the part of the picture you moved into view where
+it is. **Refit** puts the picture back to the plain fit — the whole window
+filled, the picture centred.
+
+- The framing is the card's own: other cards, even ones showing the same
+  picture, keep theirs. Choosing a new picture for the slot starts it at the
+  plain fit.
+- It is kept relative to the window, so it means the same thing on export at
+  any resolution, and every card is drawn with its own framing by *Export →
+  Every card*, printing every card and tabletop sheets.
+- **Duplicate** copies it. Updating a card from a spreadsheet keeps it, unless
+  the sheet gives the card a different picture.
+- A spreadsheet run in the batch dialog draws each row's picture at the plain
+  fit; framing belongs to cards in a project.
+- Cropping (**Properties → Image**) and a stretched picture are not kept per
+  card — zoom keeps the picture's proportions.
+
+This is the zoom-and-drag that Hearthcards and Card Conjurer give a card's art,
+and Magic Set Editor's image slice, kept per card.
 
 ## Filling a project from a spreadsheet
 
@@ -228,7 +254,8 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   "canvas": { "...": "the layout, showing the active card's words and art" },
   "cards": [
     { "id": "card_k3j9x2a", "values": { "title": "Ember Wyrm", "art": "assets/art/wyrm.png", "stats": "4 / 4" }, "qty": 3,
-      "overrides": { "obj_m2k8a1q": { "left": 130, "top": 82, "angle": 5 } } },
+      "overrides": { "obj_m2k8a1q": { "left": 130, "top": 82, "angle": 5 } },
+      "framing": { "art": { "zoom": 1.6, "x": 0.12, "y": -0.05 } } },
     { "id": "card_p0q7m1c", "values": { "title": "Ashfall Ritual", "art": null, "stats": "" } }
   ],
   "activeCard": 0
@@ -248,6 +275,11 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   holding only what differs from the layout. Written only when a card has
   some; the `canvas` is always the layout without them. Like `qty`, it needs no
   new version: an older TCG Forge shows every card with the layout.
+- `framing` (0.17.0) is how each art slot frames its picture: `zoom` over the
+  plain fit, `x`/`y` moving its centre by a fraction of the window's width and
+  height, and `angle` when it is turned. Written only for slots that differ
+  from the plain fit and hold a picture; an older TCG Forge ignores it and
+  shows the plain fit.
 - `canvas` is exactly what it was in version 1, so an older TCG Forge opens a
   version-2 file as its active card. (Saving it from that older version keeps
   only that card.)

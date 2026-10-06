@@ -38,7 +38,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.16.0"
+APP_VERSION = "0.17.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -340,6 +340,18 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             return self._error(f"{type(exc).__name__}: {exc}", 500)
 
+    def do_HEAD(self):
+        # A HEAD is a GET without the body, so it answers to the same checks
+        # -- and its refusal carries no body either.
+        if not self._request_allowed():
+            self.close_connection = True
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            return None
+        return super().do_HEAD()
+
     def do_POST(self):
         if not self._request_allowed():
             return self._refuse()
@@ -527,6 +539,10 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", "no-cache")
+        # Workspace files are pictures and data. An SVG from an asset pack can
+        # carry a script; opened on its own it must not run as this origin,
+        # where it could call the API.
+        self.send_header("Content-Security-Policy", "sandbox")
         self.end_headers()
         with open(full, "rb") as fh:
             shutil.copyfileobj(fh, self.wfile)

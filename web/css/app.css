@@ -432,6 +432,9 @@
   letter-spacing: 0.055em;
 }
 .field-form textarea { min-height: 54px; }
+.field-form .ff-frame { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-faint); }
+.field-form .ff-frame input[type="range"] { flex: 1 1 auto; width: auto; min-width: 60px; }
+.field-form .ff-frame output { min-width: 3.4em; text-align: right; font-variant-numeric: tabular-nums; }
 
 .icon-palette { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .icon-palette-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }

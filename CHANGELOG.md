@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.17.0 — framing each card's artwork
+
+- **Art framing that stays with the card.** Move, zoom or turn a card's
+  picture inside its art window and that card keeps it: switching cards,
+  saving and reopening, *Export → Every card*, printing every card and
+  tabletop sheets all show each card's art as it was framed. Drag the picture
+  on the card to move it; **Card Fields** has a **Zoom** slider under each art
+  field and a **Refit** button that fills the window with the whole picture
+  again. A new picture in the slot starts at the plain fit, and a card that
+  shows the same picture as the one before it no longer inherits its framing.
+  Before, a moved or zoomed picture snapped back to the plain fit the moment
+  another card was shown. See
+  [`docs/CARDS.md`](docs/CARDS.md#framing-a-cards-artwork).
+
+### Fixed
+
+- **Placing artwork, then moving to another card before it had loaded** put
+  the picture on the next card and left the card it was placed on without it.
+  A card switch now waits for art that is still being placed.
+- **A `deck.json` naming a file with a space in it** (`fire card.png`) lost
+  that card's copies in the print and tabletop dialogs — the file was there,
+  but it was looked for under its web address (`fire%20card.png`).
+- **A script inside a workspace picture could call the local API.** An SVG
+  from an asset pack, opened on its own from `/files/…`, ran as the app's own
+  origin and could write to the workspace. Workspace files are now served
+  sandboxed, so their scripts never run.
+- **`HEAD` requests skipped the Host and Origin checks** that `GET` has.
+
 ## 0.16.0 — deck sheets for virtual tabletops
 
 - **Tabletop deck sheets.** A new **Tabletop** button lays a project's cards —

@@ -14,11 +14,15 @@ import {
   clearFieldImage,
   collectFields,
   fieldValue,
+  frameFieldImage,
   isPlacedArt,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  readFraming,
   setFieldImage,
   setFieldText,
 } from '../core/templates.js';
-import { isSwitching, settled } from '../core/cards.js';
+import { isSwitching, placeArt, settled } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 
@@ -92,6 +96,7 @@ function render(force) {
         }),
       ]);
       item.append(row);
+      item.append(framingRow(field));
       item.append(el('div', { class: 'hint', id: `ffh_${field.id}`, text: artHint(current) }));
     } else if (field.type === 'multiline') {
       const area = el('textarea', {
@@ -150,6 +155,59 @@ function resyncAfterSwitch(node, slot) {
   });
 }
 
+/*
+ * How this card's picture sits in its window. Moving it is a drag on the
+ * card; the zoom is here because Ctrl + wheel on the canvas already zooms the
+ * view. Both are kept per card.
+ */
+function framingRow(field) {
+  const slot = field.id;
+  const zoom = el('input', {
+    type: 'range',
+    id: `ffz_${slot}`,
+    min: String(MIN_ZOOM * 100),
+    max: String(MAX_ZOOM * 100),
+    step: '5',
+    value: '100',
+    'aria-label': `Zoom the ${field.label || slot} artwork`,
+  });
+  const readout = el('output', { id: `ffzo_${slot}`, for: `ffz_${slot}`, text: '100%' });
+  const refit = el('button', {
+    class: 'btn tiny',
+    text: 'Refit',
+    title: 'Fill the window with the whole picture again',
+    dataset: { refitSlot: slot },
+    onClick: () => frameFieldImage(slot, null),
+  });
+  on(zoom, 'input', () => {
+    // Mid-switch the slot is about to hold the next card's picture.
+    if (isSwitching()) {
+      settled().then(() => syncFraming(slot));
+      return;
+    }
+    readout.textContent = `${zoom.value}%`;
+    frameFieldImage(slot, Number(zoom.value) / 100);
+  });
+  const row = el('div', { class: 'ff-frame' }, [el('span', { text: 'Zoom' }), zoom, readout, refit]);
+  syncFraming(slot, { zoom, readout, refit });
+  return row;
+}
+
+function syncFraming(slot, nodes = null) {
+  const zoom = nodes?.zoom || document.getElementById(`ffz_${slot}`);
+  const readout = nodes?.readout || document.getElementById(`ffzo_${slot}`);
+  const refit = nodes?.refit || document.querySelector(`[data-refit-slot="${CSS.escape(slot)}"]`);
+  if (!zoom) return;
+  const target = editor.findBySlot(slot)[0];
+  const placed = isPlacedArt(target);
+  const framing = placed ? readFraming(target) : null;
+  const percent = Math.round((framing?.zoom ?? 1) * 100);
+  zoom.disabled = !placed;
+  if (zoom !== document.activeElement) zoom.value = String(percent);
+  if (readout) readout.textContent = `${percent}%`;
+  if (refit) refit.disabled = !framing;
+}
+
 const artHint = (path) => path || 'Drop art from the Asset Library, or use Choose image.';
 
 function syncValues(fields) {
@@ -162,6 +220,7 @@ function syncValues(fields) {
       if (hint) hint.textContent = artHint(target?.tcgAsset);
       const clear = document.querySelector(`[data-clear-slot="${CSS.escape(field.id)}"]`);
       if (clear) clear.disabled = !isPlacedArt(target);
+      syncFraming(field.id);
       continue;
     }
     const node = document.getElementById(`ff_${field.id}`);
@@ -181,8 +240,7 @@ function pickArt(slot) {
     if (!file) return;
     try {
       const source = await assets.sourceForFile(file, 'art');
-      await settled();
-      await setFieldImage(slot, source.url, { assetPath: source.path });
+      await placeArt(() => setFieldImage(slot, source.url, { assetPath: source.path }));
       toast(`Placed ${file.name} in “${slot}”.`, 'ok');
     } catch (err) {
       toast(`Could not place image: ${err.message}`, 'err');

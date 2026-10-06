@@ -10,7 +10,7 @@ import { assets } from '../core/assets.js';
 import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
 import { setFieldImage } from '../core/templates.js';
-import { settled } from '../core/cards.js';
+import { placeArt, settled } from '../core/cards.js';
 import { openModal, toast } from './dialogs.js';
 
 let category = 'frames';
@@ -217,10 +217,11 @@ async function placeImage(cat, item, url, dropPoint) {
   }
 
   /* artwork: drop straight into the art slot when the template has one */
-  // A card still switching in would put its own art over this one.
+  // A card still switching in would put its own art over this one, and a
+  // switch started while it loads would carry it to the next card.
   await settled();
   if (editor.findBySlot('art').length) {
-    return await setFieldImage('art', url, { assetPath: item.path });
+    return await placeArt(() => setFieldImage('art', url, { assetPath: item.path }));
   }
   const img = await editor.addImage(url, {
     assetPath: item.path,
