@@ -52,6 +52,9 @@ it.
 - **Filtering the card strip** (0.15.0) — find cards in a big set by any
   field, a field's words, an icon, artwork or number, and step through the
   matches. See [`CARDS.md`](CARDS.md#finding-a-card).
+- **Tabletop deck sheets** (0.16.0) — a project's cards or a rendered folder
+  laid out as Tabletop Simulator custom-deck sheets, with the hidden-card slot,
+  copies and a back. See [`TABLETOP.md`](TABLETOP.md).
 
 ## Next
 

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.16.0 — deck sheets for virtual tabletops
+
+- **Tabletop deck sheets.** A new **Tabletop** button lays a project's cards —
+  or a folder a batch run left in `workspace/exports` — out as the grid
+  Tabletop Simulator and similar tables import as a custom deck: up to ten
+  across and seven down, the bottom-right slot kept for the face other players
+  see while a card is in hand, at most 4096 px on a side (cards are scaled down
+  to fit, never cropped). A deck of more than 69 cards becomes several sheets
+  with the same card size. Copies are repeated as cards, from the strip's
+  Copies box or a folder's `deck.json`; a card back from a folder fills the
+  hidden slot and is written beside the sheets as `back.png`. The dialog lists
+  each sheet's Width, Height and Number — what the table's import asks for —
+  and a `tabletop.json` beside the sheets keeps them. See
+  [`docs/TABLETOP.md`](docs/TABLETOP.md).
+
+### Fixed
+
+- **Exporting, printing or rendering while a card was still being shown** — a
+  card switch waiting on its artwork — drew the card being left. *Export →
+  Every card* and the batch preview then put that card back on screen under
+  the other card's place in the list, and the next card switch saved it over
+  the other card's words and picture. Every render now waits for the switch.
+- **New during a card switch** finished the switch into the blank card: the
+  last project's artwork on it, marked as saved.
+- **Typing into Card Fields during a card switch** went onto the card being
+  left and vanished when the switch finished. Keys are held for that moment.
+- **A batch subfolder with a slash in it** (`Core Set/2`) wrote the images to
+  `exports/2` — where `Promo/2` would overwrite them — and the per-card
+  projects to `projects/core-set-2`, while the status line named a third
+  place. The subfolder is now made into one name (`core-set-2`) used for all
+  of them, and the status line shows it.
+- **A batch run's per-card project files** picked up the artwork path of the
+  card on screen when that card's picture could not be loaded, even for rows
+  whose art cell was blank.
+
 ## 0.15.0 — finding a card in a big set
 
 - **Filter the card strip.** A box beside the card count narrows the strip to

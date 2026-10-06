@@ -88,6 +88,7 @@ web/
     │   ├── batch.js    spreadsheet parsing and set rendering
     │   ├── printSheet.js page geometry and sheet composition
     │   ├── bleed.js    bleed made by mirroring a rendered card's edges
+    │   ├── tabletop.js deck sheets for virtual tabletops
     │   ├── pdf.js      a small one-JPEG-per-page PDF writer
     │   └── project.js  serialise, save, open, export
     └── ui/
@@ -101,6 +102,7 @@ web/
         ├── iconPalette.js the icon palette, and {name} typed into a box
         ├── batchPanel.js  the batch generator dialog
         ├── printPanel.js  the print sheet dialog
+        ├── tabletopPanel.js the tabletop deck sheet dialog
         ├── cardStrip.js   the card list under the canvas
         ├── shortcuts.js   keyboard map
         └── dialogs.js     modal + toasts
@@ -378,6 +380,19 @@ version, the bleed scaled from sheet pixels to the image's own, after which
 `drawCard()` lays it over slot + bleed exactly as it does an image that carried
 bleed from the start; the print dialog renders its own cards with square
 corners for it. Neither path knows anything about slots or layers.
+
+Tabletop deck sheets (0.16.0) are the same kind of module. `core/tabletop.js`
+imports only `loadImage()` from the print sheet: `gridFor()` picks the
+smallest grid of at most 10 × 7 that holds a sheet's cards plus the hidden
+slot (the grid's *last* slot, which the table shows for a card in hand) —
+fewest spare slots first, then the squarest sheet, never under 2 × 2; `planTabletop()` cuts a deck
+into sheets of 69 and gives every sheet of one deck the same card size, scaled
+down only as far as the largest grid needs to stay inside 4096 px;
+`composeTabletopSheet()` paints faces in reading order and the back into the
+hidden slot. `ui/tabletopPanel.js` gets the cards the way the print dialog
+does — `renderCards()` for a project (square corners, since a table rounds its
+own), or a folder's images and its `deck.json` — and repeats copies with
+`expandByQuantity()` before anything is laid out.
 
 Exports are the card's exact size times the resolution: `editor.toDataURL()`
 passes Fabric an explicit `width`/`height`, because the canvas element is a

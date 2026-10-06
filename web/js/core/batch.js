@@ -16,6 +16,7 @@ import { clearFieldImage, isImageSlot, setFieldImage, setFieldText } from './tem
 import { renderCard, serializeProject } from './project.js';
 import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
 import { toLayoutJSON } from './objects.js';
+import { settled } from './cards.js';
 import { downloadURL, slugify } from '../util/dom.js';
 
 /* --------------------------------------------------------------- parsing -- */
@@ -311,6 +312,9 @@ export async function applyRow(row, mapping) {
 export async function renderRow(row, mapping, {
   multiplier = 1, format = 'png', transparent = false, number = null, bleedMm = 0,
 } = {}) {
+  // Mid-switch the canvas is neither card: a snapshot taken then is put back
+  // at the end over the card the switch has since finished drawing.
+  await settled();
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
   const wasDirty = state.dirty;
   claimCanvas();
@@ -375,6 +379,15 @@ export async function runBatch({
     prepare = null,
   } = options;
 
+  // Same reason as renderRow: never borrow the canvas halfway through a card
+  // switch, or the run's final restore puts the card being left back on screen
+  // under the other card's name, and the next save writes it there.
+  await settled();
+  // One name for the folder, used for the images, the deck list and the
+  // project files alike. The server keeps only the last part of a path, so
+  // "Core Set/2" landed in exports/2 (beside "Promo/2", overwriting it) while
+  // its projects went to projects/core-set-2.
+  const folderName = subfolder ? slugify(subfolder, 'batch') : '';
   const snapshot = JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
   const layout = layoutSnapshot(snapshot);
   const originalName = state.project.name;
@@ -417,7 +430,7 @@ export async function runBatch({
           sink(dataURL, filename);
           rendered.push({ index, name, path: null, qty });
         } else if (toWorkspace && api.online) {
-          const res = await api.exportImage({ filename, dataURL, folder: subfolder, overwrite: true });
+          const res = await api.exportImage({ filename, dataURL, folder: folderName, overwrite: true });
           rendered.push({ index, name, path: res.path, qty });
         } else {
           downloadURL(dataURL, filename);
@@ -428,7 +441,7 @@ export async function runBatch({
         if (saveProjects && api.online && !sink) {
           state.project.name = name;
           const project = await serializeProject({ onlyActive: true });
-          const folder = subfolder ? `${slugify(subfolder)}/` : '';
+          const folder = folderName ? `${folderName}/` : '';
           // Same safety net as an ordinary save: a hand-made project that
           // happens to share the name is kept beside it.
           await api.writeJSON(`projects/${folder}${name}.json`, project, { backup: true });
@@ -469,7 +482,7 @@ export async function runBatch({
     }
   }
 
-  return { rendered, failed, total: rows.length, deck, deckPath };
+  return { rendered, failed, total: rows.length, deck, deckPath, folder: folderName };
 }
 
 /** List CSV/JSON data files sitting in workspace/batch. */

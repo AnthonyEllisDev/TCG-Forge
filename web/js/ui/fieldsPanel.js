@@ -18,7 +18,7 @@ import {
   setFieldImage,
   setFieldText,
 } from '../core/templates.js';
-import { settled } from '../core/cards.js';
+import { isSwitching, settled } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 
@@ -98,7 +98,9 @@ function render(force) {
         id: `ff_${field.id}`, rows: '3', placeholder: field.placeholder || '', dataset: { iconTarget: '' },
       });
       area.value = fieldValue(field.id);
+      guardSwitch(area, field.id);
       on(area, 'input', () => {
+        if (heldBySwitch(area, field.id)) return;
         expandTyped(area);
         setFieldText(field.id, area.value);
       });
@@ -108,7 +110,9 @@ function render(force) {
         type: 'text', id: `ff_${field.id}`, placeholder: field.placeholder || '', dataset: { iconTarget: '' },
       });
       input.value = fieldValue(field.id);
+      guardSwitch(input, field.id);
       on(input, 'input', () => {
+        if (heldBySwitch(input, field.id)) return;
         expandTyped(input);
         setFieldText(field.id, input.value);
       });
@@ -117,6 +121,33 @@ function render(force) {
 
     host.append(item);
   }
+}
+
+/*
+ * While a card switch is drawing the incoming card, the box still shows the
+ * card being left and the switch is about to write every slot. Typing then
+ * landed on the old card's words and was wiped a moment later, so it is
+ * refused for that moment and the box shows the new card once it is there.
+ */
+function guardSwitch(node, slot) {
+  on(node, 'beforeinput', (e) => {
+    if (!isSwitching()) return;
+    e.preventDefault();
+    resyncAfterSwitch(node, slot);
+  });
+}
+
+/** For input that skips `beforeinput` (the icon palette sets the value). */
+function heldBySwitch(node, slot) {
+  if (!isSwitching()) return false;
+  resyncAfterSwitch(node, slot);
+  return true;
+}
+
+function resyncAfterSwitch(node, slot) {
+  settled().then(() => {
+    if (node.isConnected) node.value = fieldValue(slot);
+  });
 }
 
 const artHint = (path) => path || 'Drop art from the Asset Library, or use Choose image.';

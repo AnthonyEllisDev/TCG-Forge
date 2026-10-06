@@ -72,7 +72,7 @@ slot.
 | Setting | What it does |
 | --- | --- |
 | Filename pattern | `{column}` inserts any column, `{n}` the row number, `{n:3}` pads it to three digits. Names are slugified, so `{n:3}-{title}` gives `001-ember-wyrm.png`. |
-| Subfolder | Groups the run inside `workspace/exports/`, e.g. `core-set`. |
+| Subfolder | Groups the run inside `workspace/exports/`, e.g. `core-set`. The name is made into a plain folder name first — `Core Set/2` becomes `core-set-2` — and that one name is used for the images, the deck list and the project files. |
 | Format | PNG (lossless, transparency) or JPEG. |
 | Resolution | 1× to 4× of the card's pixel size. 2× of a 750 × 1050 card is 1500 × 2100. |
 | Bleed (mm) | Millimetres added on every side by mirroring the card's own edges, for a print shop. 0 is none. See [`PRINT.md`](PRINT.md#bleed-for-a-print-shop). |

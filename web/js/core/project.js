@@ -216,6 +216,10 @@ export async function openProjectData(data, { path = null } = {}) {
 }
 
 export async function newProject({ width, height, dpi, radius, background, preset } = {}) {
+  // A card switch still drawing would finish into the blank card: the last
+  // project's art on it, marked saved.
+  await history.settled();
+  await settled();
   Object.assign(state.card, {
     width: width ?? state.card.width,
     height: height ?? state.card.height,
@@ -296,6 +300,8 @@ export async function exportImage({
   toWorkspace = true,
   filename,
 } = {}) {
+  // Mid-switch the canvas still shows the card being left.
+  await settled();
   const dataURL = await renderCard({ multiplier, format, transparent, bleedMm });
   const ext = format === 'jpeg' ? 'jpg' : format;
   const name = filename || `${slugify(state.project.name, 'card')}.${ext}`;

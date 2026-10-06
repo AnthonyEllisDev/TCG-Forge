@@ -93,7 +93,7 @@ export function slotKinds() {
  * own layer — the dashed box, or a picture the template ships — is `null`:
  * "no art of its own".
  */
-export function captureValues() {
+export function captureValues({ remembered = true } = {}) {
   const values = {};
   for (const [slot, kind] of slotKinds()) {
     const target = editor.findBySlot(slot)[0];
@@ -107,6 +107,8 @@ export function captureValues() {
   }
   // A picture that would not load stays on the card's record even though the
   // slot shows the placeholder, so visiting the card does not forget it.
+  // A batch row on the canvas is not that card, and has no such picture.
+  if (!remembered) return values;
   for (const [slot, value] of Object.entries(unresolved)) {
     if (values[slot] === null) values[slot] = value;
   }
@@ -143,6 +145,9 @@ let switching = null;
 
 /** Resolves once no card switch is in progress. */
 export const settled = () => switching || Promise.resolve();
+
+/** True while a card switch is drawing the incoming card. */
+export const isSwitching = () => !!switching;
 
 /** Write the card on screen back into the list. */
 export function syncActive() {
@@ -677,7 +682,9 @@ export async function renderCards({ multiplier = 1, squareCorners = false, onPro
  */
 export function serializeCards({ onlyActive = false } = {}) {
   if (onlyActive) {
-    const card = { id: uid('card'), values: captureValues() };
+    // The canvas holds a batch row here, not the card on screen, so the art
+    // that card could not load is not this row's.
+    const card = { id: uid('card'), values: captureValues({ remembered: false }) };
     const overrides = captureOverrides();
     if (Object.keys(overrides).length) card.overrides = overrides;
     return { cards: [card], activeCard: 0 };

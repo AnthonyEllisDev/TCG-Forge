@@ -108,6 +108,11 @@ absorb printer drift; **gutterfold** puts fronts and backs either side of a fold
 on one page, for anyone without a duplex printer. One back for the whole set, or
 one per card.
 
+**Decks for virtual tables.** **Tabletop** lays the set out as the deck sheets
+Tabletop Simulator and similar tables import — ten by seven at most, the
+hidden-card slot kept, copies repeated, a back beside them — and lists the
+numbers the table's import asks for. See [`docs/TABLETOP.md`](docs/TABLETOP.md).
+
 **Whole sets from a spreadsheet.** Point the batch generator at a CSV, map the
 columns to slots once, and render the set into `workspace/exports/` — with a
 preview, a progress log and a cancel button. See [`docs/BATCH.md`](docs/BATCH.md).
@@ -202,6 +207,7 @@ template…**. Your slots become that template's form fields.
 | [`docs/CARDS.md`](docs/CARDS.md) | Multi-card projects: one layout, a list of cards |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |
+| [`docs/TABLETOP.md`](docs/TABLETOP.md) | Deck sheets for Tabletop Simulator and similar tables |
 | [`docs/ICONS.md`](docs/ICONS.md) | Icons in rules text, and building an icon font |
 | [`docs/API.md`](docs/API.md) | The local HTTP API exposed by `launch.py` |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is planned next, and where help is welcome |

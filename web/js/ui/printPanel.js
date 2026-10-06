@@ -11,7 +11,7 @@ import { downloadURL, el, on, slugify } from '../util/dom.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { editor } from '../core/editor.js';
-import { cardList, cardQuantities, renderCards } from '../core/cards.js';
+import { cardList, cardQuantities, renderCards, settled } from '../core/cards.js';
 import { isRendering } from '../core/batch.js';
 import {
   BACK_MODES,
@@ -40,7 +40,7 @@ export function initPrintPanel() {
 /* --------------------------------------------------------------- helpers -- */
 
 /** Folders under workspace/exports, which is where a batch run leaves a set. */
-async function listExportFolders() {
+export async function listExportFolders() {
   if (!api.online) return [];
   try {
     const data = await api.request('/api/list?path=exports');
@@ -56,7 +56,7 @@ async function listExportFolders() {
  * Its absence is the normal case and not an error: a folder of images with no
  * list is simply one of each.
  */
-async function loadDeck(path) {
+export async function loadDeck(path) {
   try {
     return parseDeck(await api.readJSON(`${path}/${DECK_FILE}`));
   } catch {
@@ -64,7 +64,7 @@ async function loadDeck(path) {
   }
 }
 
-async function listExportImages(path) {
+export async function listExportImages(path) {
   const data = await api.request(`/api/list?path=${encodeURIComponent(path)}`);
   return (data.entries || [])
     .filter((entry) => !entry.dir && /\.(png|jpe?g|webp)$/i.test(entry.name))
@@ -418,7 +418,9 @@ export function openPrintDialog() {
       return { urls, quantities: anyCounts && useQty.checked ? counts : null };
     }
     // One render of the current card, reused for every copy: the browser
-    // caches the decode, and a data URL costs nothing to repeat.
+    // caches the decode, and a data URL costs nothing to repeat. Mid-switch
+    // the canvas still shows the card being left, so wait for it.
+    await settled();
     const url = editor.toDataURL({ multiplier, format: 'png', squareCorners });
     const count = Math.max(1, Math.min(500, Math.round(num(copies, plan.perPage))));
     return { urls: Array.from({ length: count }, () => url), quantities: null };

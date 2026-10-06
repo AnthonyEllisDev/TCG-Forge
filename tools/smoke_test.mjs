@@ -4762,6 +4762,451 @@ try {
   await page.evaluate(async () => (await import('/js/ui/cardStrip.js')).clearFilter());
   await page.evaluate(() => document.activeElement?.blur?.());
 
+  /* ---- 0.16.0: nothing borrows or replaces the canvas mid-switch ------- */
+
+  /* Two cards — Alpha with no art, Beta with ember — and ember slowed so a
+     switch to Beta is still drawing for ~1.2 s. Each guard starts a switch
+     without awaiting it, then does the thing that used to read the half-drawn
+     canvas. */
+  const switchTwo = async () => page.evaluate(async () => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Alpha');
+      await t.clearFieldImage('art');
+      const list = cards.cardList();
+      list.push({ id: 'card-beta', values: { title: 'Beta', art: 'assets/backgrounds/ember.svg' } });
+      cards.syncActive();
+      state.project.name = 'Smoke Switch';
+      state.setDirty(false);
+      return { cards: list.length };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const slowEmberRoute = '**/files/assets/backgrounds/ember.svg';
+  await page.route(slowEmberRoute, async (route) => {
+    await new Promise((r) => setTimeout(r, 1200));
+    route.continue().catch(() => {});
+  });
+  /* Records the title and art each render saw; `stop()` puts toDataURL back. */
+  const watchRenders = () => page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const original = editor.toDataURL;
+    window.__smokeRenders = [];
+    editor.toDataURL = function watched(options) {
+      const art = editor.findBySlot('art')[0];
+      window.__smokeRenders.push(`${editor.findBySlot('title')[0]?.text}/${art?.tcgAsset ? 'ember' : 'none'}`);
+      return original.call(editor, options);
+    };
+    window.__smokeStopRenders = () => { editor.toDataURL = original; };
+  });
+  const onScreen = () => page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    const art = editor.findBySlot('art')[0];
+    return {
+      active: state.project.activeCard,
+      shown: `${editor.findBySlot('title')[0]?.text}/${art?.tcgAsset ? 'ember' : 'none'}`,
+      records: (state.project.cards || []).map((c) => `${c.values.title}/${c.values.art ? 'ember' : 'none'}`).join(' '),
+      dirty: state.dirty,
+    };
+  });
+
+  await switchTwo();
+  const newMidSwitch = await page.evaluate(async () => {
+    try {
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      const { editor, state } = window.TCGForge;
+      const sw = cards.switchCard(1);
+      await new Promise((r) => setTimeout(r, 120));
+      await p.newProject({});
+      await sw;
+      await cards.settled();
+      return {
+        layers: editor.objects().map((o) => o.tcgSlot || o.type),
+        cards: state.project.cards ? state.project.cards.length : null,
+        dirty: state.dirty,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'New during a card switch gives a blank card, not the last project\'s art',
+    newMidSwitch.layers?.length === 0 && newMidSwitch.dirty === false,
+    JSON.stringify(newMidSwitch)
+  );
+
+  await switchTwo();
+  await watchRenders();
+  const exportMidSwitch = await page.evaluate(async () => {
+    try {
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      const sw = cards.switchCard(1);
+      await new Promise((r) => setTimeout(r, 120));
+      const res = await p.exportImage({ multiplier: 0.2, filename: 'smoke-midswitch.png' });
+      await sw;
+      await window.TCGForge.api.trash(res.path).catch(() => {});
+      return { renders: window.__smokeRenders.slice() };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => window.__smokeStopRenders?.());
+  check(
+    'exporting during a card switch draws the card being switched to',
+    exportMidSwitch.renders?.join() === 'Beta/ember',
+    JSON.stringify(exportMidSwitch)
+  );
+
+  await switchTwo();
+  await watchRenders();
+  const everyMidSwitch = await page.evaluate(async () => {
+    try {
+      const cards = await import('/js/core/cards.js');
+      const sw = cards.switchCard(1);
+      await new Promise((r) => setTimeout(r, 120));
+      const res = await cards.exportCards({ multiplier: 0.2 });
+      await sw;
+      const folder = res.rendered[0]?.path?.split('/').slice(0, -1).join('/');
+      if (folder) await window.TCGForge.api.trash(folder).catch(() => {});
+      return { renders: window.__smokeRenders.slice(), folder };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => window.__smokeStopRenders?.());
+  const everyAfter = await onScreen();
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    await cards.switchCard(0);
+  });
+  const everyBack = await onScreen();
+  check(
+    'every card exported during a switch: each drawn as itself, and no card overwritten',
+    everyMidSwitch.renders?.join() === 'Alpha/none,Beta/ember' &&
+      everyAfter.active === 1 && everyAfter.shown === 'Beta/ember' &&
+      everyBack.records === 'Alpha/none Beta/ember',
+    JSON.stringify({ everyMidSwitch, everyAfter, everyBack })
+  );
+
+  await switchTwo();
+  const previewMidSwitch = await page.evaluate(async () => {
+    try {
+      const cards = await import('/js/core/cards.js');
+      const batch = await import('/js/core/batch.js');
+      const sw = cards.switchCard(1);
+      await new Promise((r) => setTimeout(r, 120));
+      await batch.renderRow({ title: 'Row One' }, { title: 'title' }, { multiplier: 0.2 });
+      await sw;
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const previewAfter = await onScreen();
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    await cards.switchCard(0);
+  });
+  const previewBack = await onScreen();
+  check(
+    'a batch preview during a switch leaves the card on screen and both records as they were',
+    !previewMidSwitch.error && previewAfter.active === 1 && previewAfter.shown === 'Beta/ember' &&
+      previewBack.records === 'Alpha/none Beta/ember',
+    JSON.stringify({ previewMidSwitch, previewAfter, previewBack })
+  );
+
+  /* Real keys into Card Fields while the switch draws: refused, rather than
+     landing on the card being left and vanishing a moment later. */
+  await switchTwo();
+  await page.waitForTimeout(400);
+  await page.click('[data-card-action="next"]', { timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(150);
+  await page.click('#ff_title', { timeout: 3000 }).catch(() => {});
+  await page.keyboard.press('End');
+  await page.keyboard.type('Typed');
+  const typedDuring = await page.evaluate(() => ({
+    box: document.querySelector('#ff_title')?.value,
+    canvas: window.TCGForge.editor.findBySlot('title')[0]?.text,
+  }));
+  await page.waitForTimeout(1600);
+  await page.evaluate(async () => (await import('/js/core/cards.js')).settled());
+  await page.waitForTimeout(100);
+  const typedAfter = await page.evaluate(() => ({
+    box: document.querySelector('#ff_title')?.value,
+    canvas: window.TCGForge.editor.findBySlot('title')[0]?.text,
+    records: (window.TCGForge.state.project.cards || []).map((c) => c.values.title).join(' '),
+  }));
+  await page.evaluate(() => document.activeElement?.blur?.());
+  check(
+    'typing into Card Fields during a switch is held, and the box then shows the new card',
+    !/Typed/.test(typedDuring.canvas || '') && !/Typed/.test(typedDuring.box || '') &&
+      typedAfter.box === 'Beta' && typedAfter.canvas === 'Beta' && typedAfter.records === 'Alpha Beta',
+    JSON.stringify({ typedDuring, typedAfter })
+  );
+  await page.unroute(slowEmberRoute);
+
+  /* A subfolder with a slash: images, deck list and per-card projects all in
+     one folder, and the status names that folder. */
+  const subfolderRun = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const batch = await import('/js/core/batch.js');
+      const res = await batch.runBatch({
+        rows: [{ title: 'Sub One', qty: '2' }, { title: 'Sub Two', qty: '1' }],
+        mapping: { title: 'title' },
+        options: { multiplier: 0.2, subfolder: 'Smoke Sub/2', saveProjects: true, qtyColumn: 'qty' },
+      });
+      const list = async (path) => ((await api.request(`/api/list?path=${encodeURIComponent(path)}`).catch(() => ({}))).entries || [])
+        .map((e) => e.name).sort().join(',');
+      const out = {
+        folder: res.folder,
+        deckPath: res.deckPath,
+        images: await list('exports/smoke-sub-2'),
+        projects: await list('projects/smoke-sub-2'),
+        stray: await list('exports/2'),
+      };
+      for (const path of ['exports/smoke-sub-2', 'projects/smoke-sub-2', 'exports/2']) await api.trash(path).catch(() => {});
+      return out;
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a batch subfolder is one folder for images, deck list and projects',
+    subfolderRun.folder === 'smoke-sub-2' &&
+      subfolderRun.images === '001-sub-one.png,002-sub-two.png,deck.json' &&
+      subfolderRun.projects === '001-sub-one.json,002-sub-two.json' &&
+      subfolderRun.deckPath === 'exports/smoke-sub-2/deck.json' && subfolderRun.stray === '',
+    JSON.stringify(subfolderRun)
+  );
+
+  /* The card on screen names art that will not load; a batch row with a blank
+     art cell must not be saved with that card's missing picture. */
+  const lostArtRow = await page.evaluate(async () => {
+    try {
+      const { api, state } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      cards.cardList().push({ id: 'card-gone', values: { title: 'Gone', art: 'assets/art/smoke-not-there.png' } });
+      const missing = await cards.switchCard(1);
+      await batch.runBatch({
+        rows: [{ title: 'No Art Row', art: '' }],
+        mapping: { title: 'title', art: 'art' },
+        options: { multiplier: 0.2, subfolder: 'smoke-lost-art', saveProjects: true },
+      });
+      const saved = await api.readJSON('projects/smoke-lost-art/001-no-art-row.json').catch(() => null);
+      const kept = cards.cardList()[1].values.art;
+      for (const path of ['exports/smoke-lost-art', 'projects/smoke-lost-art']) await api.trash(path).catch(() => {});
+      state.setDirty(false);
+      return { missing, savedArt: saved ? saved.cards[0].values.art : 'unread', kept: cards.captureValues().art || kept };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a batch row\'s project file does not inherit art the card on screen could not load',
+    lostArtRow.missing?.length === 1 && lostArtRow.savedArt === null &&
+      lostArtRow.kept === 'assets/art/smoke-not-there.png',
+    JSON.stringify(lostArtRow)
+  );
+
+  /* ---- 0.16.0: tabletop deck sheets ------------------------------------ */
+
+  const tabletopPlan = await page.evaluate(async () => {
+    try {
+      const tt = await import('/js/core/tabletop.js');
+      const one = tt.planTabletop({ count: 69, cardWidth: 750, cardHeight: 1050 });
+      const two = tt.planTabletop({ count: 70, cardWidth: 750, cardHeight: 1050 });
+      const six = tt.planTabletop({ count: 6, cardWidth: 750, cardHeight: 1050 });
+      const tiny = tt.planTabletop({ count: 1, cardWidth: 750, cardHeight: 1050 });
+      let refused = '';
+      try { tt.planTabletop({ count: 0, cardWidth: 750, cardHeight: 1050 }); } catch (err) { refused = err.message; }
+      const grid = (p) => p.sheets.map((s) => `${s.columns}x${s.rows}:${s.number}@${s.hiddenSlot}`).join(' ');
+      return {
+        one: grid(one), oneCell: `${one.cell.width}x${one.cell.height}`, oneSheet: `${one.sheets[0].width}x${one.sheets[0].height}`,
+        two: grid(two), twoCell: `${two.cell.width}x${two.cell.height}`,
+        six: grid(six), sixCell: `${six.cell.width}x${six.cell.height}`,
+        tiny: grid(tiny),
+        refused,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a tabletop deck is cut into sheets of at most 69 cards, within 4096 px, last slot kept',
+    tabletopPlan.one === '10x7:69@69' && tabletopPlan.oneCell === '409x573' && tabletopPlan.oneSheet === '4090x4011' &&
+      tabletopPlan.two === '10x7:69@69 2x2:1@3' && tabletopPlan.twoCell === '409x573' &&
+      tabletopPlan.six === '4x2:6@7' && tabletopPlan.sixCell === '750x1050' &&
+      tabletopPlan.tiny === '2x2:1@3' && /no cards/.test(tabletopPlan.refused),
+    JSON.stringify(tabletopPlan)
+  );
+
+  /* Paint a sheet from flat colours and read every slot back: faces in order
+     (copies repeated), empty slots left black, the back in the last slot. */
+  const tabletopPaint = await page.evaluate(async () => {
+    try {
+      const tt = await import('/js/core/tabletop.js');
+      const swatch = (colour) => {
+        const c = document.createElement('canvas');
+        c.width = 50; c.height = 70;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = colour; ctx.fillRect(0, 0, 50, 70);
+        return c.toDataURL('image/png');
+      };
+      const red = swatch('#ff0000');
+      const green = swatch('#00ff00');
+      const blue = swatch('#0000ff');
+      const built = await tt.buildTabletopSheets([red, green, green, blue], { back: swatch('#ff00ff') });
+      const sheet = built.sheets[0];
+      const ctx = sheet.canvas.getContext('2d');
+      const slots = [];
+      for (let i = 0; i < sheet.columns * sheet.rows; i += 1) {
+        const r = tt.slotRect(sheet, built.cell, i);
+        const [R, G, B] = ctx.getImageData(r.left + r.width / 2, r.top + r.height / 2, 1, 1).data;
+        slots.push(`${R > 128 ? 1 : 0}${G > 128 ? 1 : 0}${B > 128 ? 1 : 0}`);
+      }
+      return { grid: `${sheet.columns}x${sheet.rows}`, size: `${sheet.canvas.width}x${sheet.canvas.height}`, slots: slots.join(' ') };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a tabletop sheet holds each face in order, its copies, and the back in the last slot',
+    tabletopPaint.grid === '3x2' && tabletopPaint.size === '150x140' &&
+      tabletopPaint.slots === '100 010 010 001 000 101',
+    JSON.stringify(tabletopPaint)
+  );
+
+  /* The real dialog over a project of six sample cards, one of them three
+     copies, with a back: the sheet, the back and the manifest are written,
+     the faces are the cards in strip order, and the project is untouched. */
+  const tabletopSetup = await page.evaluate(async () => {
+    try {
+      const { state, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const batch = await import('/js/core/batch.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const text = (await api.request('/api/read?path=batch/sample-set.csv')).content;
+      const table = batch.parseAny(text, 'sample-set.csv');
+      const mapping = Object.fromEntries(table.columns.map((c) => [c, cards.slotKinds().has(c) ? c : '-']));
+      await cards.addRows(table.rows, mapping, batch.resolveAsset);
+      await cards.removeCard(0);
+      await cards.switchCard(0);
+      cards.setCardQty(1, 3);
+      state.project.name = 'Smoke Table';
+      const c = document.createElement('canvas');
+      c.width = 75; c.height = 105;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ff00ff'; ctx.fillRect(0, 0, 75, 105);
+      await api.exportImage({ filename: 'back.png', dataURL: c.toDataURL('image/png'), folder: 'smoke-tt-back', overwrite: true });
+      state.setDirty(false);
+      return { ids: cards.cardList().map((card) => card.id).join('|') };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.click('[data-action="tabletop"]');
+  await page.waitForSelector('#tabletopSource');
+  await page.waitForFunction(() => document.querySelector('#tabletopBack')?.options.length > 1);
+  await page.selectOption('#tabletopSource', 'project');
+  await page.selectOption('#tabletopBack', 'exports/smoke-tt-back');
+  await page.waitForTimeout(200);
+  const tabletopFit = await page.textContent('#tabletopFit');
+  for (const button of await page.$$('#modalFoot button')) {
+    if ((await button.textContent()) === 'Make deck sheets') { await button.click(); break; }
+  }
+  for (let i = 0; i < 60; i += 1) {
+    await page.waitForTimeout(500);
+    const text = await page.textContent('#tabletopStatus').catch(() => '');
+    if (/→|failed/.test(text)) break;
+  }
+  const tabletopStatus = await page.textContent('#tabletopStatus').catch(() => '');
+  const tabletopFiles = await page.evaluate(async (ids) => {
+    try {
+      const { api, state } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      const manifest = await api.readJSON('exports/smoke-table-tabletop/tabletop.json').catch(() => null);
+      const listed = ((await api.request('/api/list?path=exports/smoke-table-tabletop').catch(() => ({}))).entries || [])
+        .map((e) => e.name).sort().join(',');
+      const out = { manifest, listed, project: { same: cards.cardList().map((c) => c.id).join('|') === ids, active: state.project.activeCard, dirty: state.dirty } };
+      if (manifest) {
+        const img = new Image();
+        img.src = api.fileURL(`exports/smoke-table-tabletop/${manifest.sheets[0].file}`);
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const [w, h] = manifest.cardSize;
+        const cols = manifest.sheets[0].width;
+        const at = (i) => Array.from(ctx.getImageData((i % cols) * w + w / 2, Math.floor(i / cols) * h + h * 0.3, 1, 1).data.slice(0, 3));
+        const close = (a, b) => a.every((v, k) => Math.abs(v - b[k]) < 24);
+        out.size = `${img.width}x${img.height}`;
+        out.copiesMatch = close(at(1), at(2)) && close(at(2), at(3));
+        out.neighboursDiffer = !close(at(0), at(1)) && !close(at(3), at(4));
+        out.hidden = at(manifest.sheets[0].width * manifest.sheets[0].height - 1);
+      }
+      return out;
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, tabletopSetup.ids);
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check(
+    'the tabletop dialog writes a sheet, the back and a manifest for a project',
+    /^8 cards → 1 sheet \(3 × 3\)/.test(tabletopFit) &&
+      /Width 3, Height 3, Number 8/.test(tabletopStatus) &&
+      tabletopFiles.listed === 'back.png,smoke-table.jpg,tabletop.json' &&
+      tabletopFiles.manifest?.cards === 8 && tabletopFiles.manifest?.back === 'back.png' &&
+      tabletopFiles.manifest?.sheets?.[0]?.number === 8 && tabletopFiles.size === '2250x3150' &&
+      tabletopFiles.copiesMatch && tabletopFiles.neighboursDiffer &&
+      tabletopFiles.hidden?.[0] > 200 && tabletopFiles.hidden?.[1] < 60 && tabletopFiles.hidden?.[2] > 200 &&
+      tabletopFiles.project?.same && tabletopFiles.project?.active === 0 && tabletopFiles.project?.dirty === false,
+    JSON.stringify({ tabletopFit, tabletopStatus, tabletopFiles })
+  );
+
+  /* A folder from Export → Every card brings its deck list: the counts come
+     from deck.json without the project being drawn again. */
+  const tabletopFolder = await page.evaluate(async () => {
+    try {
+      const cards = await import('/js/core/cards.js');
+      const res = await cards.exportCards({ multiplier: 0.2 });
+      return { folder: res.rendered[0]?.path?.split('/').slice(0, -1).join('/') };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.click('[data-action="tabletop"]');
+  await page.waitForFunction(() => document.querySelector('#tabletopFolder')?.options.length > 1);
+  await page.selectOption('#tabletopSource', 'folder');
+  if (tabletopFolder.folder) await page.selectOption('#tabletopFolder', tabletopFolder.folder).catch(() => {});
+  await page.waitForTimeout(500);
+  const tabletopFolderFit = await page.textContent('#tabletopFit');
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  await page.evaluate(async (folder) => {
+    const { api, state } = window.TCGForge;
+    for (const path of [folder, 'exports/smoke-table-tabletop', 'exports/smoke-tt-back']) {
+      if (path) await api.trash(path).catch(() => {});
+    }
+    state.setDirty(false);
+  }, tabletopFolder.folder);
+  check(
+    'a folder\'s deck list sets the tabletop copies',
+    tabletopFolder.folder === 'exports/smoke-table' &&
+      /^8 cards → 1 sheet \(3 × 3\) · copies from deck\.json/.test(tabletopFolderFit),
+    JSON.stringify({ tabletopFolder, tabletopFolderFit })
+  );
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

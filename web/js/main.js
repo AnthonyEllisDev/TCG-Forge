@@ -26,6 +26,7 @@ import { initFieldsPanel } from './ui/fieldsPanel.js';
 import { initIconPalette } from './ui/iconPalette.js';
 import { initBatchPanel } from './ui/batchPanel.js';
 import { initPrintPanel } from './ui/printPanel.js';
+import { initTabletopPanel } from './ui/tabletopPanel.js';
 import { initCardStrip } from './ui/cardStrip.js';
 import { initShortcuts } from './ui/shortcuts.js';
 
@@ -55,6 +56,7 @@ async function boot() {
   initIconPalette();
   initBatchPanel();
   initPrintPanel();
+  initTabletopPanel();
   initCardStrip();
   initShortcuts();
   history.attach();

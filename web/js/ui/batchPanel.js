@@ -503,7 +503,7 @@ async function start(options) {
 
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
     const where = options.toWorkspace
-      ? `workspace/exports${options.subfolder ? `/${options.subfolder}` : ''}`
+      ? `workspace/exports${result.folder ? `/${result.folder}` : ''}`
       : 'your downloads folder';
     const copies = result.rendered.reduce((sum, card) => sum + (card.qty || 1), 0);
     setStatus(
