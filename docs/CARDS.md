@@ -73,6 +73,7 @@ narrows the strip to the cards whose fields contain what you type:
 | `rules:{gem}` | an icon, written as it is in Card Fields |
 | `art:wyrm` | cards whose artwork's file name contains "wyrm" |
 | `#12` | the twelfth card in the strip |
+| `has:changes` | cards with their own layer changes or art framing (below) |
 
 A word with a colon that does not name a field (`10:30`) is searched as it is.
 
@@ -146,6 +147,23 @@ version of a marked layer, do it from a card that has not marked it.
 This is Magic Set Editor's *options specific to this card*, for layout rather
 than style settings.
 
+### Seeing and undoing a card's own changes
+
+A card with its own layer changes or its own art framing is marked **own** on
+its tile in the strip, and the tile's tooltip says what: "Own changes: 2
+layers, framed art". `has:changes` in the filter shows just those cards — the
+quick way to check a set before printing.
+
+While such a card is on screen, **Card Fields** says so under the fields
+("This card's own: 1 layer, framed art") with a **Reset to layout** button. It
+puts every layer the card made its own back as the layout has it and the art
+back to the plain fit, in one step that **Ctrl+Z** undoes. Nothing on the other
+cards changes. A layer marked *Only on this card* but not yet moved counts as
+the card's own too: the next nudge to it is the card's.
+
+This is the "reset all changes" a design tool offers on a component instance,
+for a card in a set.
+
 ## Framing a card's artwork
 
 Each card keeps how its picture sits in the art window. Select the art layer
@@ -165,8 +183,12 @@ filled, the picture centred.
   the sheet gives the card a different picture.
 - A spreadsheet run in the batch dialog draws each row's picture at the plain
   fit; framing belongs to cards in a project.
-- Cropping (**Properties → Image**) and a stretched picture are not kept per
-  card — zoom keeps the picture's proportions.
+- Flipping, cropping (**Properties → Image**) and stretching the picture with
+  a side handle are kept per card too. The **Zoom** slider keeps the
+  proportions; a picture shrunk below the window with a corner handle is shown
+  as it is, and the slider steps on from there.
+- A card whose picture is missing from the workspace keeps its framing, and
+  shows it again once the file is back.
 
 This is the zoom-and-drag that Hearthcards and Card Conjurer give a card's art,
 and Magic Set Editor's image slice, kept per card.
@@ -277,11 +299,17 @@ A project from 0.7.0 on is version 2 and carries two more keys:
   new version: an older TCG Forge shows every card with the layout.
 - `framing` (0.17.0) is how each art slot frames its picture: `zoom` over the
   plain fit, `x`/`y` moving its centre by a fraction of the window's width and
-  height, and `angle` when it is turned. Written only for slots that differ
+  height, and `angle` when it is turned; since 0.18.0 also `flipX`/`flipY`,
+  `stretch` (height scale over width scale) and `crop` (`{x, y, w, h}` as
+  fractions of the whole picture) when set. Written only for slots that differ
   from the plain fit and hold a picture; an older TCG Forge ignores it and
-  shows the plain fit.
+  shows the plain fit (and a 0.17.0 build ignores the newer keys).
 - `canvas` is exactly what it was in version 1, so an older TCG Forge opens a
   version-2 file as its active card. (Saving it from that older version keeps
   only that card.)
+- A card picture that is missing from the workspace when the file is opened
+  no longer stops it opening: the slot shows its placeholder and the card
+  keeps the path (0.18.0). Any other missing image — a frame, a background —
+  still refuses the file, since nothing could stand in for it.
 - A version-1 file has no `cards` and opens as a project of one card. Nothing is
   written back until you save, and saving writes version 2.

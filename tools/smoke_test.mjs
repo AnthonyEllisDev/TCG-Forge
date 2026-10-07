@@ -5496,6 +5496,471 @@ try {
     JSON.stringify({ zoomed, refitted })
   );
 
+  /* ---- 0.18.0: a card's own changes, and the bugs found with it ------- */
+
+  /* A project whose card picture has gone from the workspace could not be
+     opened at all — Fabric refused the whole file. It opens now, with the
+     slot's placeholder, and the card keeps the picture's path and framing, so
+     putting the file back brings the art back as it was. */
+  const goneArtPath = `assets/art/smoke-gone-${Date.now()}.svg`;
+  // The file names a picture this page has never fetched, so no image cache
+  // can stand in for it.
+  const goneLaterPath = `assets/art/smoke-gone-later-${Date.now()}.svg`;
+  const goneArtSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#0c0"/></svg>';
+  const goneOpen = await page.evaluate(async ({ first, path, svg }) => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      await api.writeText(first, svg);
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Gone One');
+      await t.setFieldImage('art', api.fileURL(first), { assetPath: first });
+      t.applyFraming(editor.findBySlot('art')[0], { zoom: 2, x: 0, y: 0 });
+      editor.touch();
+      cards.cardList().push({ id: 'card-gone-b', values: { title: 'Other', art: null } });
+      const saved = await p.saveProject({ name: 'Smoke Gone Art', path: 'projects/smoke-gone-art.json' });
+      await api.trash(first);
+      const text = JSON.stringify(await api.readJSON(saved.path)).split(first).join(path);
+      await api.writeJSON(saved.path, JSON.parse(text));
+      let error = null;
+      let opened = null;
+      try {
+        opened = await p.openProjectPath(saved.path);
+      } catch (err) {
+        error = err.message;
+      }
+      const art = editor.findBySlot('art')[0];
+      const shown = t.isPlacedArt(art) ? 'art' : 'placeholder';
+      // Off the card and back while the picture is still missing.
+      if (!error) {
+        await cards.switchCard(1);
+        await cards.switchCard(0);
+      }
+      const record = cards.cardList()[0];
+      await p.saveProject({});
+      const file = await api.readJSON(saved.path).catch(() => null);
+      // The picture comes back: the card shows it framed as it was.
+      await api.writeText(path, svg);
+      if (!error) {
+        await cards.switchCard(1);
+        await cards.switchCard(0);
+      }
+      const back = t.readFraming(editor.findBySlot('art')[0]);
+      await api.trash(path).catch(() => {});
+      await api.trash(saved.path).catch(() => {});
+      state.setDirty(false);
+      return {
+        error,
+        missing: opened?.missingArt ?? null,
+        shown,
+        recordArt: record?.values?.art === path,
+        recordZoom: record?.framing?.art?.zoom ?? null,
+        fileArt: file?.cards?.[0]?.values?.art === path,
+        fileZoom: file?.cards?.[0]?.framing?.art?.zoom ?? null,
+        back,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, { first: goneArtPath, path: goneLaterPath, svg: goneArtSvg });
+  check(
+    'a project whose card art has gone missing still opens, showing the placeholder and naming the file',
+    goneOpen.error === null && goneOpen.missing?.[0] === goneLaterPath && goneOpen.shown === 'placeholder' &&
+      goneOpen.recordArt === true && goneOpen.fileArt === true,
+    JSON.stringify(goneOpen)
+  );
+  check(
+    'a card keeps its art framing while the picture is missing, and shows it again when the file is back',
+    goneOpen.error === null && goneOpen.recordZoom === 2 && goneOpen.fileZoom === 2 && goneOpen.back?.zoom === 2,
+    JSON.stringify(goneOpen)
+  );
+
+  /* Flip, crop and stretch from Properties were undone by the next card
+     switch, by Duplicate, and by every *Every card* render. */
+  const flipPath = `assets/art/smoke-flip-${Date.now()}.svg`;
+  const flipKept = await page.evaluate(async (path) => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const fx = await import('/js/core/effects.js');
+      await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="80">' +
+        '<rect width="10" height="80" fill="#f00"/><rect x="10" width="10" height="80" fill="#00f"/></svg>');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Flipped');
+      await t.setFieldImage('art', api.fileURL(path), { assetPath: path });
+      const art = editor.findBySlot('art')[0];
+      art.set({ flipX: true });
+      editor.touch();
+      cards.cardList().push({ id: 'card-flip-b', values: { title: 'Plain', art: path } });
+      const box = art.tcgArtBox;
+      const urls = await cards.renderCards({ multiplier: 1, squareCorners: true });
+      const sample = async (url) => {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const [r, , b] = ctx.getImageData(Math.round(box.left + box.width * 0.25), Math.round(box.top + box.height * 0.5), 1, 1).data;
+        return r > 200 && b < 60 ? 'red' : b > 200 && r < 60 ? 'blue' : `${r},${b}`;
+      };
+      const colours = (await Promise.all(urls.map(sample))).join();
+      // Crop to the left half and stretch it, then off the card and back.
+      const shown = editor.findBySlot('art')[0];
+      fx.applyCrop(shown, { w: 50, h: 100, x: 0, y: 50 });
+      shown.set({ scaleY: shown.scaleY * 2 });
+      editor.touch();
+      const before = t.readFraming(shown);
+      await cards.switchCard(1);
+      const plain = t.readFraming(editor.findBySlot('art')[0]);
+      await cards.switchCard(0);
+      const after = t.readFraming(editor.findBySlot('art')[0]);
+      await cards.addCard({ copy: true });
+      const copy = cards.cardList()[1].framing?.art ?? null;
+      state.setDirty(false);
+      return { colours, before, plain, after, copy };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, flipPath);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), flipPath);
+  check(
+    'flipped, cropped and stretched art stays so across switches, Duplicate and Every card renders',
+    flipKept.colours === 'blue,red' && flipKept.plain === null &&
+      flipKept.before?.flipX === true && flipKept.before?.crop?.w === 0.5 && flipKept.before?.stretch === 2 &&
+      JSON.stringify(flipKept.after) === JSON.stringify(flipKept.before) &&
+      JSON.stringify(flipKept.copy) === JSON.stringify(flipKept.before),
+    JSON.stringify(flipKept)
+  );
+
+  /* *Every card* (export, print, tabletop) asked for while a picture was
+     still being placed read the card before it landed: the card was drawn
+     without it. Held so the race is open on any machine. */
+  const heldRenderPath = `assets/art/smoke-render-${Date.now()}.svg`;
+  let releaseHeldRender = () => {};
+  const heldRenderGate = new Promise((resolve) => { releaseHeldRender = resolve; });
+  let heldRenderSeen = false;
+  const heldRenderRoute = `**/files/${heldRenderPath}`;
+  await page.route(heldRenderRoute, async (route) => {
+    heldRenderSeen = true;
+    await heldRenderGate;
+    route.continue().catch(() => {});
+  });
+  await page.evaluate(async (path) => {
+    const { state, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#0c0"/></svg>');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.clearFieldImage('art');
+    cards.cardList().push({ id: 'card-render-b', values: { title: 'Beta', art: null } });
+    state.setDirty(false);
+    const panel = await import('/js/ui/assetPanel.js');
+    window.__smokeHeldPlace = panel.placeAsset({ category: 'art', path, name: 'held' }).catch((err) => err.message);
+    window.__smokeHeldRender = cards.renderCards({ multiplier: 1, squareCorners: true }).catch((err) => err.message);
+  }, heldRenderPath);
+  for (let i = 0; i < 40 && !heldRenderSeen; i += 1) await page.waitForTimeout(100);
+  releaseHeldRender();
+  const heldRender = await page.evaluate(async () => {
+    try {
+      await window.__smokeHeldPlace;
+      const urls = await window.__smokeHeldRender;
+      if (!Array.isArray(urls)) return { error: String(urls) };
+      const box = window.TCGForge.editor.findBySlot('art')[0].tcgArtBox;
+      const img = new Image();
+      img.src = urls[0];
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const [r, g, b] = ctx.getImageData(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2), 1, 1).data;
+      window.TCGForge.state.setDirty(false);
+      return { pixel: `${r},${g},${b}` };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.unroute(heldRenderRoute);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), heldRenderPath);
+  check(
+    'every card drawn while art is still being placed shows that art',
+    heldRenderSeen && heldRender.pixel === '0,204,0',
+    JSON.stringify({ heldRenderSeen, heldRender })
+  );
+
+  /* Properties → Replace… then a card switch while the picture uploads: the
+     replacement went to the card switched to (both cards showing the same
+     file share the layer across the switch). The upload is held; the switch
+     must wait for it, and the picture land on the card it was chosen on. */
+  const replaceFile = path.join(os.tmpdir(), `smoke-replace-${Date.now()}.png`);
+  const replaceArtPath = `assets/art/smoke-replace-base-${Date.now()}.svg`;
+  const replacePng = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#f0f';
+    ctx.fillRect(0, 0, 16, 16);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  fs.writeFileSync(replaceFile, Buffer.from(replacePng, 'base64'));
+  await page.evaluate(async (base) => {
+    const { state, api, editor } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await api.writeText(base, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#08f"/></svg>');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    t.setFieldText('title', 'Chosen');
+    await t.setFieldImage('art', api.fileURL(base), { assetPath: base });
+    await cards.addCard({ copy: true });
+    await cards.switchCard(0);
+    editor.select(editor.findBySlot('art')[0]);
+    state.setDirty(false);
+  }, replaceArtPath);
+  let releaseUpload = () => {};
+  const uploadGate = new Promise((resolve) => { releaseUpload = resolve; });
+  let uploadHeld = false;
+  await page.route('**/api/upload', async (route) => {
+    uploadHeld = true;
+    await uploadGate;
+    route.continue().catch(() => {});
+  });
+  let replaceStarted = true;
+  try {
+    const chooser = page.waitForEvent('filechooser', { timeout: 5000 });
+    await page.click('[data-action="img-replace"]', { timeout: 3000 });
+    await (await chooser).setFiles(replaceFile);
+  } catch {
+    replaceStarted = false;
+  }
+  for (let i = 0; i < 40 && !uploadHeld; i += 1) await page.waitForTimeout(100);
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    window.__smokeReplaceSwitch = cards.switchCard(1).catch((err) => err.message);
+  });
+  await page.waitForTimeout(300);
+  const replaceWhileHeld = await page.evaluate(() => window.TCGForge.state.project.activeCard);
+  releaseUpload();
+  const replaced = await page.evaluate(async (base) => {
+    try {
+      await window.__smokeReplaceSwitch;
+      const cards = await import('/js/core/cards.js');
+      cards.syncActive();
+      const arts = cards.cardList().map((c) => c.values.art);
+      const uploaded = arts.find((a) => a && a !== base) || null;
+      window.TCGForge.state.setDirty(false);
+      return { first: arts[0] === base ? 'old' : /smoke-replace/.test(arts[0] || '') ? 'new' : arts[0], second: arts[1] === base ? 'old' : arts[1], uploaded };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, replaceArtPath);
+  await page.unroute('**/api/upload');
+  await page.evaluate(async ({ base, uploaded }) => {
+    await window.TCGForge.api.trash(base).catch(() => {});
+    if (uploaded) await window.TCGForge.api.trash(uploaded).catch(() => {});
+  }, { base: replaceArtPath, uploaded: replaced.uploaded });
+  fs.rmSync(replaceFile, { force: true });
+  check(
+    'a picture chosen with Replace… lands on its own card when a switch starts during the upload',
+    replaceStarted && uploadHeld && replaceWhileHeld === 0 && replaced.first === 'new' && replaced.second === 'old',
+    JSON.stringify({ replaceStarted, uploadHeld, replaceWhileHeld, replaced })
+  );
+
+  /* The strip's Copies box during a switch wrote to the incoming card while
+     it still showed the outgoing card's count. Refused for that moment. */
+  const qtyHeldPath = `assets/art/smoke-qty-${Date.now()}.svg`;
+  let releaseQty = () => {};
+  const qtyGate = new Promise((resolve) => { releaseQty = resolve; });
+  let qtyHeld = false;
+  const qtyRoute = `**/files/${qtyHeldPath}`;
+  await page.route(qtyRoute, async (route) => {
+    qtyHeld = true;
+    await qtyGate;
+    route.continue().catch(() => {});
+  });
+  await page.evaluate(async (path) => {
+    const { state, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await api.writeText(path, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#fa0"/></svg>');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.clearFieldImage('art');
+    cards.cardList().push({ id: 'card-qty-b', values: { title: 'Beta', art: path } });
+    state.setDirty(false);
+    window.__smokeQtySwitch = cards.switchCard(1).catch((err) => err.message);
+  }, qtyHeldPath);
+  for (let i = 0; i < 40 && !qtyHeld; i += 1) await page.waitForTimeout(100);
+  const qtyMidSwitch = await page.evaluate(async () => (await import('/js/core/cards.js')).isSwitching());
+  await page.click('#cardQty', { clickCount: 3, timeout: 3000 }).catch(() => {});
+  await page.keyboard.type('4');
+  releaseQty();
+  const qtyAfter = await page.evaluate(async () => {
+    try {
+      await window.__smokeQtySwitch;
+      const cards = await import('/js/core/cards.js');
+      await cards.settled();
+      await new Promise((r) => setTimeout(r, 50));
+      const counts = cards.cardList().map((c) => cards.qtyOf(c)).join(',');
+      return { counts, box: document.getElementById('cardQty').value };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.click('#cardQty', { clickCount: 3, timeout: 3000 }).catch(() => {});
+  await page.keyboard.type('3');
+  const qtyLater = await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    document.activeElement?.blur?.();
+    const counts = cards.cardList().map((c) => cards.qtyOf(c)).join(',');
+    window.TCGForge.state.setDirty(false);
+    return counts;
+  });
+  await page.unroute(qtyRoute);
+  await page.evaluate((path) => window.TCGForge.api.trash(path).catch(() => {}), qtyHeldPath);
+  check(
+    'a count typed into Copies during a card switch does not land on the other card',
+    qtyHeld && qtyMidSwitch === true && qtyAfter.counts === '1,1' && qtyAfter.box === '1' && qtyLater === '1,3',
+    JSON.stringify({ qtyHeld, qtyMidSwitch, qtyAfter, qtyLater })
+  );
+
+  /* Art shrunk below the cover fit on the canvas: the zoom slider sat at
+     100 % beside a 50 % readout, and one step jumped to 105 %. */
+  const belowCover = await page.evaluate(async () => {
+    try {
+      const { api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const { bus, EVT } = await import('/js/util/bus.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      await t.setFieldImage('art', api.fileURL('assets/backgrounds/starfield.svg'), { assetPath: 'assets/backgrounds/starfield.svg' });
+      t.applyFraming(editor.findBySlot('art')[0], { zoom: 0.5, x: 0, y: 0 });
+      editor.touch();
+      bus.emit(EVT.OBJECTS, editor.objects());
+      return { slider: document.getElementById('ffz_art')?.value, readout: document.getElementById('ffzo_art')?.textContent };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.focus('#ffz_art', { timeout: 3000 }).catch(() => {});
+  await page.keyboard.press('ArrowRight');
+  const belowStep = await page.evaluate(async () => {
+    const t = await import('/js/core/templates.js');
+    document.activeElement?.blur?.();
+    window.TCGForge.state.setDirty(false);
+    return t.readFraming(window.TCGForge.editor.findBySlot('art')[0])?.zoom ?? null;
+  });
+  check(
+    'the zoom slider shows art shrunk below the window and steps on from there',
+    belowCover.slider === '50' && belowCover.readout === '50%' && belowStep === 0.55,
+    JSON.stringify({ belowCover, belowStep })
+  );
+
+  /* The feature. Three cards: the second frames its art its own way, the
+     third moves its title for itself. The strip marks both, the filter
+     finds them with has:changes, Card Fields offers the way back, and the
+     card on screen is marked the moment it changes, without a switch. */
+  const ownSetup = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      t.setFieldText('title', 'Plain');
+      await t.setFieldImage('art', api.fileURL('assets/backgrounds/starfield.svg'), { assetPath: 'assets/backgrounds/starfield.svg' });
+      const title = editor.findBySlot('title')[0];
+      cards.cardList().push(
+        { id: 'card-own-b', values: { title: 'Framed', art: 'assets/backgrounds/starfield.svg' }, framing: { art: { zoom: 2, x: 0, y: 0 } } },
+        { id: 'card-own-c', values: { title: 'Moved', art: 'assets/backgrounds/starfield.svg' }, overrides: { [title.tcgId]: { left: title.left + 40 } } }
+      );
+      cards.syncActive();
+      const { bus, EVT } = await import('/js/util/bus.js');
+      bus.emit(EVT.CARDS, cards.cardList());
+      state.setDirty(false);
+      return { ok: true };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const ownTiles = () => page.evaluate(() =>
+    [...document.querySelectorAll('#cardTiles .card-tile')]
+      .map((tile) => (tile.querySelector('.tile-own') ? 'own' : '-') + (tile.classList.contains('no-match') ? '~' : ''))
+      .join(' '));
+  const ownStrip = {
+    tiles: await ownTiles(),
+    label: await page.evaluate(() => document.querySelectorAll('#cardTiles .card-tile')[2]?.getAttribute('aria-label')),
+    box: await page.evaluate(() => document.getElementById('cardOwn')?.hidden ?? null),
+  };
+  await page.fill('#cardFilter', 'has:changes');
+  const ownFiltered = { tiles: await ownTiles(), count: await page.textContent('#cardFilterCount') };
+  // The card on screen made one of its layers its own: marked at once.
+  const ownLive = await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const cards = await import('/js/core/cards.js');
+    cards.setOverride(editor.findBySlot('title')[0], true);
+    return { text: document.getElementById('cardOwnText')?.textContent, box: document.getElementById('cardOwn')?.hidden };
+  });
+  const ownLiveTiles = await ownTiles();
+  await page.evaluate(async () => {
+    const strip = await import('/js/ui/cardStrip.js');
+    strip.clearFilter();
+    document.activeElement?.blur?.();
+  });
+  check(
+    'the strip marks the cards that change the layout for themselves, and has:changes finds them',
+    ownSetup.ok && ownStrip.tiles === '- own own' && /has its own changes: 1 layer$/.test(ownStrip.label || '') &&
+      ownStrip.box === true && ownFiltered.tiles === '-~ own own' && ownFiltered.count === '2 of 3 match' &&
+      ownLive.text === 'This card\'s own: 1 layer' && ownLive.box === false && ownLiveTiles === 'own own own',
+    JSON.stringify({ ownSetup, ownStrip, ownFiltered, ownLive, ownLiveTiles })
+  );
+
+  /* Reset on the third card: its title goes back to the layout and the art
+     to the plain fit, the marks go, and Ctrl+Z brings the change back. */
+  const ownReset = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const { history } = await import('/js/core/history.js');
+      await cards.switchCard(2);
+      t.applyFraming(editor.findBySlot('art')[0], { zoom: 1.5, x: 0, y: 0 });
+      editor.touch();
+      const layoutLeft = editor.findBySlot('title')[0].tcgBase?.left;
+      const movedLeft = editor.findBySlot('title')[0].left;
+      const shown = { text: document.getElementById('cardOwnText').textContent };
+      document.getElementById('cardOwnReset').click();
+      const title = editor.findBySlot('title')[0];
+      const after = {
+        left: title.left,
+        own: !!title.tcgBase,
+        framing: t.readFraming(editor.findBySlot('art')[0]),
+        box: document.getElementById('cardOwn').hidden,
+        tile: !!document.querySelector('#cardTiles .card-tile.active .tile-own'),
+      };
+      cards.syncActive();
+      const record = { overrides: cards.cardList()[2].overrides ?? null, framing: cards.cardList()[2].framing ?? null };
+      await history.flush?.();
+      await new Promise((r) => setTimeout(r, 400));
+      await history.undo();
+      const undone = { own: !!editor.findBySlot('title')[0].tcgBase, left: editor.findBySlot('title')[0].left };
+      window.TCGForge.state.setDirty(false);
+      return { layoutLeft, movedLeft, shown, after, record, undone };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'Reset to layout puts a card\'s own layers and art framing back, and Ctrl+Z undoes it',
+    ownReset.shown?.text === 'This card\'s own: 1 layer, framed art' && ownReset.movedLeft === ownReset.layoutLeft + 40 &&
+      ownReset.after?.left === ownReset.layoutLeft && ownReset.after.own === false && ownReset.after.framing === null &&
+      ownReset.after.box === true && ownReset.after.tile === false &&
+      ownReset.record?.overrides === null && ownReset.record?.framing === null &&
+      ownReset.undone?.own === true && ownReset.undone?.left === ownReset.movedLeft,
+    JSON.stringify(ownReset)
+  );
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

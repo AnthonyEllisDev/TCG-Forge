@@ -263,19 +263,30 @@ export const MAX_ZOOM = 8;
 const close = (a, b, eps) => Math.abs(a - b) < eps;
 const finite = (value, fallback) => (Number.isFinite(value) ? value : fallback);
 
+/** The smallest zoom a framing keeps — a corner handle can go below cover. */
+const LEAST_ZOOM = 0.05;
+/** How far a picture's centre may sit from the window's, in window sizes. */
+const MAX_SHIFT = 10;
+
 /**
  * How placed artwork sits in its window, relative to the window, so it means
  * the same thing for any picture: `zoom` is its scale over the scale that
  * just covers the window, `x`/`y` move its centre by a fraction of the
- * window's width/height, `angle` turns it. `null` is the plain cover fit
- * every picture gets when it is placed — which is most cards, so they store
- * nothing.
+ * window's width/height, `angle` turns it. Properties can also flip the
+ * picture (`flipX`/`flipY`), stretch it (`stretch`, height scale over width
+ * scale) and crop it (`crop`, fractions of the whole picture); those are kept
+ * too, or the next card switch quietly undid them. `null` is the plain cover
+ * fit every picture gets when it is placed — which is most cards, so they
+ * store nothing.
  */
 export function readFraming(img) {
-  if (!isPlacedArt(img) || !img.width || !img.height) return null;
+  if (!isPlacedArt(img) || !img.width || !img.height || !img.scaleX) return null;
   const box = img.tcgArtBox;
   const cover = Math.max(box.width / img.width, box.height / img.height);
-  const centre = img.getCenterPoint();
+  // Inside a multi-layer selection a layer's centre is the selection's.
+  const centre = img.group
+    ? fabric.util.transformPoint(img.getCenterPoint(), img.group.calcTransformMatrix())
+    : img.getCenterPoint();
   const framing = {
     zoom: round(img.scaleX / cover, 4),
     x: round((centre.x - (box.left + box.width / 2)) / box.width, 4),
@@ -283,25 +294,68 @@ export function readFraming(img) {
     angle: round(((img.angle % 360) + 360) % 360, 2),
   };
   if (framing.angle === 360) framing.angle = 0;
-  const plain =
-    close(framing.zoom, 1, 1e-3) && close(framing.x, 0, 1e-3) && close(framing.y, 0, 1e-3) && !framing.angle;
-  if (plain) return null;
-  if (!framing.angle) delete framing.angle;
-  return framing;
+  if (img.flipX) framing.flipX = true;
+  if (img.flipY) framing.flipY = true;
+  const stretch = round(img.scaleY / img.scaleX, 4);
+  if (!close(stretch, 1, 1e-3)) framing.stretch = stretch;
+  const crop = readCrop(img);
+  if (crop) framing.crop = crop;
+  return cleanFraming(framing);
 }
 
 /** A framing as read from a file or a record: clamped, or null for plain. */
 export function cleanFraming(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const framing = {
-    zoom: Math.min(MAX_ZOOM, Math.max(0.05, finite(raw.zoom, 1))),
-    x: Math.min(2, Math.max(-2, finite(raw.x, 0))),
-    y: Math.min(2, Math.max(-2, finite(raw.y, 0))),
+    zoom: Math.min(MAX_ZOOM, Math.max(LEAST_ZOOM, finite(raw.zoom, 1))),
+    // A zoomed or stretched picture can sit well off-centre and still fill
+    // the window, so the reach is generous.
+    x: Math.min(MAX_SHIFT, Math.max(-MAX_SHIFT, finite(raw.x, 0))),
+    y: Math.min(MAX_SHIFT, Math.max(-MAX_SHIFT, finite(raw.y, 0))),
   };
   const angle = finite(raw.angle, 0) % 360;
   if (angle) framing.angle = angle;
-  const plain = close(framing.zoom, 1, 1e-3) && close(framing.x, 0, 1e-3) && close(framing.y, 0, 1e-3) && !angle;
+  if (raw.flipX === true) framing.flipX = true;
+  if (raw.flipY === true) framing.flipY = true;
+  const stretch = Math.min(10, Math.max(0.1, finite(raw.stretch, 1)));
+  if (!close(stretch, 1, 1e-3)) framing.stretch = stretch;
+  const crop = cleanCrop(raw.crop);
+  if (crop) framing.crop = crop;
+  const plain =
+    close(framing.zoom, 1, 1e-3) && close(framing.x, 0, 1e-3) && close(framing.y, 0, 1e-3) &&
+    Object.keys(framing).length === 3;
   return plain ? null : framing;
+}
+
+/** The whole picture's size, which a crop is a part of. */
+function fullSize(img) {
+  const original = img.getOriginalSize?.() || {};
+  return {
+    width: img._baseWidth || original.width || img.width,
+    height: img._baseHeight || original.height || img.height,
+  };
+}
+
+function readCrop(img) {
+  const full = fullSize(img);
+  if (!full.width || !full.height) return null;
+  return cleanCrop({
+    x: round((img.cropX || 0) / full.width, 4),
+    y: round((img.cropY || 0) / full.height, 4),
+    w: round(img.width / full.width, 4),
+    h: round(img.height / full.height, 4),
+  });
+}
+
+/** A crop inside the picture, or null for the whole of it. */
+function cleanCrop(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const w = Math.min(1, Math.max(0.01, finite(raw.w, 1)));
+  const h = Math.min(1, Math.max(0.01, finite(raw.h, 1)));
+  const x = Math.min(1 - w, Math.max(0, finite(raw.x, 0)));
+  const y = Math.min(1 - h, Math.max(0, finite(raw.y, 0)));
+  const whole = close(w, 1, 1e-3) && close(h, 1, 1e-3) && close(x, 0, 1e-3) && close(y, 0, 1e-3);
+  return whole ? null : { x, y, w, h };
 }
 
 /**
@@ -314,8 +368,23 @@ export function applyFraming(img, framing) {
   if (!isPlacedArt(img) || !img.width || !img.height) return false;
   const box = img.tcgArtBox;
   const f = cleanFraming(framing) || { zoom: 1, x: 0, y: 0 };
+  // The crop first: the cover scale is worked out from the part that shows.
+  const full = fullSize(img);
+  const crop = f.crop || { x: 0, y: 0, w: 1, h: 1 };
+  img.set({
+    cropX: Math.round(crop.x * full.width),
+    cropY: Math.round(crop.y * full.height),
+    width: Math.max(1, Math.round(crop.w * full.width)),
+    height: Math.max(1, Math.round(crop.h * full.height)),
+  });
   const scale = Math.max(box.width / img.width, box.height / img.height) * f.zoom;
-  img.set({ scaleX: scale, scaleY: scale, angle: f.angle || 0, flipX: false, flipY: false });
+  img.set({
+    scaleX: scale,
+    scaleY: scale * (f.stretch || 1),
+    angle: f.angle || 0,
+    flipX: !!f.flipX,
+    flipY: !!f.flipY,
+  });
   img.setPositionByOrigin(
     new fabric.Point(box.left + box.width / 2 + f.x * box.width, box.top + box.height / 2 + f.y * box.height),
     'center',
@@ -333,8 +402,11 @@ export function applyFraming(img, framing) {
 export function frameFieldImage(slot, zoom = null) {
   const img = editor.findBySlot(slot)[0];
   if (!isPlacedArt(img)) return false;
-  const framing =
-    zoom === null ? null : { ...(readFraming(img) || { x: 0, y: 0 }), zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) };
+  const current = readFraming(img) || { zoom: 1, x: 0, y: 0 };
+  // Never below the cover fit from here — unless the picture is already
+  // smaller (a corner handle can do that), where the slider steps from it.
+  const least = Math.min(MIN_ZOOM, current.zoom);
+  const framing = zoom === null ? null : { ...current, zoom: Math.min(MAX_ZOOM, Math.max(least, zoom)) };
   applyFraming(img, framing);
   editor.canvas.requestRenderAll();
   editor.touch();

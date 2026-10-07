@@ -22,7 +22,7 @@ import {
   setFieldImage,
   setFieldText,
 } from '../core/templates.js';
-import { isSwitching, placeArt, settled } from '../core/cards.js';
+import { describeOwnChanges, isSwitching, ownChanges, placeArt, resetOwnChanges, settled } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 
@@ -33,7 +33,27 @@ export function initFieldsPanel() {
   bus.on(EVT.TEMPLATE_APPLIED, () => render(true));
   bus.on(EVT.OBJECTS, () => render(false));
   bus.on(EVT.PROJECT, () => render(false));
+  bus.on(EVT.CARDS, syncOwn);
+  on($('#cardOwnReset'), 'click', () => {
+    const reset = resetOwnChanges();
+    if (reset) toast(`Back to the layout: ${describeOwnChanges(reset)}. Ctrl+Z brings them back.`, 'ok');
+    else toast('Nothing to reset on this card just now.', 'warn');
+  });
   render(true);
+}
+
+/*
+ * A card that moves, resizes or recolours a layer for itself, or frames its
+ * art its own way, says so here, with a way back to the layout — without
+ * hunting through the Layers panel for the "this card" badges and the art
+ * for its zoom.
+ */
+function syncOwn() {
+  const box = $('#cardOwn');
+  if (!box) return;
+  const words = describeOwnChanges(ownChanges());
+  box.hidden = !words;
+  $('#cardOwnText').textContent = words ? `This card's own: ${words}` : '';
 }
 
 function currentFields() {
@@ -51,6 +71,7 @@ function render(force) {
   const hint = $('#fieldHint');
   if (!host) return;
 
+  syncOwn();
   const fields = currentFields();
   const sig = fields.map((f) => `${f.id}:${f.type}`).join('|');
   if (!force && sig === signature) {
@@ -203,7 +224,12 @@ function syncFraming(slot, nodes = null) {
   const framing = placed ? readFraming(target) : null;
   const percent = Math.round((framing?.zoom ?? 1) * 100);
   zoom.disabled = !placed;
-  if (zoom !== document.activeElement) zoom.value = String(percent);
+  if (zoom !== document.activeElement) {
+    // A picture shrunk below the cover fit on the canvas: the slider reaches
+    // down to it, so it shows where it is and steps from there.
+    zoom.min = String(Math.min(MIN_ZOOM * 100, Math.floor(percent / 5) * 5));
+    zoom.value = String(percent);
+  }
   if (readout) readout.textContent = `${percent}%`;
   if (refit) refit.disabled = !framing;
 }

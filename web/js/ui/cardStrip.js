@@ -27,11 +27,15 @@ import {
   cardList,
   cardsTable,
   captureValues,
+  describeOwnChanges,
+  isSwitching,
   matchingCards,
   moveCard,
+  ownChanges,
   qtyOf,
   removeCard,
   setCardQty,
+  settled,
   slotKinds,
   switchCard,
 } from '../core/cards.js';
@@ -52,6 +56,16 @@ export function initCardStrip() {
   // focus, and a Ctrl+S typed before that would save the old count. A box
   // emptied to retype it is left alone until it holds a number again.
   const qty = $('#cardQty');
+  // Mid-switch the pointer already names the incoming card while the box
+  // still shows the outgoing one's count, so a count typed then went to the
+  // wrong card. It is refused for that moment, as Card Fields does.
+  on(qty, 'beforeinput', (e) => {
+    if (!isSwitching()) return;
+    e.preventDefault();
+    settled().then(() => {
+      qty.value = String(qtyOf(cardList()[activeIndex()]));
+    });
+  });
   on(qty, 'input', () => {
     if (qty.value.trim() !== '') setCardQty(activeIndex(), qty.value);
   });
@@ -77,12 +91,38 @@ export function initCardStrip() {
   bus.on(EVT.CARDS, render);
   bus.on(EVT.TEMPLATE_APPLIED, render);
   bus.on(EVT.PROJECT, render);
+  bus.on(EVT.OBJECTS, markActiveOwn);
   bus.on(EVT.MODIFIED, () => {
+    markActiveOwn();
     // After the edit has settled, not on every keystroke of it.
     clearTimeout(thumbTimer);
     thumbTimer = setTimeout(refreshThumb, 350);
   });
   render();
+}
+
+/*
+ * A tile says when its card changes the layout for itself — a layer made its
+ * own, or art framed its own way — since nothing else in the strip shows it
+ * and the reset is only offered for the card on screen. The label is kept
+ * in the tile's dataset so the badge can be redone without a redraw.
+ */
+function markOwn(tile, index) {
+  const words = describeOwnChanges(ownChanges(index));
+  tile.querySelector('.tile-own')?.remove();
+  tile.classList.toggle('own', !!words);
+  const base = tile.dataset.label ?? tile.getAttribute('aria-label');
+  tile.dataset.label = base;
+  tile.setAttribute('aria-label', words ? `${base}, has its own changes: ${words}` : base);
+  tile.title = words ? `${tile.dataset.title}\nOwn changes: ${words}` : tile.dataset.title;
+  if (!words) return;
+  tile.append(el('span', { class: 'tile-own', text: 'own', 'aria-hidden': 'true' }));
+}
+
+/** The card on screen changes as it is edited; only its tile is redone. */
+function markActiveOwn() {
+  const tile = $('#cardTiles .card-tile.active');
+  if (tile) markOwn(tile, activeIndex());
 }
 
 /** Show the card before or after this one — among the filtered cards, if any. */
@@ -273,7 +313,7 @@ function render() {
           (qtyOf(card) > 1 ? `, ${qtyOf(card)} copies` : '') +
           (matched ? '' : ', not matching the filter'),
         title: label,
-        dataset: { cardId: card.id },
+        dataset: { cardId: card.id, title: label },
         onClick: () => goTo(index),
       },
       [
@@ -284,6 +324,7 @@ function render() {
         qtyOf(card) > 1 ? el('span', { class: 'tile-qty', text: `×${qtyOf(card)}`, 'aria-hidden': 'true' }) : null,
       ]
     );
+    markOwn(tile, index);
     host.append(tile);
   });
   if (shown && !shown.size) host.append(el('span', { class: 'strip-empty', text: 'No card matches the filter.' }));

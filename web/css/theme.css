@@ -33,6 +33,7 @@
   --danger:        #ef4d5a;
   --ok:            #3ecf8e;
   --ok-soft:       rgba(62, 207, 142, 0.14);
+  --on-ok:         #06180f;   /* text on a solid green badge, either theme */
   --warn:          #f0a53a;
 
   /* geometry */

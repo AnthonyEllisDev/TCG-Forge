@@ -436,6 +436,21 @@
 .field-form .ff-frame input[type="range"] { flex: 1 1 auto; width: auto; min-width: 60px; }
 .field-form .ff-frame output { min-width: 3.4em; text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Shown only while the card on screen changes the layout for itself. */
+.card-own {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: var(--fs-xs);
+}
+.card-own[hidden] { display: none; }
+
 .icon-palette { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .icon-palette-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }
 .icon-palette-head > span:first-child { font-size: var(--fs-xs); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
@@ -621,6 +636,17 @@
 .strip-bar .strip-filter:focus,
 .strip-bar .strip-filter:not(:placeholder-shown) { width: 170px; }
 #cardFilterCount:empty { display: none; }
+.card-tile .tile-own {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--ok);
+  color: var(--on-ok);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
 /* The card on screen stays in a filtered strip so the place is never lost;
    faded, it says it is only there for that reason. */
 .card-tile.no-match { opacity: 0.45; }

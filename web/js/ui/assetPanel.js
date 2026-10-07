@@ -218,11 +218,13 @@ async function placeImage(cat, item, url, dropPoint) {
 
   /* artwork: drop straight into the art slot when the template has one */
   // A card still switching in would put its own art over this one, and a
-  // switch started while it loads would carry it to the next card.
-  await settled();
+  // switch started while it loads would carry it to the next card. placeArt
+  // waits for the first and holds back the second, and counts as a placement
+  // from this moment, so a render asked for straight after waits for it.
   if (editor.findBySlot('art').length) {
     return await placeArt(() => setFieldImage('art', url, { assetPath: item.path }));
   }
+  await settled();
   const img = await editor.addImage(url, {
     assetPath: item.path,
     tcgKind: 'art',

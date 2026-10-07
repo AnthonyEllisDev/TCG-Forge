@@ -11,7 +11,7 @@ import { state } from '../core/state.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
 import { collectFields } from '../core/templates.js';
-import { canOverride, isOverridden, setOverride } from '../core/cards.js';
+import { activeIndex, canOverride, cardList, isOverridden, isSwitching, placeArt, setOverride } from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 import {
@@ -503,39 +503,21 @@ function openReplaceDialog(img) {
     replaceInput.hidden = true;
     document.body.append(replaceInput);
   }
+  if (isSwitching()) {
+    toast('The card is still changing — try again in a moment.', 'err');
+    return;
+  }
+  // The card the picture was chosen on. Uploading takes a moment, and a card
+  // switch meanwhile carried the replacement onto the incoming card (when
+  // both show the same file, the layer is kept across the switch) or onto a
+  // layer no longer on the canvas.
+  const card = cardList()[activeIndex()]?.id;
   replaceInput.onchange = async () => {
     const file = replaceInput.files?.[0];
     if (!file) return;
     const target = img;
     try {
-      // The picked file has to become something the project can find again,
-      // so it goes through the library rather than onto the canvas as a
-      // short-lived blob: URL.
-      const source = await assets.sourceForFile(file, 'art');
-      const element = await loadImageElement(source.url);
-      // Art that did not come in through a slot has no window of its own; the
-      // room it takes on the card now is the window. Keeping the old scale
-      // instead made a 3000 px picture's replacement land at a tenth of the size.
-      const footprint = target.tcgArtBox || {
-        left: target.left,
-        top: target.top,
-        width: target.getScaledWidth(),
-        height: target.getScaledHeight(),
-      };
-      target.setElement(element);
-      target.set({
-        _baseWidth: element.naturalWidth,
-        _baseHeight: element.naturalHeight,
-        width: element.naturalWidth,
-        height: element.naturalHeight,
-        cropX: 0,
-        cropY: 0,
-        tcgAsset: source.path,
-      });
-      fitImage(target, footprint, target.tcgArtBox ? 'cover' : 'contain');
-      target.setCoords();
-      editor.canvas.requestRenderAll();
-      editor.touch();
+      await placeArt(() => replaceImage(target, file, card));
     } catch (err) {
       toast(`Could not replace the image: ${err.message}`, 'err');
     } finally {
@@ -543,6 +525,44 @@ function openReplaceDialog(img) {
     }
   };
   replaceInput.click();
+}
+
+/*
+ * Run as a placement, so a card switch waits for it and the picture lands on
+ * the card it was chosen on.
+ */
+async function replaceImage(target, file, card) {
+  if (cardList()[activeIndex()]?.id !== card || !target.canvas) {
+    throw new Error('the card changed before the picture arrived');
+  }
+  // The picked file has to become something the project can find again,
+  // so it goes through the library rather than onto the canvas as a
+  // short-lived blob: URL.
+  const source = await assets.sourceForFile(file, 'art');
+  const element = await loadImageElement(source.url);
+  // Art that did not come in through a slot has no window of its own; the
+  // room it takes on the card now is the window. Keeping the old scale
+  // instead made a 3000 px picture's replacement land at a tenth of the size.
+  const footprint = target.tcgArtBox || {
+    left: target.left,
+    top: target.top,
+    width: target.getScaledWidth(),
+    height: target.getScaledHeight(),
+  };
+  target.setElement(element);
+  target.set({
+    _baseWidth: element.naturalWidth,
+    _baseHeight: element.naturalHeight,
+    width: element.naturalWidth,
+    height: element.naturalHeight,
+    cropX: 0,
+    cropY: 0,
+    tcgAsset: source.path,
+  });
+  fitImage(target, footprint, target.tcgArtBox ? 'cover' : 'contain');
+  target.setCoords();
+  editor.canvas.requestRenderAll();
+  editor.touch();
 }
 
 function loadImageElement(url) {

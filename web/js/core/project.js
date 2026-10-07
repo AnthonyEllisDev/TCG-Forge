@@ -8,7 +8,7 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { forEachImageJSON, toLayoutJSON } from './objects.js';
+import { forEachImageJSON, isImageJSON, toLayoutJSON } from './objects.js';
 import { bleedPixels, mirrorBleed } from './bleed.js';
 import { loadCards, resetCards, serializeCards, settled, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
@@ -126,18 +126,53 @@ async function loadProject(data) {
 
   const canvasJSON = data.canvas || { objects: [], background: state.card.background };
   restoreImagePaths(canvasJSON);
+  const missing = await standInForMissingArt(canvasJSON);
 
   editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
   await editor.loadJSON(canvasJSON);
   editor.canvas.backgroundColor = canvasJSON.background ?? state.card.background;
   editor.applyCardClip();
   editor.fitToWindow();
-  loadCards(data);
+  loadCards(data, { missing });
 
   bus.emit(EVT.CARD, state.card);
   bus.emit(EVT.PROJECT, state.project);
   bus.emit(EVT.OBJECTS, editor.objects());
   history.reset();
+  return { missingArt: Object.values(missing) };
+}
+
+/*
+ * A card's picture that has gone from the workspace (renamed, moved, on
+ * another machine) made Fabric refuse the whole file, so the project could not
+ * be opened at all until the picture came back. Card switches already show the
+ * slot's placeholder for such a picture and keep its path; the card the file
+ * opens on now does the same. Other images — a frame, a background — still
+ * refuse the file: there is no layer to stand in for them.
+ */
+async function standInForMissingArt(canvasJSON) {
+  const missing = {};
+  const objects = Array.isArray(canvasJSON.objects) ? canvasJSON.objects : [];
+  await Promise.all(
+    objects.map(async (obj, index) => {
+      const placeholder = obj?.tcgPlaceholder;
+      if (!isImageJSON(obj) || !obj.tcgArtBox || !obj.tcgSlot || !placeholder || typeof placeholder !== 'object') return;
+      if (await imageLoads(obj.src)) return;
+      objects[index] = placeholder;
+      missing[obj.tcgSlot] = obj.tcgAsset || obj.src;
+    })
+  );
+  return missing;
+}
+
+function imageLoads(src) {
+  if (!src) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+    image.src = src;
+  });
 }
 
 function restoreImagePaths(canvasJSON) {
@@ -201,18 +236,19 @@ export async function saveProject({ path = state.project.path, name } = {}) {
 
 export async function openProjectPath(path) {
   const data = await api.readJSON(path);
-  await applyProject(data);
+  const { missingArt } = await applyProject(data);
   state.project.path = path;
   state.setDirty(false);
   bus.emit(EVT.PROJECT, state.project);
-  return data;
+  return { data, missingArt };
 }
 
 export async function openProjectData(data, { path = null } = {}) {
-  await applyProject(data);
+  const { missingArt } = await applyProject(data);
   state.project.path = path;
   state.setDirty(false);
   bus.emit(EVT.PROJECT, state.project);
+  return { missingArt };
 }
 
 export async function newProject({ width, height, dpi, radius, background, preset } = {}) {

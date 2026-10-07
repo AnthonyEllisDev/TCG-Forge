@@ -122,10 +122,12 @@ shares the layout and keeps its own words and artwork, so a set-wide change is
 one edit. Add, duplicate, reorder and delete cards, turn a spreadsheet into
 cards you can go on editing, give each card a number of copies, nudge or
 recolour a layer on one card without touching the rest, move and zoom each
-card's picture in its art window, and export or print every card at once. **Save as CSV** writes the whole set out as a spreadsheet;
+card's picture in its art window, see at a glance which cards have their own
+changes (and reset them), and export or print every card at once. **Save as CSV** writes the whole set out as a spreadsheet;
 edit it there and load it back, and the same cards are updated in place. In a
 big set, the strip's **filter** finds cards by any field — `type:sorcery`,
-`"draw a card"`, `#12` — and Page Down steps through the matches. See
+`"draw a card"`, `#12`, `has:changes` — and Page Down steps through the
+matches. See
 [`docs/CARDS.md`](docs/CARDS.md).
 
 **Decks, not just sets.** A count column in the spreadsheet — `qty`, `copies`,

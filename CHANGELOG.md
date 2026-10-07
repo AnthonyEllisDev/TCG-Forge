@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.18.0 — seeing and undoing a card's own changes
+
+- **Cards that change the layout for themselves are marked.** A card with its
+  own layer changes (*Only on this card*) or its own art framing shows **own**
+  on its tile in the strip, and its tooltip says what. `has:changes` in the
+  strip's filter shows just those cards.
+- **Reset to layout.** While such a card is on screen, Card Fields says what
+  it changes and offers **Reset to layout**, which puts its own layers back as
+  the layout has them and its art back to the plain fit — one step, undone by
+  Ctrl+Z. See
+  [`docs/CARDS.md`](docs/CARDS.md#seeing-and-undoing-a-cards-own-changes).
+
+### Fixed
+
+- **A project whose card art had gone missing from the workspace would not
+  open at all** — renaming or moving one picture locked the whole set away. It
+  now opens with the slot's placeholder, keeps the picture's path, and says
+  which files are missing; put them back and the art returns.
+- **A card's art framing was dropped while its picture was missing**, so the
+  picture came back at the plain fit once the file was restored.
+- **Flipping, cropping or stretching a card's picture was undone** by the next
+  card switch, by Duplicate, and in *Every card* exports, prints and tabletop
+  sheets. These are now kept with the card's framing.
+- **Exporting, printing or making tabletop sheets of every card straight
+  after placing art** could draw that card without its new picture.
+- **Properties → Replace… followed by a card switch** put the new picture on
+  the card switched to, or lost it. The switch now waits for the picture.
+- **Typing into Copies during a card switch** set the count of the card being
+  switched to, while the box still showed the other card's.
+- **The Zoom slider could not show a picture shrunk below its window** (it sat
+  at 100 % beside a 50 % readout) and jumped to 105 % on the first step.
+
 ## 0.17.0 — framing each card's artwork
 
 - **Art framing that stays with the card.** Move, zoom or turn a card's

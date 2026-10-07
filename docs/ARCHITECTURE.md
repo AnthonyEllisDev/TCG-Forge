@@ -311,7 +311,33 @@ the same file does not keep the last card's zoom. `addRows()` drops a slot's
 framing when the sheet changes its picture. Art the user places goes through
 `cards.placeArt()`, which a switch, a save and every render wait for through
 `settled()` — otherwise a switch started while the picture loaded carried it
-to the next card.
+to the next card. Since 0.18.0 a placement counts for `settled()` from the
+moment it is asked for (it waits for switches and earlier placements itself),
+`exportCards()`/`renderCards()` await `settled()` before reading the rows, and
+Properties → *Replace…* is a placement too. The framing also carries flips,
+`stretch` and `crop` (fractions of `_baseWidth`/`_baseHeight`), applied crop
+first so the cover scale is worked out from what shows. `syncActive()` keeps
+a slot's previous framing while its art is `unresolved` (the placeholder has
+none).
+
+**A card's own changes, seen and reset** (0.18.0). `cards.ownChanges(index)`
+counts a card's layers with `tcgBase` and its framed art slots — read from
+the canvas for the card on screen (unless a switch or a run has it), from the
+record otherwise; `describeOwnChanges()` words it. `ui/cardStrip.js` marks
+tiles (`.tile-own`, aria-label and title) and redoes only the active tile on
+`OBJECTS`/`MODIFIED`; `parseFilter()` turns `has:changes` into `{has:
+'changes'}` unless a slot is called `has`. `resetOwnChanges()` reverts every
+`tcgBase` layer (`revertToLayout`, auto-fit again), puts art to the cover fit
+and `touch()`es once, so it is one undo step; Card Fields' `#cardOwn` box
+offers it.
+
+**Opening a project whose card art is missing** (0.18.0). Fabric's
+`loadFromJSON()` rejects when any image fails, so `project.loadProject()`
+first probes each top-level placed-art image (`tcgArtBox` + `tcgPlaceholder`)
+and swaps a missing one for its placeholder; `loadCards(data, {missing})`
+puts the path in `unresolved` (and into the card of a version-1 file).
+`openProjectPath()`/`openProjectData()` return `{missingArt}` so the Open
+dialog can say which pictures are gone.
 
 **Filtering the strip** (0.15.0). `cards.parseFilter()` turns the box's text
 into terms (`{slot, text}` or `{number}`); a `slot:` prefix counts only when it

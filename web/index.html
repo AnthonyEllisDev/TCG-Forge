@@ -204,7 +204,7 @@
           <span class="strip-sep"></span>
           <input id="cardFilter" class="strip-filter" type="search" placeholder="Filter" autocomplete="off" spellcheck="false"
             aria-label="Filter cards by their fields" aria-describedby="cardFilterCount"
-            title="Show only the cards whose fields contain every word. &quot;Quoted words&quot; stay together, title:wyrm looks in one field, #12 is card 12. Enter goes to the next match, Shift+Enter the previous, Escape clears. Press / to come here.">
+            title="Show only the cards whose fields contain every word. &quot;Quoted words&quot; stay together, title:wyrm looks in one field, #12 is card 12, has:changes the cards with their own layer or art changes. Enter goes to the next match, Shift+Enter the previous, Escape clears. Press / to come here.">
           <span id="cardFilterCount" class="readout" aria-live="polite"></span>
           <span class="strip-sep"></span>
           <button class="btn tiny" data-card-action="add" title="Add an empty card after this one">+ Card</button>
@@ -234,6 +234,10 @@
         <header class="panel-head"><h2>Card Fields</h2><span class="chev"></span></header>
         <div class="panel-body">
           <div id="fieldForm" class="field-form"></div>
+          <div id="cardOwn" class="card-own" hidden>
+            <span id="cardOwnText"></span>
+            <button class="btn tiny" id="cardOwnReset" type="button" title="Put this card's own layers back to the layout and its art back to the plain fit. Ctrl+Z brings them back.">Reset to layout</button>
+          </div>
           <div id="iconPalette" class="icon-palette" hidden></div>
           <p class="hint" id="fieldHint">Load a template with named slots and its editable fields appear here.</p>
         </div>

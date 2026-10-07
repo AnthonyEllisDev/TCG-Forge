@@ -157,10 +157,10 @@ export async function openProjectDialog() {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      await openProjectData(data);
+      const { missingArt } = await openProjectData(data);
       $('#projectName').value = state.project.name;
       close();
-      toast(`Opened ${file.name}.`, 'ok');
+      toastOpened(file.name, missingArt);
     } catch (err) {
       toast(`Could not open file: ${err.message}`, 'err');
     }
@@ -190,10 +190,10 @@ export async function openProjectDialog() {
       ]);
       const open = async () => {
         try {
-          await openProjectPath(project.path);
+          const { missingArt } = await openProjectPath(project.path);
           $('#projectName').value = state.project.name;
           close();
-          toast(`Opened ${project.name}.`, 'ok');
+          toastOpened(project.name, missingArt);
         } catch (err) {
           toast(`Could not open: ${err.message}`, 'err');
         }
@@ -205,6 +205,16 @@ export async function openProjectDialog() {
   } catch (err) {
     list.append(el('div', { class: 'grid-empty', text: `Could not list projects: ${err.message}` }));
   }
+}
+
+/** Say a project opened — and which of its pictures could not be found. */
+function toastOpened(name, missingArt = []) {
+  if (!missingArt.length) {
+    toast(`Opened ${name}.`, 'ok');
+    return;
+  }
+  const list = missingArt.slice(0, 3).join(', ') + (missingArt.length > 3 ? ', …' : '');
+  toast(`Opened ${name}, but its art is missing: ${list}. The card keeps the path; put the file back to see it.`, 'warn', 6000);
 }
 
 /* -------------------------------------------------------------- export -- */

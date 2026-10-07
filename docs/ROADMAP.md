@@ -59,6 +59,10 @@ it.
   its art window, kept with the card through switches, saves, exports, prints
   and tabletop sheets. See
   [`CARDS.md`](CARDS.md#framing-a-cards-artwork).
+- **A card's own changes, seen and reset** (0.18.0) — strip tiles mark cards
+  with their own layer changes or art framing, `has:changes` filters for
+  them, and *Reset to layout* in Card Fields puts the card back. See
+  [`CARDS.md`](CARDS.md#seeing-and-undoing-a-cards-own-changes).
 
 ## Next
 

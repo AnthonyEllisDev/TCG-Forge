@@ -170,18 +170,23 @@ export async function settled() {
 
 /**
  * Place artwork on the card on screen, holding back any switch until it has
- * landed. `work` starts only once the canvas is settled, so it always lands
- * on the card that was showing when it began.
+ * landed. `work` starts once no switch is drawing and every placement started
+ * before it has landed, so it always lands on the card that was showing when
+ * it began. The placement counts for `settled()` from the moment it is asked
+ * for — a render started straight after it must wait for it too, not read the
+ * card while the placement is still waiting its turn.
  */
-export async function placeArt(work) {
-  await settled();
-  const job = work();
+export function placeArt(work) {
+  const earlier = [...placing];
+  const job = (async () => {
+    await Promise.allSettled(earlier);
+    while (switching) await switching;
+    return work();
+  })();
   placing.add(job);
-  try {
-    return await job;
-  } finally {
-    placing.delete(job);
-  }
+  const done = () => placing.delete(job);
+  job.then(done, done);
+  return job;
 }
 
 /** True while a card switch is drawing the incoming card. */
@@ -198,8 +203,14 @@ export function syncActive() {
   const overrides = captureOverrides();
   if (Object.keys(overrides).length) card.overrides = overrides;
   else delete card.overrides;
-  const framing = captureFraming();
-  if (framing) card.framing = framing;
+  const framing = captureFraming() || {};
+  // Art that would not load shows the placeholder, which has no framing; the
+  // picture is still the card's, and so is how it was framed.
+  for (const slot of Object.keys(unresolved)) {
+    const kept = card.framing?.[slot];
+    if (kept && !(slot in framing) && !isPlacedArt(editor.findBySlot(slot)[0])) framing[slot] = kept;
+  }
+  if (Object.keys(framing).length) card.framing = framing;
   else delete card.framing;
   return cards;
 }
@@ -349,6 +360,54 @@ export function setOverride(obj, on) {
   return true;
 }
 
+/* ------------------------------------------------------ a card's own -- */
+
+/**
+ * What a card has changed for itself: layers made its own (*Only on this
+ * card*, counted even before they are moved — the next nudge is the card's),
+ * and art slots framed their own way. The card on screen is read from the
+ * canvas, since its record is only brought up to date on a switch — unless the
+ * canvas is not that card just now (a switch drawing, a run borrowing it).
+ */
+export function ownChanges(index = activeIndex()) {
+  const card = cardList()[index];
+  if (!card) return { layers: 0, art: 0 };
+  if (index === state.project.activeCard && !switching && !isRendering()) {
+    let art = 0;
+    for (const [slot, kind] of slotKinds()) {
+      if (kind === 'image' && readFraming(editor.findBySlot(slot)[0])) art += 1;
+    }
+    return { layers: editor.objects().filter((obj) => obj.tcgBase && obj.tcgId).length, art };
+  }
+  return { layers: Object.keys(card.overrides || {}).length, art: Object.keys(card.framing || {}).length };
+}
+
+/** `ownChanges()` in words: "2 layers, framed art"; '' when there are none. */
+export function describeOwnChanges({ layers, art }) {
+  const parts = [];
+  if (layers) parts.push(`${layers} layer${layers === 1 ? '' : 's'}`);
+  if (art) parts.push(art === 1 ? 'framed art' : `${art} framed pictures`);
+  return parts.join(', ');
+}
+
+/**
+ * Put the card on screen back to the layout: every layer it made its own goes
+ * back to the layout's, and its art back to the plain cover fit. One undo
+ * step, like any other edit. Returns what was reset, or `null` when there was
+ * nothing to reset or the canvas is not the card's just now.
+ */
+export function resetOwnChanges() {
+  if (switching || isRendering()) return null;
+  const own = ownChanges();
+  if (!own.layers && !own.art) return null;
+  const touched = editor.objects().filter((obj) => revertToLayout(obj));
+  touched.forEach((obj) => { if (obj.tcgAutoFit) editor.autoFitText(obj); });
+  showFraming(null);
+  editor.touch();
+  editor.emitSelection();
+  return own;
+}
+
 /** What to call a card in the strip: its first words, or its number. */
 export function cardLabel(card, index, kinds = slotKinds()) {
   for (const [slot, kind] of kinds) {
@@ -364,14 +423,19 @@ export function cardLabel(card, index, kinds = slotKinds()) {
 /**
  * Split a filter into terms. Words are matched separately and all must be
  * found; "quoted words" are one term; `slot:words` looks in that field only;
- * `#12` is the card at that place in the strip. A prefix that names no field
- * is left as text, so `10:30` still searches for itself.
+ * `#12` is the card at that place in the strip; `has:changes` the cards that
+ * change the layout for themselves (unless a field is called `has`). A prefix
+ * that names no field is left as text, so `10:30` still searches for itself.
  */
 export function parseFilter(query, slots = new Set(slotKinds().keys())) {
   const terms = [];
   const pattern = /(?:([^\s:"]+):)?(?:"([^"]*)"?|(\S+))/g;
   for (const match of String(query || '').matchAll(pattern)) {
     let [whole, slot, quoted, word] = match;
+    if (slot === 'has' && !slots.has(slot) && (quoted ?? word ?? '').toLowerCase() === 'changes') {
+      terms.push({ has: 'changes' });
+      continue;
+    }
     if (slot !== undefined && !slots.has(slot)) {
       slot = undefined;
       quoted = undefined;
@@ -398,10 +462,14 @@ function searchable(value) {
   return collapseIcons(text).toLowerCase();
 }
 
-/** Does a card's set of values pass every term? */
-export function cardMatches(values, terms, number = 0) {
+/**
+ * Does a card's set of values pass every term? `own` is whether the card
+ * changes the layout for itself, for `has:changes`.
+ */
+export function cardMatches(values, terms, number = 0, own = false) {
   return terms.every((term) => {
     if (term.number !== undefined) return term.number === number;
+    if (term.has) return own;
     if (term.slot) return searchable(values?.[term.slot]).includes(term.text);
     return Object.values(values || {}).some((value) => searchable(value).includes(term.text));
   });
@@ -420,12 +488,18 @@ export function matchingCards(query) {
   const terms = parseFilter(query, new Set(kinds.keys()));
   if (!terms.length) return null;
   const active = activeIndex();
+  const wantsOwn = terms.some((term) => term.has);
   const out = [];
   cardList().forEach((card, index) => {
     const source = index === active ? captureValues() : card.values || {};
     const values = {};
     for (const slot of kinds.keys()) values[slot] = source[slot];
-    if (cardMatches(values, terms, index + 1)) out.push(index);
+    let own = false;
+    if (wantsOwn) {
+      const changes = ownChanges(index);
+      own = !!(changes.layers || changes.art);
+    }
+    if (cardMatches(values, terms, index + 1, own)) out.push(index);
   });
   return out;
 }
@@ -725,7 +799,10 @@ function cardRows() {
  * the folder is overwritten on each export, and a list left from an export
  * whose counts have since changed would print the old deck.
  */
-export function exportCards({ multiplier = 2, format = 'png', transparent = false, bleedMm = 0, onProgress } = {}) {
+export async function exportCards({ multiplier = 2, format = 'png', transparent = false, bleedMm = 0, onProgress } = {}) {
+  // The rows are read from the card on screen, so art still being placed on
+  // it has to land first (runBatch waits too, but only after this read).
+  await settled();
   const { rows, mapping } = cardRows();
   const subfolder = slugify(state.project.name, 'cards');
   return runBatch({
@@ -754,6 +831,7 @@ function showCardChanges(row) {
 
 /** Render every card to data URLs, in order, without writing anything. */
 export async function renderCards({ multiplier = 1, squareCorners = false, onProgress } = {}) {
+  await settled();
   const { rows, mapping } = cardRows();
   const urls = [];
   const result = await runBatch({
@@ -819,7 +897,7 @@ export function serializeCards({ onlyActive = false } = {}) {
  * the active card, so nothing is applied here; a file with no list (every
  * project before 0.7.0) is a project of one card.
  */
-export function loadCards(data) {
+export function loadCards(data, { missing = {} } = {}) {
   unresolved = {};
   const list = Array.isArray(data?.cards) ? data.cards.slice(0, MAX_CARDS) : null;
   state.project.cards = list?.length
@@ -840,6 +918,9 @@ export function loadCards(data) {
   for (const [slot, kind] of slotKinds()) {
     const value = active.values[slot];
     if (kind === 'image' && value && !isPlacedArt(editor.findBySlot(slot)[0])) unresolved[slot] = value;
+    // A version-1 file has no list, so its one card was just read off the
+    // canvas, where art that did not load is already the placeholder.
+    else if (kind === 'image' && !value && missing[slot]) unresolved[slot] = active.values[slot] = missing[slot];
   }
   // The file holds the layout; the card it opens on may have changed some of
   // it for itself.
