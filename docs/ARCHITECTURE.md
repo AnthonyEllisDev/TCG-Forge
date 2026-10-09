@@ -215,6 +215,27 @@ stays, the last ends at the furthest edge — and selects them again so the
 selection box is drawn around where they now are. It needs three layers and
 returns `false` without moving anything below that.
 
+**The key layer** (0.20.0). Fabric keeps a multi-selection's members in
+stacking order (or in the order handed to `ActiveSelection`), which says
+nothing about which layer the user meant to line the rest up with. The editor
+keeps its own `picked` list from the selection events (`notePicks()`: a single
+selection starts the list, layers added later are appended) and `keyChoice`,
+a member chosen in Properties (`setKeyLayer()`). `keyLayer()` is that choice,
+else the first picked member, else the first member; `null` below two layers.
+`select()` and `memberSelection()` carry both across the drop-and-reselect
+that `distribute()`, `align()` and `matchSize()` do — `discardActiveObject()`
+fires `selection:cleared`, which would otherwise reset the order. The key is
+outlined in `drawGuides()` (so never in an export). `align(mode, {to})` reads
+`to` from `state.settings.alignTo` — `selection` (their own bounds, as before),
+`key` (the key's bounding rect; the key does not move) or `card` — and
+reselects afterwards so the selection box follows. `matchSize('width' |
+'height' | 'both')` gives every unlocked member the key's `getScaledWidth()` /
+`getScaledHeight()`: `scaleX`/`scaleY` (then `bakeScale()` for boxes and
+triangles), a text box's `width` only (then `autoFitText()`), each layer's
+top-left corner kept; it returns `{changed, skipped}` or `false`. Properties
+shows `#pSeveral` (`#pKey`, `#pAlignTo`, `#pMatchW`/`#pMatchH`/`#pMatchBoth`)
+for a multi-selection; the view toolbar had no room.
+
 ### History
 
 `core/history.js` snapshots `{card, canvas}` as a JSON string on a debounced
@@ -224,7 +245,10 @@ one that is undone. Restoring a step awaits its images, so steps queue one
 behind another rather than loading over each other, and a step is refused while
 something else holds the history lock (a card switch, a batch run). Restoring re-applies the card geometry
 and calls `canvas.loadFromJSON`. Snapshots are strings so no live object can be
-mutated out from under a step.
+mutated out from under a step. A module can keep its own state in every step
+with `history.keep(name, {read, write})` (0.20.0): `cards.js` keeps
+`unresolved` there, so undoing art placed over a missing picture brings the
+picture's path back with the placeholder.
 
 ### Batch rendering
 

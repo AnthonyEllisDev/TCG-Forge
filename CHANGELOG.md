@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.20.0 — a key layer, Align to and Match size
+
+- **A key layer for several layers.** With more than one layer selected, the
+  first one picked is the key layer, outlined on the card. Properties names it
+  and lets any other selected layer take its place.
+- **Align to.** Properties chooses what the align buttons line several layers
+  up with: the selection (as before), the key layer — which stays where it is
+  — or the card, each layer on its own. The choice is remembered.
+- **Match size.** *Match the key layer's* **Width**, **Height** or **Both**
+  gives the other selected layers the key's size, each keeping its top-left
+  corner. Text boxes take the width and keep the height their words need;
+  locked layers are left alone. One undo step each. See
+  [`docs/LAYOUT.md`](docs/LAYOUT.md).
+
+### Fixed
+
+- **Undoing art placed over a missing picture** brought the art box back but
+  not the card's missing picture, so the card then saved as having no art.
+- **A project saved with embedded pictures** lost the opening card's picture
+  when opened on a computer without the picture files: stepping to another
+  card and back showed the art box, and the notice called the picture missing
+  while it was on screen.
+- **The missing-pictures notice** stayed up after the missing picture was
+  replaced on the card on screen, and did not come back on undo.
+- **Look again in the Missing pictures dialog,** pressed while it was still
+  looking, listed every picture twice.
+
 ## 0.19.0 — finding missing pictures
 
 - **Missing pictures, relinked.** When cards in a project name a picture that

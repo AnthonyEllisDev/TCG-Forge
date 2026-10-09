@@ -34,6 +34,7 @@ const defaultSettings = {
   assetCategory: 'frames',
   lastExportScale: 2,
   lastExportBleed: 0,
+  alignTo: 'selection',   // what several layers align to: selection | key | card
 };
 
 function loadSettings() {

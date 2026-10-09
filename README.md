@@ -46,10 +46,12 @@ python launch.py --verbose            # log every request
 ## What it does
 
 **Full layout control.** Everything on the card is a layer you can move, scale,
-rotate, reorder, lock, hide, group and rename. Align layers to the card or to
-each other, and distribute three or more — a row of cost pips, a column of
-stat icons — so the gaps between them come out equal. Nothing about the layout
-is hard-coded to a particular game.
+rotate, reorder, lock, hide, group and rename. Align layers to the card, to
+each other or to a key layer that stays put, give several layers one layer's
+width or height, and distribute three or more — a row of cost pips, a column
+of stat icons — so the gaps between them come out equal (see
+[`docs/LAYOUT.md`](docs/LAYOUT.md)). Nothing about the layout is hard-coded to
+a particular game.
 
 **Your own art.** Drop frames, backgrounds, icons, textures and fonts into the
 workspace folders and they appear in the Asset Library with thumbnails. Click to
@@ -207,6 +209,7 @@ template…**. Your slots become that template's form fields.
 | --- | --- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app is put together, module by module |
 | [`docs/TEMPLATES.md`](docs/TEMPLATES.md) | Template and project file format, slot system |
+| [`docs/LAYOUT.md`](docs/LAYOUT.md) | Aligning, matching sizes and distributing layers |
 | [`docs/CARDS.md`](docs/CARDS.md) | Multi-card projects: one layout, a list of cards |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |

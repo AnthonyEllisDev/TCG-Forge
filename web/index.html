@@ -274,6 +274,23 @@
             <!-- transform -->
             <div class="subgroup" data-sub="transform">
               <h3>Transform</h3>
+              <div class="several" id="pSeveral" hidden>
+                <div class="field-row">
+                  <label class="field" title="The layer Match and Align to key layer measure from — outlined on the card"><span>Key layer</span><select id="pKey"></select></label>
+                  <label class="field" title="What the align buttons line several layers up with"><span>Align to</span>
+                    <select id="pAlignTo">
+                      <option value="selection">The selection</option>
+                      <option value="key">The key layer</option>
+                      <option value="card">The card</option>
+                    </select></label>
+                </div>
+                <div class="field-row several-match" role="group" aria-labelledby="pMatchLabel">
+                  <span class="several-label" id="pMatchLabel">Match the key layer's</span>
+                  <button class="btn tiny" type="button" id="pMatchW" title="Give the other selected layers the key layer's width">Width</button>
+                  <button class="btn tiny" type="button" id="pMatchH" title="Give the other selected layers the key layer's height">Height</button>
+                  <button class="btn tiny" type="button" id="pMatchBoth" title="Give the other selected layers the key layer's width and height">Both</button>
+                </div>
+              </div>
               <div class="field-row">
                 <label class="field"><span>X</span><input type="number" id="pX" step="1"></label>
                 <label class="field"><span>Y</span><input type="number" id="pY" step="1"></label>

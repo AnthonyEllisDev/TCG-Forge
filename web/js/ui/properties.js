@@ -102,6 +102,12 @@ function bindTransform() {
   bindInput('pX', (n) => apply((o) => { o.set('left', num(n.value)); o.setCoords(); }));
   bindInput('pY', (n) => apply((o) => { o.set('top', num(n.value)); o.setCoords(); }));
 
+  on(el('pKey'), 'change', () => editor.setKeyLayer(selection()[Number(el('pKey').value)]));
+  on(el('pAlignTo'), 'change', () => state.set('alignTo', el('pAlignTo').value));
+  on(el('pMatchW'), 'click', () => matchSelection('width'));
+  on(el('pMatchH'), 'click', () => matchSelection('height'));
+  on(el('pMatchBoth'), 'click', () => matchSelection('both'));
+
   bindInput('pW', (n) => apply((o) => resize(o, num(n.value), null)));
   bindInput('pH', (n) => apply((o) => resize(o, null, num(n.value))));
 
@@ -124,6 +130,45 @@ function bindTransform() {
   bindInput('pFlipX', (n) => apply((o) => o.set('flipX', n.checked)), 'change');
   bindInput('pFlipY', (n) => apply((o) => o.set('flipY', n.checked)), 'change');
   bindInput('pClip', (n) => apply((o) => setCardClip(o, n.checked)), 'change');
+}
+
+/** Match size, from the panel's buttons; says what it did, or why nothing changed. */
+function matchSelection(dimension) {
+  const result = editor.matchSize(dimension);
+  if (!result) return;
+  const what = dimension === 'both' ? 'size' : dimension;
+  const key = labelOf(editor.keyLayer());
+  const said = result.changed
+    ? [`Matched the ${what} of ${result.changed === 1 ? '1 layer' : `${result.changed} layers`} to ${key}.`]
+    : [`Nothing changed — the other layers already have ${key}'s ${what}, or are locked.`];
+  if (result.skipped) {
+    said.push(result.skipped === 1
+      ? 'A text box keeps its height: it follows its words.'
+      : `${result.skipped} text boxes keep their height: it follows their words.`);
+  }
+  toast(said.join(' '), result.changed ? 'ok' : 'warn');
+}
+
+/** The several-layers block: which one is the key, and whether there is anything to match. */
+function syncSeveral(objs) {
+  const box = el('pSeveral');
+  if (!box) return;
+  box.hidden = objs.length < 2;
+  if (box.hidden) return;
+  const key = editor.keyLayer();
+  const seen = new Map();
+  const options = objs.map((obj, index) => {
+    const name = labelOf(obj);
+    const count = (seen.get(name) || 0) + 1;
+    seen.set(name, count);
+    // Two layers called "Rectangle" must still be told apart in the list.
+    return new Option(count > 1 ? `${name} (${count})` : name, String(index));
+  });
+  el('pKey').replaceChildren(...options);
+  el('pKey').value = String(Math.max(0, objs.indexOf(key)));
+  setVal('pAlignTo', ['selection', 'key', 'card'].includes(state.settings.alignTo) ? state.settings.alignTo : 'selection');
+  const others = objs.some((obj) => obj !== key && obj.selectable !== false);
+  ['pMatchW', 'pMatchH', 'pMatchBoth'].forEach((id) => { el(id).disabled = !others; });
 }
 
 function resize(obj, width, height) {
@@ -664,6 +709,7 @@ export function sync() {
 
   const obj = objs[0];
   const multi = objs.length > 1;
+  syncSeveral(objs);
   if (label) {
     label.textContent = multi ? `${objs.length} layers selected` : labelOf(obj);
     label.classList.remove('muted');

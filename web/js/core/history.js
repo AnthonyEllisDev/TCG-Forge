@@ -3,6 +3,8 @@
  *
  * Snapshots are plain JSON strings of the canvas plus the card setup, so a
  * step restores geometry and background as well as the layers themselves.
+ * A module that keeps state about what the canvas shows, outside the canvas,
+ * registers it with `keep()` so a step brings that back too.
  */
 
 import { bus, EVT } from '../util/bus.js';
@@ -17,6 +19,17 @@ class History {
     this.locked = false;
     this._pending = null;   // the debounced record not yet taken
     this._steps = Promise.resolve();   // undo/redo still loading, in order
+    this._kept = new Map();   // name -> {read, write}, see keep()
+  }
+
+  /**
+   * Keep a piece of state beside the canvas in every step. `read()` returns
+   * plain JSON; `write(value)` puts it back when a step is restored. State
+   * that describes what the canvas shows has to travel with it, or an undo
+   * brings the layers back without what was known about them.
+   */
+  keep(name, { read, write }) {
+    this._kept.set(name, { read, write });
   }
 
   attach() {
@@ -42,7 +55,9 @@ class History {
   }
 
   snapshot() {
-    return JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON() });
+    const kept = {};
+    for (const [name, { read }] of this._kept) kept[name] = read();
+    return JSON.stringify({ card: { ...state.card }, canvas: editor.toJSON(), kept });
   }
 
   reset() {
@@ -77,6 +92,9 @@ class History {
       editor.canvas.backgroundColor = state.card.background || '';
       editor.applyCardClip();
       editor.applyZoom();
+      for (const [name, { write }] of this._kept) {
+        if (data.kept && name in data.kept) write(data.kept[name]);
+      }
     } finally {
       // A step that fails to restore must still release the lock, or undo and
       // redo are dead for the rest of the session with nothing on screen to

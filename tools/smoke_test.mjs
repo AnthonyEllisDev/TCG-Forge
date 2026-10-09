@@ -6409,6 +6409,398 @@ try {
   }, { paths: { ...relinkPaths, turned: turnedArtPath }, uploads: [...new Set(pickedUploads)] });
   fs.rmSync(pickedFile, { force: true });
 
+  /* ---- 0.20.0: missing pictures through undo, embedded art, the notice -- */
+  /* A card's missing picture must survive an undo of the art placed over it,
+     an embedded picture must stay the card's, and the missing-pictures notice
+     and dialog must follow what is actually missing. */
+  const guardStamp = Date.now();
+  const guardArt = `assets/art/smoke-guard-${guardStamp}.svg`;
+  const guardPaths = {
+    art: guardArt,
+    // None of these is ever written, so the page never has them cached.
+    goneUndo: `assets/art/smoke-gone-undo-${guardStamp}.svg`,
+    elsewhere: `assets/art/smoke-elsewhere-${guardStamp}.svg`,
+    goneNotice: `assets/art/smoke-gone-notice-${guardStamp}.svg`,
+    goneTwice: `assets/art/smoke-gone-twice-${guardStamp}.svg`,
+  };
+  const undoMissing = await page.evaluate(async ({ art, goneUndo }) => {
+    try {
+      const { api, history, state } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      await api.writeText(art, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#c93"/></svg>');
+      await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+      const data = await p.serializeProject();
+      data.cards = [
+        { id: 'card-undo-a', values: { ...data.cards[0].values, art: goneUndo } },
+        { id: 'card-undo-b', values: { ...data.cards[0].values, art: null } },
+      ];
+      data.activeCard = 0;
+      await p.openProjectData(data);
+      const before = cards.captureValues().art;
+      // What the Asset Library and Card Fields do when a picture is chosen.
+      await cards.placeArt(async () => {
+        const img = await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+        cards.forgetMissingArt('art');
+        return img;
+      });
+      await new Promise((r) => setTimeout(r, 400));
+      const placed = cards.captureValues().art;
+      await history.undo();
+      const afterUndo = cards.captureValues().art;
+      await history.redo();
+      const afterRedo = cards.captureValues().art;
+      await history.undo();
+      await cards.switchCard(1);
+      const stored = cards.cardList()[0].values.art;
+      state.setDirty(false);
+      return { before, placed, afterUndo, afterRedo, stored };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, guardPaths);
+  check(
+    'undoing art placed over a missing picture brings the missing picture back to the card',
+    undoMissing.before === guardPaths.goneUndo && undoMissing.placed === guardArt &&
+      undoMissing.afterUndo === guardPaths.goneUndo && undoMissing.afterRedo === guardArt &&
+      undoMissing.stored === guardPaths.goneUndo,
+    JSON.stringify(undoMissing)
+  );
+
+  const embedKept = await page.evaluate(async ({ art, elsewhere }) => {
+    try {
+      const { api, editor, state } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+      await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+      await cards.addCard();
+      await cards.switchCard(0);
+      const data = await p.serializeProject({ embed: true });
+      // Opened on another computer, where the picture is not at that path.
+      let renamed = 0;
+      for (const obj of data.canvas.objects) {
+        if (obj.tcgAsset === art) { obj.tcgAsset = elsewhere; renamed += 1; }
+      }
+      await p.openProjectData(data);
+      const head = (v) => String(v).slice(0, 5);
+      const onOpen = head(cards.captureValues().art);
+      const missing = (await cards.missingArt()).map((m) => m.path);
+      await cards.switchCard(1);
+      const record = head(cards.cardList()[0].values.art);
+      await cards.switchCard(0);
+      const shown = editor.findBySlot('art')[0];
+      const back = shown.type === 'image' && shown.getSrc().startsWith('data:');
+      state.setDirty(false);
+      return { renamed, onOpen, missing, record, back };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, guardPaths);
+  check(
+    'an embedded picture stays the card\'s own when its file is not in the workspace',
+    embedKept.renamed === 1 && embedKept.onOpen === 'data:' && embedKept.missing?.length === 0 &&
+      embedKept.record === 'data:' && embedKept.back === true,
+    JSON.stringify(embedKept)
+  );
+
+  const missingNotice = () => page.evaluate(() => ({
+    hidden: document.querySelector('#cardMissing').hidden,
+    text: document.querySelector('#cardMissingText').textContent,
+  }));
+  const waitNotice = async (hidden) => {
+    let seen = await missingNotice();
+    for (let i = 0; i < 20 && seen.hidden !== hidden; i += 1) {
+      await page.waitForTimeout(150);
+      seen = await missingNotice();
+    }
+    return seen;
+  };
+  await page.evaluate(async ({ goneNotice }) => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+    const data = await p.serializeProject();
+    data.cards = [{ id: 'card-notice', values: { ...data.cards[0].values, art: goneNotice } }];
+    data.activeCard = 0;
+    await p.openProjectData(data);
+    state.setDirty(false);
+  }, guardPaths);
+  const staleBefore = await waitNotice(false);
+  await page.evaluate(async ({ art }) => {
+    const { api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await cards.placeArt(async () => {
+      const img = await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+      cards.forgetMissingArt('art');
+      return img;
+    });
+  }, guardPaths);
+  const staleAfter = await waitNotice(true);
+  await page.evaluate(async () => {
+    const { history } = window.TCGForge;
+    await history.undo();
+  });
+  const staleUndone = await waitNotice(false);
+  check(
+    'the missing-pictures notice goes when the missing picture is replaced, and comes back on undo',
+    staleBefore.hidden === false && staleAfter.hidden === true && staleUndone.hidden === false,
+    JSON.stringify({ staleBefore, staleAfter, staleUndone })
+  );
+
+  await page.evaluate(async ({ goneTwice }) => {
+    const { api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+    const data = await p.serializeProject();
+    data.cards = [{ id: 'card-twice', values: { ...data.cards[0].values, art: goneTwice } }];
+    data.activeCard = 0;
+    await p.openProjectData(data);
+    state.setDirty(false);
+  }, guardPaths);
+  await waitNotice(false);
+  let releaseLook;
+  const lookGate = new Promise((resolve) => { releaseLook = resolve; });
+  let lookHeld = 0;
+  const lookRoute = async (route) => {
+    lookHeld += 1;
+    if (lookHeld === 1) await lookGate;
+    route.continue().catch(() => {});
+  };
+  await page.route('**/api/assets', lookRoute);
+  await page.click('#cardMissingFind');
+  for (let i = 0; i < 20 && !lookHeld; i += 1) await page.waitForTimeout(100);
+  const lookWhileHeld = lookHeld;
+  await page.evaluate(() => {
+    const again = Array.from(document.querySelectorAll('#modalFoot button')).find((b) => b.textContent === 'Look again');
+    again?.click();
+  });
+  await page.waitForTimeout(400);
+  releaseLook();
+  await page.waitForTimeout(1200);
+  const lookTwice = await page.evaluate(() => ({
+    rows: Array.from(document.querySelectorAll('#missingList .missing-path')).map((n) => n.textContent),
+    ids: Array.from(document.querySelectorAll('#missingList select')).map((n) => n.id),
+  }));
+  await page.unroute('**/api/assets', lookRoute);
+  await page.evaluate(async () => (await import('/js/ui/dialogs.js')).closeModal());
+  check(
+    'Look again while the missing-pictures dialog is still looking lists each picture once',
+    lookWhileHeld === 1 && JSON.stringify(lookTwice.rows) === JSON.stringify([guardPaths.goneTwice]) &&
+      JSON.stringify(lookTwice.ids) === JSON.stringify(['missingPick_0']),
+    JSON.stringify({ lookWhileHeld, ...lookTwice })
+  );
+
+  /* ---- 0.20.0: the key layer, Align to and Match size ------------------- */
+  /* Several layers are measured against a key layer — the first one picked,
+     or the one chosen in Properties — which is outlined on the card. Match
+     gives the others its width, height or both; Align to lines several
+     layers up with the selection, the key layer or the card. */
+  await page.evaluate(async () => {
+    const { api, editor, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+    const rect = (name, left, top, width, height, fill) => {
+      const obj = new window.fabric.Rect({ left, top, width, height, fill, strokeWidth: 0 });
+      obj.set('tcgName', name);
+      editor.place(obj, { center: false, select: false });
+      return obj;
+    };
+    rect('Key Blue', 400, 760, 200, 80, '#3366cc');
+    rect('Key Red', 100, 760, 100, 50, '#cc3333');
+    const locked = rect('Key Locked', 100, 900, 60, 60, '#33cc66');
+    locked.set({ selectable: false, lockMovementX: true, lockMovementY: true });
+    editor.canvas.discardActiveObject();
+    editor.canvas.requestRenderAll();
+    state.setDirty(false);
+  });
+  const keyPoint = (name) => page.evaluate((name) => {
+    const { editor } = window.TCGForge;
+    const obj = editor.objects().find((o) => o.tcgName === name);
+    const bb = obj.getBoundingRect();
+    const vt = editor.canvas.viewportTransform;
+    const box = editor.canvas.upperCanvasEl.getBoundingClientRect();
+    return { x: box.left + (bb.left + bb.width / 2) * vt[0] + vt[4], y: box.top + (bb.top + bb.height / 2) * vt[3] + vt[5] };
+  }, name);
+  const pickInOrder = async (first, second) => {
+    await page.evaluate(() => window.TCGForge.editor.select([]));
+    const a = await keyPoint(first);
+    const b = await keyPoint(second);
+    await page.mouse.click(a.x, a.y);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(b.x, b.y);
+    await page.keyboard.up('Shift');
+    await page.waitForTimeout(100);
+    return page.evaluate(() => ({
+      selected: window.TCGForge.editor.selection().length,
+      key: window.TCGForge.editor.keyLayer()?.tcgName || null,
+      shown: document.querySelector('#pKey')?.selectedOptions[0]?.textContent || null,
+      panel: document.querySelector('#pSeveral')?.hidden === false,
+    }));
+  };
+  const keyRedFirst = await pickInOrder('Key Red', 'Key Blue');
+  const keyBlueFirst = await pickInOrder('Key Blue', 'Key Red');
+  check(
+    'the first layer picked into a selection is its key layer, named in Properties',
+    keyRedFirst.selected === 2 && keyRedFirst.key === 'Key Red' && keyRedFirst.shown === 'Key Red' && keyRedFirst.panel &&
+      keyBlueFirst.key === 'Key Blue' && keyBlueFirst.shown === 'Key Blue',
+    JSON.stringify({ keyRedFirst, keyBlueFirst })
+  );
+
+  // The key layer is outlined on the card, and only on screen.
+  const keyPaint = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const red = editor.objects().find((o) => o.tcgName === 'Key Red');
+      const blue = editor.objects().find((o) => o.tcgName === 'Key Blue');
+      editor.select([]);
+      editor.select([red, blue]);
+      editor.canvas.renderAll();
+      const vt = editor.canvas.viewportTransform;
+      const rs = editor.canvas.getRetinaScaling?.() || 1;
+      const ctx = editor.canvas.lowerCanvasEl.getContext('2d');
+      // Three screen pixels outside the layer's left edge, half way down.
+      const at = (obj) => {
+        const bb = obj.getBoundingRect();
+        const x = Math.round((bb.left * vt[0] + vt[4] - 3) * rs);
+        const y = Math.round(((bb.top + bb.height / 2) * vt[3] + vt[5]) * rs);
+        return Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3)).join(',');
+      };
+      const keyEdge = at(red);
+      const otherEdge = at(blue);
+      const bb = red.getBoundingRect();
+      const url = editor.toDataURL({ multiplier: 1 });
+      const img = new Image();
+      await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
+      const out = document.createElement('canvas');
+      out.width = img.width;
+      out.height = img.height;
+      const octx = out.getContext('2d');
+      octx.drawImage(img, 0, 0);
+      const ex = Math.round(bb.left - 3 / editor.zoom);
+      const ey = Math.round(bb.top + bb.height / 2);
+      const exported = Array.from(octx.getImageData(ex, ey, 1, 1).data.slice(0, 3)).join(',');
+      return { keyEdge, otherEdge, exported };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const gold = (rgb) => {
+    const [r, g, b] = String(rgb).split(',').map(Number);
+    return r > 200 && g > 130 && g < 200 && b < 110;
+  };
+  check(
+    'the key layer is outlined on the canvas and not in an export',
+    gold(keyPaint.keyEdge) && !gold(keyPaint.otherEdge) && !gold(keyPaint.exported),
+    JSON.stringify(keyPaint)
+  );
+
+  // Match: Red is the key (picked first); Blue, the title and a locked layer
+  // come along. The title is a text box, so it takes a width and no height.
+  // Picked with the mouse, Red first, so the order differs from the stacking
+  // order Fabric keeps; the locked layer joins from the Layers panel.
+  await pickInOrder('Key Red', 'Key Blue');
+  const titlePoint = await keyPoint('Title');
+  await page.keyboard.down('Shift');
+  await page.mouse.click(titlePoint.x, titlePoint.y);
+  await page.keyboard.up('Shift');
+  await page.evaluate(() => {
+    const row = Array.from(document.querySelectorAll('.layer-name')).find((n) => n.textContent === 'Key Locked');
+    row?.setAttribute('data-smoke', 'locked-row');
+  });
+  await page.click('[data-smoke="locked-row"]', { modifiers: ['Control'], timeout: 3000 }).catch(() => {});
+  const matchPicked = await page.evaluate(() => window.TCGForge.editor.selection().length);
+  const keySizes = () => page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const named = (name) => editor.objects().find((o) => o.tcgName === name);
+    // Where a layer is, in card coordinates even inside the selection.
+    const size = (o) => {
+      const bb = o.getBoundingRect();
+      return { w: Math.round(o.getScaledWidth()), h: Math.round(o.getScaledHeight()), x: Math.round(bb.left), y: Math.round(bb.top), sy: o.scaleY };
+    };
+    return {
+      red: size(named('Key Red')),
+      blue: size(named('Key Blue')),
+      title: size(editor.findBySlot('title')[0]),
+      locked: size(named('Key Locked')),
+      key: editor.keyLayer()?.tcgName || null,
+      toast: Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '',
+    };
+  });
+  // Each click is its own undo step: wait out the history debounce between.
+  await page.click('#pMatchW');
+  await page.waitForTimeout(400);
+  const matchedW = await keySizes();
+  await page.click('#pMatchH');
+  await page.waitForTimeout(400);
+  const matchedH = await keySizes();
+  await page.evaluate(async () => { await window.TCGForge.history.undo(); });
+  const matchUndone = await keySizes();
+  check(
+    'Match width and Match height give the other layers the key layer\'s size, corners kept',
+    matchPicked === 4 && matchedW.key === 'Key Red' && matchedW.blue.w === 100 && matchedW.blue.h === 80 && matchedW.blue.x === 400 && matchedW.blue.y === 760 &&
+      // A text box is never narrower than its longest word.
+      matchedW.title.w >= 100 && matchedW.title.w < 140 && matchedW.locked.w === 60 && matchedW.red.w === 100 &&
+      matchedH.key === 'Key Red' && matchedH.blue.w === 100 && matchedH.blue.h === 50 &&
+      matchedH.blue.y === 760 && matchedH.title.sy === 1 && matchedH.locked.h === 60 &&
+      /text box keeps its height/.test(matchedH.toast) &&
+      matchUndone.blue.w === 100 && matchUndone.blue.h === 80,
+    JSON.stringify({ matchPicked, matchedW, matchedH, matchUndone })
+  );
+
+  // Align to: the key layer (chosen in Properties), then the card.
+  const keyAlign = await (async () => {
+    await page.evaluate(() => {
+      const { editor } = window.TCGForge;
+      const named = (name) => editor.objects().find((o) => o.tcgName === name);
+      editor.select([]);
+      editor.select([named('Key Red'), named('Key Blue')]);
+    });
+    const blueIndex = await page.evaluate(() => {
+      const { editor } = window.TCGForge;
+      return String(editor.selection().findIndex((o) => o.tcgName === 'Key Blue'));
+    });
+    await page.selectOption('#pKey', blueIndex);
+    await page.selectOption('#pAlignTo', 'key');
+    const chosen = await page.evaluate(() => window.TCGForge.editor.keyLayer()?.tcgName || null);
+    await page.click('[data-align="left"]');
+    const edges = () => page.evaluate(() => {
+      const { editor } = window.TCGForge;
+      const named = (name) => editor.objects().find((o) => o.tcgName === name);
+      const bb = (o) => o.getBoundingRect();
+      const red = bb(named('Key Red'));
+      const blue = bb(named('Key Blue'));
+      return { redLeft: Math.round(red.left), blueLeft: Math.round(blue.left), redRight: Math.round(red.left + red.width), blueRight: Math.round(blue.left + blue.width) };
+    });
+    const toKey = await edges();
+    await page.selectOption('#pAlignTo', 'card');
+    await page.click('[data-align="right"]');
+    const toCard = await edges();
+    const setting = await page.evaluate(() => window.TCGForge.state.settings.alignTo);
+    await page.selectOption('#pAlignTo', 'selection');
+    return { chosen, toKey, toCard, setting };
+  })();
+  check(
+    'Align to the key layer leaves the key where it is; Align to the card lines each layer up with the card',
+    keyAlign.chosen === 'Key Blue' && keyAlign.toKey.blueLeft === 400 && keyAlign.toKey.redLeft === 400 &&
+      keyAlign.toCard.redRight === 750 && keyAlign.toCard.blueRight === 750 && keyAlign.setting === 'card',
+    JSON.stringify(keyAlign)
+  );
+
+  await page.evaluate(async ({ art }) => {
+    const { api, editor, state } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    for (const obj of editor.objects().filter((o) => /^Key /.test(o.tcgName || ''))) editor.canvas.remove(obj);
+    state.set('alignTo', 'selection');
+    state.setDirty(false);
+    await api.trash(art).catch(() => {});
+  }, guardPaths);
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

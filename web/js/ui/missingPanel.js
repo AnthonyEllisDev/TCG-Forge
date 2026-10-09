@@ -15,7 +15,7 @@ import { bus, EVT } from '../util/bus.js';
 import { api } from '../core/api.js';
 import { assets } from '../core/assets.js';
 import { isRendering } from '../core/batch.js';
-import { missingArt, relinkArt } from '../core/cards.js';
+import { captureValues, isSwitching, missingArt, relinkArt, slotKinds } from '../core/cards.js';
 import { openModal, toast } from './dialogs.js';
 
 /** Library folders that hold pictures a card's art slot can show. */
@@ -24,13 +24,36 @@ const PICTURE_CATEGORIES = ['art', 'backgrounds', 'frames', 'textures', 'icons']
 let checkTimer = null;
 let checkToken = 0;
 let working = false;
+let artSeen = '';
 
 export function initMissingPanel() {
   on($('#cardMissingFind'), 'click', () => openMissingDialog());
   // Which cards there are, which one is showing and what the library holds
-  // are what can make a picture go missing or come back; an edit to a layer
-  // cannot.
+  // are what can make a picture go missing or come back.
   for (const event of [EVT.CARDS, EVT.PROJECT, EVT.ASSETS, EVT.STATUS]) bus.on(event, scheduleCheck);
+  // So can the card on screen getting other art — placed over the missing
+  // picture, cleared, or put back by an undo. Most layer edits leave the art
+  // alone, so only a change in what the art slots name asks again.
+  bus.on(EVT.OBJECTS, () => {
+    if (isRendering() || isSwitching()) return;
+    const key = activeArtKey();
+    if (key === artSeen) return;
+    artSeen = key;
+    scheduleCheck();
+  });
+}
+
+/** What the art slots of the card on screen name, as one comparable string. */
+function activeArtKey() {
+  const values = captureValues();
+  const art = [];
+  for (const [slot, kind] of slotKinds()) {
+    if (kind !== 'image') continue;
+    const value = values[slot];
+    // An embedded picture is long; its length is enough to see it change.
+    art.push([slot, typeof value === 'string' && value.startsWith('data:') ? `data:${value.length}` : value]);
+  }
+  return JSON.stringify(art);
 }
 
 /* ------------------------------------------------------------ the notice -- */
@@ -134,20 +157,34 @@ export async function openMissingDialog() {
     status,
   ]);
   let rows = [];
+  let drawToken = 0;
 
   async function draw(note = '') {
-    list.innerHTML = '';
-    rows = [];
+    // Look again pressed while still looking starts a second draw; only the
+    // latest may fill the list, or every row appears twice.
+    const token = ++drawToken;
     if (!api.online) {
+      list.innerHTML = '';
+      rows = [];
       list.append(el('div', { class: 'grid-empty', text: 'Start the app with run.sh / run.bat to look for missing pictures.' }));
       status.textContent = '';
       return;
     }
     status.textContent = 'Looking…';
-    // A file put back by hand since the library was last read is found too.
-    await assets.refresh();
-    const missing = await missingArt();
-    const pictures = libraryPictures();
+    let missing;
+    let pictures;
+    try {
+      // A file put back by hand since the library was last read is found too.
+      await assets.refresh();
+      missing = await missingArt();
+      pictures = libraryPictures();
+    } catch (err) {
+      if (token === drawToken) status.textContent = `Could not look for missing pictures: ${err.message}`;
+      return;
+    }
+    if (token !== drawToken) return;
+    list.innerHTML = '';
+    rows = [];
     let found = 0;
     missing.forEach((item, index) => {
       const pick = pictureSelect(item, index, pictures);

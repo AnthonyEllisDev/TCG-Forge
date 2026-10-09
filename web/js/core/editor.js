@@ -36,6 +36,10 @@ class Editor {
     // Where the card on the canvas sits in its set, while a run says so; null
     // means "the project's own card list" (see cardNumber()).
     this.numberContext = null;
+    // The layers of a multi-selection in the order they were picked, and the
+    // one chosen by hand as the key layer (see keyLayer()).
+    this.picked = [];
+    this.keyChoice = null;
     this._els = {};
   }
 
@@ -104,9 +108,9 @@ class Editor {
       this.touch();
     });
 
-    c.on('selection:created', () => this.emitSelection());
-    c.on('selection:updated', () => this.emitSelection());
-    c.on('selection:cleared', () => this.emitSelection());
+    c.on('selection:created', (e) => { this.notePicks(e); this.emitSelection(); });
+    c.on('selection:updated', (e) => { this.notePicks(e); this.emitSelection(); });
+    c.on('selection:cleared', () => { this.notePicks(); this.emitSelection(); });
 
     c.on('mouse:up', () => this.clearGuides());
     c.on('mouse:move', (e) => {
@@ -300,7 +304,8 @@ class Editor {
     const overlays = [];
     if (state.settings.safeZone) overlays.push({ inset: 0.06, color: 'rgba(62,207,142,0.5)' });
     if (state.settings.bleed) overlays.push({ inset: -0.025, color: 'rgba(240,165,58,0.55)' });
-    if (!this.guides.length && !overlays.length) return;
+    const key = this.keyLayer();
+    if (!this.guides.length && !overlays.length && !key) return;
 
     const ctx = this.canvas.getContext();
     const rs = this.canvas.getRetinaScaling ? this.canvas.getRetinaScaling() : 1;
@@ -338,6 +343,17 @@ class Editor {
       }
       ctx.stroke();
     }
+
+    // The key layer of a multi-selection is what Match size and *Align to:
+    // key layer* measure from, so it is marked where the user is looking.
+    if (key) {
+      const bb = key.getBoundingRect();
+      const pad = 3 / this.zoom;
+      ctx.strokeStyle = '#f0a53a';
+      ctx.lineWidth = 2.5 / this.zoom;
+      ctx.setLineDash([]);
+      ctx.strokeRect(bb.left - pad, bb.top - pad, bb.width + pad * 2, bb.height + pad * 2);
+    }
     ctx.restore();
   }
 
@@ -362,14 +378,64 @@ class Editor {
 
   select(objects) {
     const list = [].concat(objects).filter(Boolean);
+    // Selecting again (after a distribute, or adding a layer from the Layers
+    // panel) keeps who was picked first, and the key chosen by hand.
+    const before = this.picked;
+    const key = this.keyChoice;
     this.canvas.discardActiveObject();
     if (list.length === 1) {
       this.canvas.setActiveObject(list[0]);
     } else if (list.length > 1) {
       this.canvas.setActiveObject(new fabric.ActiveSelection(list, { canvas: this.canvas }));
     }
+    this.picked = [...before.filter((o) => list.includes(o)), ...list.filter((o) => !before.includes(o))];
+    this.keyChoice = list.length > 1 && list.includes(key) ? key : null;
     this.canvas.requestRenderAll();
     this.emitSelection();
+  }
+
+  /**
+   * Keep the order the layers of a multi-selection were picked in. Fabric
+   * holds them in stacking order, which says nothing about which one the user
+   * meant to line the others up with; the first one picked is the key layer
+   * unless another is chosen. A marquee picks its layers all at once, bottom
+   * first.
+   */
+  notePicks(e) {
+    const now = this.selection();
+    // One layer picked is the start of the order: shift-clicking a second
+    // makes a selection Fabric reports in stacking order, both at once.
+    if (now.length < 2) {
+      this.picked = now;
+      this.keyChoice = null;
+      return;
+    }
+    const kept = this.picked.filter((o) => now.includes(o));
+    for (const obj of [...(e?.selected || []), ...now]) {
+      if (now.includes(obj) && !kept.includes(obj)) kept.push(obj);
+    }
+    this.picked = kept;
+    if (!now.includes(this.keyChoice)) this.keyChoice = null;
+  }
+
+  /**
+   * The layer a multi-selection is measured against: the one chosen with
+   * setKeyLayer(), else the first one picked. Null for one layer or none.
+   */
+  keyLayer() {
+    const now = this.selection();
+    if (now.length < 2) return null;
+    if (this.keyChoice && now.includes(this.keyChoice)) return this.keyChoice;
+    return this.picked.find((o) => now.includes(o)) || now[0];
+  }
+
+  /** Make one layer of the multi-selection its key layer. False if it is not in it. */
+  setKeyLayer(obj) {
+    if (!obj || this.selection().length < 2 || !this.selection().includes(obj)) return false;
+    this.keyChoice = obj;
+    this.canvas.requestRenderAll();
+    bus.emit(EVT.SELECTION, this.selection());
+    return true;
   }
 
   selectAll() {
@@ -493,7 +559,11 @@ class Editor {
    */
   memberSelection() {
     const objs = this.selection();
+    // The caller selects them again; who was picked first must survive that.
+    const { picked, keyChoice } = this;
     if (objs.length > 1) this.canvas.discardActiveObject();
+    this.picked = picked;
+    this.keyChoice = keyChoice;
     return objs;
   }
 
@@ -603,18 +673,30 @@ class Editor {
 
   /* ------------------------------------------------------------- alignment */
 
-  align(mode) {
+  /**
+   * Line up the selection. One layer aligns to the card. Several align to
+   * what `to` names (default: the *Align to* setting): 'selection' — their
+   * own bounds; 'key' — the key layer, which stays where it is; 'card' — the
+   * card, each layer on its own.
+   */
+  align(mode, { to = state.settings.alignTo } = {}) {
     const objs = unlocked(this.selection());
     if (!objs.length) return;
 
     let bounds = { left: 0, top: 0, width: state.card.width, height: state.card.height };
-    if (objs.length > 1) {
+    let key = null;
+    if (this.selection().length > 1 && to === 'key') {
+      key = this.keyLayer();
+      const bb = key.getBoundingRect();
+      bounds = { left: bb.left, top: bb.top, width: bb.width, height: bb.height };
+    } else if (objs.length > 1 && to !== 'card') {
       const active = this.active();
       const bb = active.getBoundingRect();
       bounds = { left: bb.left, top: bb.top, width: bb.width, height: bb.height };
     }
 
     for (const obj of objs) {
+      if (obj === key) continue;
       const bb = obj.getBoundingRect();
       let dx = 0;
       let dy = 0;
@@ -627,6 +709,9 @@ class Editor {
       obj.set({ left: obj.left + dx, top: obj.top + dy });
       obj.setCoords();
     }
+    // Select again so the selection box is drawn around where the layers
+    // are now, not where they were.
+    if (this.selection().length > 1) this.select(this.memberSelection());
     this.canvas.requestRenderAll();
     this.touch();
     bus.emit(EVT.SELECTION, this.selection());
@@ -667,6 +752,57 @@ class Editor {
     this.select(objs);
     this.touch();
     return true;
+  }
+
+  /**
+   * Give every unlocked layer of a multi-selection the key layer's width,
+   * height or both (`dimension`: 'width' | 'height' | 'both') — the size the
+   * Properties boxes show, along the layer's own sides. Boxes and triangles
+   * take it as width/height, pictures and groups as scale; a text box takes a
+   * width (its height follows its words), so it sits out a height match. Each
+   * layer keeps its top-left corner. Returns `{changed, skipped}`, or false
+   * below two layers.
+   */
+  matchSize(dimension = 'width') {
+    if (this.selection().length < 2) return false;
+    const key = this.keyLayer();
+    const width = key.getScaledWidth();
+    const height = key.getScaledHeight();
+    const wantW = dimension === 'width' || dimension === 'both';
+    const wantH = dimension === 'height' || dimension === 'both';
+    const others = unlocked(this.selection()).filter((obj) => obj !== key);
+    // Members of a multi-selection hold selection-relative coordinates, and
+    // the selection box must be redrawn around the new sizes: drop it, resize
+    // in card coordinates, select again.
+    const objs = this.memberSelection();
+    let changed = 0;
+    let skipped = 0;
+    for (const obj of others) {
+      const text = obj.type === 'textbox';
+      if (text && !wantW) {
+        skipped += 1;
+        continue;
+      }
+      const before = `${obj.getScaledWidth()}x${obj.getScaledHeight()}`;
+      const corner = obj.getPointByOrigin('left', 'top');
+      if (wantW) {
+        if (text) obj.set('width', Math.max(1, width) / (obj.scaleX || 1));
+        else obj.set('scaleX', Math.max(1, width) / (obj.width || 1));
+      }
+      if (wantH && !text) obj.set('scaleY', Math.max(1, height) / (obj.height || 1));
+      if (text) {
+        obj.initDimensions?.();
+        if (obj.tcgAutoFit) this.autoFitText(obj);
+      }
+      this.bakeScale(obj);
+      obj.setPositionByOrigin(corner, 'left', 'top');
+      obj.setCoords();
+      if (`${obj.getScaledWidth()}x${obj.getScaledHeight()}` !== before) changed += 1;
+      if (text && wantH) skipped += 1;
+    }
+    this.select(objs);
+    if (changed) this.touch();
+    return { changed, skipped };
   }
 
   nudge(dx, dy) {

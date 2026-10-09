@@ -67,12 +67,16 @@ it.
   name that are not in the workspace are listed, matched by file name, and
   pointed at their new place for every card at once. See
   [`CARDS.md`](CARDS.md#when-a-picture-goes-missing).
+- **A key layer, Align to and Match size** (0.20.0) — several selected layers
+  are measured against a key layer (the first one picked, or one chosen in
+  Properties); align them to the selection, the key or the card, and give
+  them the key's width, height or both. See [`LAYOUT.md`](LAYOUT.md).
 
 ## Next
 
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
-- **More alignment.** Match sizes, align to a chosen key object, and distribute
-  with a gap you type rather than an equal share.
+- **More alignment.** Distribute with a gap you type rather than an equal
+  share, measured from the key layer.
 - **Rulers and manual guides.** Draggable guides that snap, saved with the
   template.
 

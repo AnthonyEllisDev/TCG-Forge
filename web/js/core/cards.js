@@ -131,8 +131,13 @@ export function captureValues({ remembered = true } = {}) {
  * browser resolved it to — that has the port in it, and the port changes.
  */
 function artValue(img) {
-  if (img.tcgAsset) return img.tcgAsset;
   const src = img.getSrc?.() || '';
+  // A project saved with its pictures embedded opens with the picture itself
+  // in the layer and its old path beside it. The other cards hold the
+  // picture too; this one must not swap it for a path that may not exist on
+  // this computer.
+  if (src.startsWith('data:')) return src;
+  if (img.tcgAsset) return img.tcgAsset;
   const files = `${location.origin}/files/`;
   if (!src.startsWith(files)) return src || null;
   // The address is percent-encoded; the card stores the file's own path.
@@ -146,6 +151,14 @@ function artValue(img) {
 
 /** Artwork a card names that could not be loaded when it was last shown. */
 let unresolved = {};
+
+// Placing a picture over a missing one forgets it (forgetMissingArt); an undo
+// that brings the placeholder back has to bring back the path it stood for,
+// or the card's next capture reads "no art" and the path is lost.
+history.keep('unresolvedArt', {
+  read: () => ({ ...unresolved }),
+  write: (value) => { unresolved = value && typeof value === 'object' ? { ...value } : {}; },
+});
 
 /**
  * The user put other artwork in a slot, or none: the picture the card on
