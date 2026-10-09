@@ -8,6 +8,7 @@ import { $, $$, clamp, isHex, on, toHex } from '../util/dom.js';
 import { bus, EVT } from '../util/bus.js';
 import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
+import { history } from '../core/history.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
 import { collectFields } from '../core/templates.js';
@@ -531,8 +532,8 @@ function openReplaceDialog(img) {
  * Run as a placement, so a card switch waits for it and the picture lands on
  * the card it was chosen on.
  */
-async function replaceImage(target, file, card) {
-  if (cardList()[activeIndex()]?.id !== card || !target.canvas) {
+async function replaceImage(picked, file, card) {
+  if (cardList()[activeIndex()]?.id !== card || !picked.canvas) {
     throw new Error('the card changed before the picture arrived');
   }
   // The picked file has to become something the project can find again,
@@ -540,12 +541,21 @@ async function replaceImage(target, file, card) {
   // short-lived blob: URL.
   const source = await assets.sourceForFile(file, 'art');
   const element = await loadImageElement(source.url);
+  // An undo during the upload reloads the canvas, and the layer picked is no
+  // longer the one on screen; the replacement goes to the layer that now
+  // stands in its place, or is refused out loud rather than set on nothing.
+  await history.settled();
+  const target = picked.canvas ? picked : editor.objects().find((o) => o.tcgId && o.tcgId === picked.tcgId && o.type === 'image');
+  if (!target || cardList()[activeIndex()]?.id !== card) {
+    throw new Error('the card changed before the picture arrived');
+  }
   // Art that did not come in through a slot has no window of its own; the
   // room it takes on the card now is the window. Keeping the old scale
   // instead made a 3000 px picture's replacement land at a tenth of the size.
+  const centre = target.getCenterPoint();
   const footprint = target.tcgArtBox || {
-    left: target.left,
-    top: target.top,
+    left: centre.x - target.getScaledWidth() / 2,
+    top: centre.y - target.getScaledHeight() / 2,
     width: target.getScaledWidth(),
     height: target.getScaledHeight(),
   };

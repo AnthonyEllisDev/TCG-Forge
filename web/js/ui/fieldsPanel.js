@@ -22,7 +22,17 @@ import {
   setFieldImage,
   setFieldText,
 } from '../core/templates.js';
-import { describeOwnChanges, isSwitching, ownChanges, placeArt, resetOwnChanges, settled } from '../core/cards.js';
+import {
+  activeIndex,
+  cardList,
+  describeOwnChanges,
+  forgetMissingArt,
+  isSwitching,
+  ownChanges,
+  placeArt,
+  resetOwnChanges,
+  settled,
+} from '../core/cards.js';
 import { toast } from './dialogs.js';
 import { expandTyped } from './iconPalette.js';
 
@@ -100,6 +110,7 @@ function render(force) {
         el('button', {
           class: 'btn tiny',
           text: 'Choose image…',
+          dataset: { pickSlot: field.id },
           onClick: () => pickArt(field.id),
         }),
         el('button', {
@@ -113,7 +124,10 @@ function render(force) {
           title: 'Take the artwork out and put the placeholder back',
           disabled: !isPlacedArt(objs[0]),
           dataset: { clearSlot: field.id },
-          onClick: () => clearFieldImage(field.id),
+          onClick: () => {
+            clearFieldImage(field.id);
+            forgetMissingArt(field.id);
+          },
         }),
       ]);
       item.append(row);
@@ -264,9 +278,22 @@ function pickArt(slot) {
   artInput.onchange = async () => {
     const file = artInput.files?.[0];
     if (!file) return;
+    if (isSwitching()) {
+      toast('The card is still changing — try again in a moment.', 'err');
+      artInput.value = '';
+      return;
+    }
+    // The upload is part of the placement, so a card switch started while it
+    // is under way waits for it; uploading first and placing after let the
+    // switch finish in between, and the picture went onto the next card.
+    const card = cardList()[activeIndex()]?.id;
     try {
-      const source = await assets.sourceForFile(file, 'art');
-      await placeArt(() => setFieldImage(slot, source.url, { assetPath: source.path }));
+      await placeArt(async () => {
+        const source = await assets.sourceForFile(file, 'art');
+        if (cardList()[activeIndex()]?.id !== card) throw new Error('the card changed before the picture arrived');
+        await setFieldImage(slot, source.url, { assetPath: source.path });
+        forgetMissingArt(slot);
+      });
       toast(`Placed ${file.name} in “${slot}”.`, 'ok');
     } catch (err) {
       toast(`Could not place image: ${err.message}`, 'err');

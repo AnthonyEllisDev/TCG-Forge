@@ -8,6 +8,7 @@
  */
 
 import { api } from './api.js';
+import { bus, EVT } from '../util/bus.js';
 import { assets } from './assets.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
@@ -250,6 +251,16 @@ const nextFrame = () =>
  */
 let rendering = false;
 
+/*
+ * The canvas is the user's card again. The restore announced its layers while
+ * the run still held it, and panels that read the card on screen stand aside
+ * then (they would read a spreadsheet row) — so they must be told again, or
+ * they keep showing what they could see during the run.
+ */
+function announceReturned() {
+  bus.emit(EVT.OBJECTS, editor.objects());
+}
+
 /** Whether a batch, export or print run has the canvas right now. */
 export const isRendering = () => rendering;
 
@@ -342,6 +353,7 @@ export async function renderRow(row, mapping, {
       // is back as it was: a project saved a moment ago is still saved, and
       // saying otherwise makes New and Open ask about changes that do not exist.
       state.setDirty(wasDirty);
+      announceReturned();
     }
   }
 }
@@ -464,6 +476,7 @@ export async function runBatch({
       history.locked = false;
       rendering = false;
       state.setDirty(wasDirty);
+      announceReturned();
     }
   }
 

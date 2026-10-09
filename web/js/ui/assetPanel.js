@@ -10,7 +10,7 @@ import { assets } from '../core/assets.js';
 import { editor } from '../core/editor.js';
 import { state } from '../core/state.js';
 import { setFieldImage } from '../core/templates.js';
-import { placeArt, settled } from '../core/cards.js';
+import { forgetMissingArt, placeArt, settled } from '../core/cards.js';
 import { openModal, toast } from './dialogs.js';
 
 let category = 'frames';
@@ -222,7 +222,11 @@ async function placeImage(cat, item, url, dropPoint) {
   // waits for the first and holds back the second, and counts as a placement
   // from this moment, so a render asked for straight after waits for it.
   if (editor.findBySlot('art').length) {
-    return await placeArt(() => setFieldImage('art', url, { assetPath: item.path }));
+    return await placeArt(async () => {
+      const img = await setFieldImage('art', url, { assetPath: item.path });
+      forgetMissingArt('art');
+      return img;
+    });
   }
   await settled();
   const img = await editor.addImage(url, {

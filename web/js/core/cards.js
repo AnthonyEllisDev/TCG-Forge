@@ -148,6 +148,15 @@ function artValue(img) {
 let unresolved = {};
 
 /**
+ * The user put other artwork in a slot, or none: the picture the card on
+ * screen could not load is no longer its art. Left behind, it came back the
+ * moment the slot showed its placeholder again (Clear) and was saved.
+ */
+export function forgetMissingArt(slot) {
+  delete unresolved[slot];
+}
+
+/**
  * A card switch in progress. The pointer already names the incoming card while
  * the canvas is still being filled with it, so for that moment the canvas is
  * neither card and must not be read into either.
@@ -400,12 +409,114 @@ export function resetOwnChanges() {
   if (switching || isRendering()) return null;
   const own = ownChanges();
   if (!own.layers && !own.art) return null;
-  const touched = editor.objects().filter((obj) => revertToLayout(obj));
-  touched.forEach((obj) => { if (obj.tcgAutoFit) editor.autoFitText(obj); });
-  showFraming(null);
+  // The layout's values are card coordinates, and a layer inside a
+  // multi-layer selection holds selection-relative ones.
+  readLayers(() => {
+    const touched = editor.objects().filter((obj) => revertToLayout(obj));
+    touched.forEach((obj) => { if (obj.tcgAutoFit) editor.autoFitText(obj); });
+    showFraming(null);
+  });
   editor.touch();
   editor.emitSelection();
   return own;
+}
+
+/* ---------------------------------------------------------- missing art -- */
+
+/** A card value that names a workspace file, not a picture held inline. */
+const isWorkspacePath = (value) => typeof value === 'string' && !!value && !/^[a-z][a-z0-9+.-]*:/i.test(value);
+
+/**
+ * Every workspace picture the cards name, with the strip places (0-based) of
+ * the cards naming it. The card on screen is read from its slots, as the
+ * filter reads it — unless the canvas is not that card just now.
+ */
+function artUses() {
+  const kinds = slotKinds();
+  const active = activeIndex();
+  const live = !switching && !isRendering();
+  const uses = new Map();
+  cardList().forEach((card, index) => {
+    const values = index === active && live ? captureValues() : card.values || {};
+    for (const [slot, kind] of kinds) {
+      const value = values[slot];
+      if (kind !== 'image' || !isWorkspacePath(value)) continue;
+      if (!uses.has(value)) uses.set(value, []);
+      const at = uses.get(value);
+      if (at[at.length - 1] !== index) at.push(index);
+    }
+  });
+  return uses;
+}
+
+/**
+ * The pictures the cards name that are not in the workspace: `[{path,
+ * cards}]`, in the order the strip first names them. Each folder is listed
+ * once; a folder that is gone means everything named in it is missing.
+ * Offline there is no workspace to look in, and nothing is reported.
+ */
+export async function missingArt() {
+  if (!api.online) return [];
+  const uses = artUses();
+  const folders = new Map();
+  for (const path of uses.keys()) {
+    const folder = path.split('/').slice(0, -1).join('/');
+    if (!folders.has(folder)) {
+      folders.set(folder, api.listFolder(folder).then(
+        (entries) => new Set(entries.filter((entry) => !entry.dir).map((entry) => entry.path)),
+        () => new Set()
+      ));
+    }
+  }
+  const out = [];
+  for (const [path, cards] of uses) {
+    const present = await folders.get(path.split('/').slice(0, -1).join('/'));
+    if (!present.has(path)) out.push({ path, cards });
+  }
+  return out;
+}
+
+/**
+ * Point every card that names one picture at another — the file was moved or
+ * renamed. How each card framed it stays: it is the same picture somewhere
+ * else. The card on screen is drawn again if it was one of them, as a sheet
+ * update does. Returns how many cards changed.
+ */
+export async function relinkArt(from, to) {
+  if (isRendering()) throw new Error('a render is using the card — try again when it has finished');
+  if (!isWorkspacePath(from) || !isWorkspacePath(to) || from === to) return 0;
+  await history.settled();
+  await settled();
+  const cards = syncActive();
+  const kinds = slotKinds();
+  const active = state.project.activeCard;
+  let changed = 0;
+  let redraw = false;
+  cards.forEach((card, index) => {
+    let hit = false;
+    for (const [slot, kind] of kinds) {
+      if (kind !== 'image' || card.values?.[slot] !== from) continue;
+      card.values[slot] = to;
+      hit = true;
+    }
+    if (!hit) return;
+    changed += 1;
+    if (index === active) redraw = true;
+  });
+  if (!changed) return 0;
+  if (redraw) {
+    let finish;
+    switching = new Promise((done) => { finish = done; });
+    try {
+      await showCard(active, cards);
+    } finally {
+      switching = null;
+      finish();
+    }
+  }
+  state.setDirty(true);
+  bus.emit(EVT.CARDS, cards);
+  return changed;
 }
 
 /** What to call a card in the strip: its first words, or its number. */

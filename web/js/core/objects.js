@@ -302,3 +302,37 @@ export function makeArtBox(options = {}) {
     })
   );
 }
+
+/*
+ * A card's picture that has gone from the workspace (renamed, moved, on
+ * another machine) made Fabric refuse the whole file, so the project could not
+ * be opened at all until the picture came back. Card switches already show the
+ * slot's placeholder for such a picture and keep its path; the card a project
+ * opens on does the same, and so does a template saved from such a card.
+ * Other images — a frame, a background — still refuse the file: there is no
+ * layer to stand in for them. Returns the missing pictures by slot.
+ */
+export async function standInForMissingArt(canvasJSON) {
+  const missing = {};
+  const objects = Array.isArray(canvasJSON.objects) ? canvasJSON.objects : [];
+  await Promise.all(
+    objects.map(async (obj, index) => {
+      const placeholder = obj?.tcgPlaceholder;
+      if (!isImageJSON(obj) || !obj.tcgArtBox || !obj.tcgSlot || !placeholder || typeof placeholder !== 'object') return;
+      if (await imageLoads(obj.src)) return;
+      objects[index] = placeholder;
+      missing[obj.tcgSlot] = obj.tcgAsset || obj.src;
+    })
+  );
+  return missing;
+}
+
+function imageLoads(src) {
+  if (!src) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(true);
+    image.onerror = () => resolve(false);
+    image.src = src;
+  });
+}

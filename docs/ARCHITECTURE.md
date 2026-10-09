@@ -109,6 +109,7 @@ web/
         ├── batchPanel.js  the batch generator dialog
         ├── printPanel.js  the print sheet dialog
         ├── tabletopPanel.js the tabletop deck sheet dialog
+        ├── missingPanel.js  missing card pictures, and relinking them
         ├── cardStrip.js   the card list under the canvas
         ├── shortcuts.js   keyboard map
         └── dialogs.js     modal + toasts
@@ -337,7 +338,23 @@ first probes each top-level placed-art image (`tcgArtBox` + `tcgPlaceholder`)
 and swaps a missing one for its placeholder; `loadCards(data, {missing})`
 puts the path in `unresolved` (and into the card of a version-1 file).
 `openProjectPath()`/`openProjectData()` return `{missingArt}` so the Open
-dialog can say which pictures are gone.
+dialog can say which pictures are gone. Since 0.19.0 the probe is
+`objects.standInForMissingArt()`, and `templates.loadTemplate()` runs it too
+(`applyTemplate()` returns `{missingArt}`).
+
+**Relinking missing pictures** (0.19.0). `cards.missingArt()` gathers every
+workspace path the cards' art slots name (the card on screen from its slots),
+lists each folder once with `api.listFolder()` (`/api/list`) and returns the
+paths not found, with the cards naming them. `cards.relinkArt(from, to)` waits
+like any card operation (`history.settled()`, `settled()`, refuses while a run
+has the canvas), rewrites every matching value, keeps `framing`, and redraws
+the card on screen through `showCard()` inside a `switching` window, as
+`addRows()` does. Placing or clearing art from Card Fields or the asset panel
+calls `cards.forgetMissingArt(slot)`, so a remembered missing picture cannot
+come back once the user has chosen other art. `ui/missingPanel.js` keeps the
+Card Fields notice (`#cardMissing`, checked on `CARDS`/`PROJECT`/`ASSETS`)
+and draws the dialog, where a single same-name file in the library is chosen
+in advance.
 
 **Filtering the strip** (0.15.0). `cards.parseFilter()` turns the box's text
 into terms (`{slot, text}` or `{number}`); a `slot:` prefix counts only when it

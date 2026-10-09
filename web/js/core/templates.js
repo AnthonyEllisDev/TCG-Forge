@@ -17,6 +17,7 @@ import {
   isImageJSON,
   makeArtBox,
   makeImage,
+  standInForMissingArt,
   styleObject,
   toLayoutJSON,
 } from './objects.js';
@@ -65,6 +66,7 @@ async function loadTemplate(data, { keepName }) {
 
   const canvasJSON = JSON.parse(JSON.stringify(data.canvas));
   relinkImages(canvasJSON);
+  const missing = await standInForMissingArt(canvasJSON);
 
   editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
   await editor.loadJSON(canvasJSON);
@@ -81,6 +83,7 @@ async function loadTemplate(data, { keepName }) {
   bus.emit(EVT.OBJECTS, editor.objects());
   history.reset();
   state.setDirty(true);
+  return { missingArt: Object.values(missing) };
 }
 
 /** Point every workspace image at its path, so no port is baked into the file. */
@@ -407,7 +410,14 @@ export function frameFieldImage(slot, zoom = null) {
   // smaller (a corner handle can do that), where the slider steps from it.
   const least = Math.min(MIN_ZOOM, current.zoom);
   const framing = zoom === null ? null : { ...current, zoom: Math.min(MAX_ZOOM, Math.max(least, zoom)) };
-  applyFraming(img, framing);
+  // Framing is placed in card coordinates; a member of a multi-layer
+  // selection holds coordinates relative to the selection.
+  const members = editor.memberSelection();
+  try {
+    applyFraming(img, framing);
+  } finally {
+    if (members.length > 1) editor.select(members);
+  }
   editor.canvas.requestRenderAll();
   editor.touch();
   bus.emit(EVT.OBJECTS, editor.objects());

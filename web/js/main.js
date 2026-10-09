@@ -27,6 +27,7 @@ import { initIconPalette } from './ui/iconPalette.js';
 import { initBatchPanel } from './ui/batchPanel.js';
 import { initPrintPanel } from './ui/printPanel.js';
 import { initTabletopPanel } from './ui/tabletopPanel.js';
+import { initMissingPanel } from './ui/missingPanel.js';
 import { initCardStrip } from './ui/cardStrip.js';
 import { initShortcuts } from './ui/shortcuts.js';
 
@@ -57,6 +58,7 @@ async function boot() {
   initBatchPanel();
   initPrintPanel();
   initTabletopPanel();
+  initMissingPanel();
   initCardStrip();
   initShortcuts();
   history.attach();

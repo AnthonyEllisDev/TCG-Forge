@@ -70,6 +70,12 @@ class ForgeAPI {
     return data.projects || [];
   }
 
+  /** The files and folders in one workspace folder. */
+  async listFolder(path) {
+    const data = await this.request(`/api/list?path=${encodeURIComponent(path || '.')}`);
+    return data.entries || [];
+  }
+
   async readJSON(path) {
     const data = await this.request(`/api/read?path=${encodeURIComponent(path)}`);
     return JSON.parse(data.content);

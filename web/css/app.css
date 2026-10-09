@@ -450,6 +450,25 @@
   font-size: var(--fs-xs);
 }
 .card-own[hidden] { display: none; }
+.card-missing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--fs-xs);
+}
+.card-missing[hidden] { display: none; }
+
+.missing-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; max-height: 50vh; overflow-y: auto; }
+.missing-row { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-sunken); }
+.missing-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; min-width: 0; }
+.missing-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--warn); }
+.missing-cards { flex: none; font-size: var(--fs-xs); color: var(--text-dim); }
 
 .icon-palette { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 .icon-palette-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; }

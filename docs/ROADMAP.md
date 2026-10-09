@@ -63,6 +63,10 @@ it.
   with their own layer changes or art framing, `has:changes` filters for
   them, and *Reset to layout* in Card Fields puts the card back. See
   [`CARDS.md`](CARDS.md#seeing-and-undoing-a-cards-own-changes).
+- **Relinking missing pictures** (0.19.0) — the pictures a project's cards
+  name that are not in the workspace are listed, matched by file name, and
+  pointed at their new place for every card at once. See
+  [`CARDS.md`](CARDS.md#when-a-picture-goes-missing).
 
 ## Next
 

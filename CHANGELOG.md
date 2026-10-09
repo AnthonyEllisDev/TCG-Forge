@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.19.0 — finding missing pictures
+
+- **Missing pictures, relinked.** When cards in a project name a picture that
+  is no longer in the workspace — moved into a subfolder, renamed, or left on
+  another computer — **Card Fields** says how many and on how many cards, and
+  **Relink…** lists each one with the cards that use it. Choose where the
+  picture is now and every card naming it is pointed at that file at once,
+  keeping how each card framed it. A picture with exactly one file of the same
+  name in the library has that file chosen already; **Look again** finds files
+  put back by hand. See
+  [`docs/CARDS.md`](docs/CARDS.md#when-a-picture-goes-missing).
+
+### Fixed
+
+- **Replace… on a turned or flipped picture** put the new picture almost
+  entirely outside its art window, and the card saved it that way. **Fit**
+  and **Fill** placed a turned picture off-centre the same way.
+- **Reset to layout with several layers selected** sent the card's layer
+  hundreds of pixels away, where it then became the layout's. The Zoom slider
+  and Refit had the same fault for a picture inside a multi-layer selection.
+- **A picture that had gone missing came back** after other art was placed in
+  its slot and then cleared, and was saved over the card's "no art".
+- **Card Fields → Choose image…, then a card switch while the file uploaded**
+  put the picture on the card switched to. The switch now waits for it.
+- **After a batch preview or run** the card's own-changes note and its **own**
+  badge in the strip disappeared, though the card still had them.
+- **Replace… with an undo while the file uploaded** lost the new picture
+  without a word. It now lands on the layer the undo brought back.
+- **A template whose card art had gone missing** could not be applied at all.
+  It now applies with the art box in its place and says which file is
+  missing.
+
 ## 0.18.0 — seeing and undoing a card's own changes
 
 - **Cards that change the layout for themselves are marked.** A card with its

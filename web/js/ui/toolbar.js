@@ -214,7 +214,7 @@ function toastOpened(name, missingArt = []) {
     return;
   }
   const list = missingArt.slice(0, 3).join(', ') + (missingArt.length > 3 ? ', …' : '');
-  toast(`Opened ${name}, but its art is missing: ${list}. The card keeps the path; put the file back to see it.`, 'warn', 6000);
+  toast(`Opened ${name}, but its art is missing: ${list}. The cards keep the path — Card Fields → Relink… points them at where the file is now.`, 'warn', 6000);
 }
 
 /* -------------------------------------------------------------- export -- */

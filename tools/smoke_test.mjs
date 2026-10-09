@@ -5961,6 +5961,454 @@ try {
     JSON.stringify(ownReset)
   );
 
+  /* ---- 0.19.0: missing pictures relinked, and the bugs found with it -- */
+
+  /* A small PNG on disk, for the checks that pick a file the way a user does. */
+  const pickedFile = path.join(os.tmpdir(), `smoke-picked-${Date.now()}.png`);
+  const pickedPng = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 16; c.height = 16;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0ff';
+    ctx.fillRect(0, 0, 16, 16);
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  fs.writeFileSync(pickedFile, Buffer.from(pickedPng, 'base64'));
+  const pickedUploads = [];
+  const pickWith = async (selector) => {
+    try {
+      const chooser = page.waitForEvent('filechooser', { timeout: 5000 });
+      await page.click(selector, { timeout: 3000 });
+      await (await chooser).setFiles(pickedFile);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const turnedArtPath = `assets/art/smoke-turned-${Date.now()}.svg`;
+
+  /* Replace… on art that was turned or flipped worked out the new picture's
+     corner as if it were upright, so it landed almost entirely outside its
+     window — and that framing was saved with the card. */
+  await page.evaluate(async (art) => {
+    const { state, api, editor } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await api.writeText(art, '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="40"><rect width="60" height="40" fill="#c33"/></svg>');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+    const img = editor.findBySlot('art')[0];
+    t.applyFraming(img, { zoom: 1, x: 0, y: 0, angle: 90, flipX: true });
+    editor.touch();
+    editor.select(img);
+    state.setDirty(false);
+  }, turnedArtPath);
+  const turnedPicked = await pickWith('[data-action="img-replace"]');
+  const turnedReplace = await page.evaluate(async (art) => {
+    try {
+      const { editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      for (let i = 0; i < 50; i += 1) {
+        const img = editor.findBySlot('art')[0];
+        if (img?.tcgAsset && img.tcgAsset !== art) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      await cards.settled();
+      const img = editor.findBySlot('art')[0];
+      const centre = img.getCenterPoint();
+      const box = img.tcgArtBox;
+      return {
+        asset: img.tcgAsset,
+        framing: t.readFraming(img),
+        offset: Math.round(Math.hypot(centre.x - (box.left + box.width / 2), centre.y - (box.top + box.height / 2))),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, turnedArtPath);
+  if (turnedReplace.asset && turnedReplace.asset !== turnedArtPath) pickedUploads.push(turnedReplace.asset);
+  check(
+    'Replace… on turned and flipped art keeps the new picture centred in its window',
+    turnedPicked && turnedReplace.offset === 0 && turnedReplace.framing?.x === 0 && turnedReplace.framing?.y === 0 &&
+      turnedReplace.framing?.angle === 90 && turnedReplace.framing?.flipX === true,
+    JSON.stringify({ turnedPicked, turnedReplace })
+  );
+
+  /* Reset to layout with the card's layer inside a multi-layer selection
+     wrote the layout's card coordinates into a selection-relative layer, so
+     it landed hundreds of pixels away — and, unmarked, became the layout. */
+  const resetSelected = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const title = editor.findBySlot('title')[0];
+      const layout = { left: Math.round(title.left), top: Math.round(title.top) };
+      cards.setOverride(title, true);
+      title.set({ left: title.left + 40, top: title.top + 30 });
+      title.setCoords();
+      editor.touch();
+      const other = editor.objects().find((o) => o !== title && !o.tcgSlot && o.selectable !== false);
+      editor.select([title, other]);
+      const selected = editor.canvas.getActiveObject()?.type;
+      document.querySelector('#cardOwnReset').click();
+      editor.canvas.discardActiveObject();
+      const live = editor.findBySlot('title')[0];
+      state.setDirty(false);
+      return { selected, layout, after: { left: Math.round(live.left), top: Math.round(live.top) }, own: !!live.tcgBase };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'Reset to layout puts a layer back where the layout has it even inside a multi-layer selection',
+    resetSelected.selected === 'activeselection' && resetSelected.own === false &&
+      resetSelected.after?.left === resetSelected.layout?.left && resetSelected.after?.top === resetSelected.layout?.top,
+    JSON.stringify(resetSelected)
+  );
+
+  /* A card whose picture was missing got it back after the user placed other
+     art and then cleared the slot: the remembered path reappeared and was
+     saved over the user's "no art". */
+  const forgottenPath = `assets/art/smoke-forgotten-${Date.now()}.svg`;
+  await page.evaluate(async (gone) => {
+    const { state, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    const p = await import('/js/core/project.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.clearFieldImage('art');
+    t.setFieldText('title', 'Forgotten');
+    const data = await p.serializeProject();
+    data.cards[0].values.art = gone;
+    await p.openProjectData(data);
+    state.setDirty(false);
+    window.__smokeForgottenOpened = cards.captureValues().art;
+  }, forgottenPath);
+  const forgottenPicked = await pickWith('[data-pick-slot="art"]');
+  const forgotten = await page.evaluate(async (gone) => {
+    try {
+      const { editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      for (let i = 0; i < 50 && !t.isPlacedArt(editor.findBySlot('art')[0]); i += 1) await new Promise((r) => setTimeout(r, 100));
+      await cards.settled();
+      const placed = cards.captureValues().art;
+      document.querySelector('[data-clear-slot="art"]').click();
+      for (let i = 0; i < 20 && t.isPlacedArt(editor.findBySlot('art')[0]); i += 1) await new Promise((r) => setTimeout(r, 50));
+      const cleared = cards.captureValues().art;
+      return { opened: window.__smokeForgottenOpened === gone, placed, cleared };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, forgottenPath);
+  if (forgotten.placed && forgotten.placed !== forgottenPath) pickedUploads.push(forgotten.placed);
+  check(
+    'a missing picture stays forgotten once other art is placed in its slot and then cleared',
+    forgottenPicked && forgotten.opened === true && /smoke-picked/.test(forgotten.placed || '') && forgotten.cleared === null,
+    JSON.stringify({ forgottenPicked, forgotten })
+  );
+
+  /* Card Fields → Choose image… uploaded first and placed after, so a card
+     switch in between finished and the picture went onto the next card. The
+     upload is held; the switch must wait for it. */
+  await page.evaluate(async () => {
+    const { state, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    const cards = await import('/js/core/cards.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.clearFieldImage('art');
+    t.setFieldText('title', 'Picked On');
+    cards.cardList().push({ id: 'card-picked-b', values: { title: 'Not Me', art: null } });
+    state.setDirty(false);
+  });
+  let releasePick = () => {};
+  const pickGate = new Promise((resolve) => { releasePick = resolve; });
+  let pickHeld = false;
+  await page.route('**/api/upload', async (route) => {
+    pickHeld = true;
+    await pickGate;
+    route.continue().catch(() => {});
+  });
+  const pickStarted = await pickWith('[data-pick-slot="art"]');
+  for (let i = 0; i < 40 && !pickHeld; i += 1) await page.waitForTimeout(100);
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    window.__smokePickSwitch = cards.switchCard(1).catch((err) => err.message);
+  });
+  await page.waitForTimeout(300);
+  const pickWhileHeld = await page.evaluate(() => window.TCGForge.state.project.activeCard);
+  releasePick();
+  const pickedOn = await page.evaluate(async () => {
+    try {
+      await window.__smokePickSwitch;
+      const cards = await import('/js/core/cards.js');
+      await cards.settled();
+      cards.syncActive();
+      window.TCGForge.state.setDirty(false);
+      return cards.cardList().map((c) => c.values.art);
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.unroute('**/api/upload');
+  if (Array.isArray(pickedOn)) pickedUploads.push(...pickedOn.filter(Boolean));
+  check(
+    'a picture chosen in Card Fields lands on its own card when a switch starts during the upload',
+    pickStarted && pickHeld && pickWhileHeld === 0 && Array.isArray(pickedOn) &&
+      /smoke-picked/.test(pickedOn[0] || '') && pickedOn[1] === null,
+    JSON.stringify({ pickStarted, pickHeld, pickWhileHeld, pickedOn })
+  );
+
+  /* After a batch preview or run, the "own changes" box and the strip badge
+     stayed hidden although the card still had its own changes: the panels
+     stood aside while the run held the canvas and nothing told them again. */
+  const ownAfterRun = await page.evaluate(async () => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const batch = await import('/js/core/batch.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const title = editor.findBySlot('title')[0];
+      cards.setOverride(title, true);
+      title.set({ left: title.left + 40 });
+      title.setCoords();
+      editor.touch();
+      const read = () => ({
+        box: !document.querySelector('#cardOwn').hidden,
+        tile: !!document.querySelector('#cardTiles .card-tile.active .tile-own'),
+      });
+      const before = read();
+      await batch.renderRow({ title: 'A Row' }, { title: 'title' });
+      await new Promise((r) => setTimeout(r, 50));
+      const after = read();
+      state.setDirty(false);
+      return { before, after };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'the card\'s own-changes box and strip badge come back after a batch preview',
+    ownAfterRun.before?.box === true && ownAfterRun.before?.tile === true &&
+      ownAfterRun.after?.box === true && ownAfterRun.after?.tile === true,
+    JSON.stringify(ownAfterRun)
+  );
+
+  /* Replace… with an undo while the picture uploaded: the undo reloaded the
+     canvas, the new picture was set on a layer no longer on it, and nothing
+     said so. */
+  await page.evaluate(async (art) => {
+    const { state, api, editor } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+    await new Promise((r) => setTimeout(r, 400));
+    t.setFieldText('title', 'Undo Me');
+    editor.touch();
+    await new Promise((r) => setTimeout(r, 400));
+    editor.select(editor.findBySlot('art')[0]);
+    state.setDirty(false);
+  }, turnedArtPath);
+  let releaseUndoUpload = () => {};
+  const undoUploadGate = new Promise((resolve) => { releaseUndoUpload = resolve; });
+  let undoUploadHeld = false;
+  await page.route('**/api/upload', async (route) => {
+    undoUploadHeld = true;
+    await undoUploadGate;
+    route.continue().catch(() => {});
+  });
+  const undoPicked = await pickWith('[data-action="img-replace"]');
+  for (let i = 0; i < 40 && !undoUploadHeld; i += 1) await page.waitForTimeout(100);
+  const undoneTitle = await page.evaluate(async () => {
+    const { editor, history } = window.TCGForge;
+    await history.undo();
+    await history.settled();
+    return editor.findBySlot('title')[0]?.text;
+  });
+  releaseUndoUpload();
+  const replacedAfterUndo = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      await new Promise((r) => setTimeout(r, 300));
+      await cards.settled();
+      const toasts = [...document.querySelectorAll('#toasts .toast')].map((n) => n.textContent);
+      window.TCGForge.state.setDirty(false);
+      return { art: editor.findBySlot('art')[0]?.tcgAsset, refused: toasts.some((text) => /Could not replace/.test(text)) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.unroute('**/api/upload');
+  if (/smoke-picked/.test(replacedAfterUndo.art || '')) pickedUploads.push(replacedAfterUndo.art);
+  check(
+    'Replace… with an undo during the upload lands the picture or says it could not',
+    undoPicked && undoUploadHeld && undoneTitle !== 'Undo Me' &&
+      (/smoke-picked/.test(replacedAfterUndo.art || '') || replacedAfterUndo.refused === true),
+    JSON.stringify({ undoPicked, undoUploadHeld, undoneTitle, replacedAfterUndo })
+  );
+
+  /* A template saved from a card whose picture later went missing could not
+     be applied at all; it now shows the art box, as a project does. */
+  const tplGonePath = `assets/art/smoke-tpl-gone-${Date.now()}.svg`;
+  const tplGone = await page.evaluate(async ({ art, gone }) => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const data = await api.readJSON('templates/classic-spell.json');
+      await t.applyTemplate(data);
+      await t.setFieldImage('art', api.fileURL(art), { assetPath: art });
+      const layout = t.buildTemplate ? await t.buildTemplate({ name: 'Smoke Gone Template' }) : null;
+      const saved = layout || { ...data, canvas: editor.toJSON() };
+      const text = JSON.stringify(saved).split(art).join(gone);
+      let error = null;
+      let result = null;
+      try {
+        result = await t.applyTemplate(JSON.parse(text));
+      } catch (err) {
+        error = err.message;
+      }
+      const slot = editor.findBySlot('art')[0];
+      state.setDirty(false);
+      return { error, missing: result?.missingArt ?? null, placeholder: !!slot && !t.isPlacedArt(slot) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, { art: turnedArtPath, gone: tplGonePath });
+  check(
+    'a template whose placed art has gone missing still applies, with the art box in its place',
+    tplGone.error === null && tplGone.missing?.[0] === tplGonePath && tplGone.placeholder === true,
+    JSON.stringify(tplGone)
+  );
+
+  /* The feature: pictures the cards name that are not in the workspace are
+     listed, matched by file name, and every card naming one is pointed at
+     where the file is now — keeping how it framed the picture. */
+  const relinkStamp = Date.now();
+  const relinkLost = `assets/art/smoke-lost-${relinkStamp}.svg`;
+  const relinkMoved = `assets/art/smoke-moved-${relinkStamp}/smoke-lost-${relinkStamp}.svg`;
+  const relinkTwin = `assets/art/smoke-twin-${relinkStamp}.svg`;
+  const relinkTwinA = `assets/art/smoke-twin-a-${relinkStamp}/smoke-twin-${relinkStamp}.svg`;
+  const relinkTwinB = `assets/art/smoke-twin-b-${relinkStamp}/smoke-twin-${relinkStamp}.svg`;
+  const relinkPaths = { lost: relinkLost, moved: relinkMoved, twin: relinkTwin, twinA: relinkTwinA, twinB: relinkTwinB };
+  const relinkCore = await page.evaluate(async ({ lost, moved, twin, twinA, twinB }) => {
+    try {
+      const { state, api, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const p = await import('/js/core/project.js');
+      const svg = (fill) => `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="${fill}"/></svg>`;
+      await api.writeText(moved, svg('#3c3'));
+      await api.writeText(twinA, svg('#33c'));
+      await api.writeText(twinB, svg('#c3c'));
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      await t.clearFieldImage('art');
+      t.setFieldText('title', 'Lost One');
+      const data = await p.serializeProject();
+      data.cards = [
+        { id: 'card-lost-a', values: { ...data.cards[0].values, title: 'Lost One', art: lost }, framing: { art: { zoom: 2, x: 0, y: 0 } } },
+        { id: 'card-lost-b', values: { ...data.cards[0].values, title: 'Kept', art: null } },
+        { id: 'card-lost-c', values: { ...data.cards[0].values, title: 'Lost Too', art: lost } },
+        { id: 'card-lost-d', values: { ...data.cards[0].values, title: 'Twin', art: twin } },
+      ];
+      data.activeCard = 0;
+      await p.openProjectData(data);
+      state.setDirty(false);
+      const missing = await cards.missingArt();
+      return { missing };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, relinkPaths);
+  check(
+    'the pictures a project\'s cards name that are not in the workspace are listed with their cards',
+    JSON.stringify(relinkCore.missing) === JSON.stringify([
+      { path: relinkLost, cards: [0, 2] },
+      { path: relinkTwin, cards: [3] },
+    ]),
+    JSON.stringify(relinkCore)
+  );
+  // The notice in Card Fields, and the dialog it opens.
+  for (let i = 0; i < 30; i += 1) {
+    if (await page.evaluate(() => !document.querySelector('#cardMissing').hidden)) break;
+    await page.waitForTimeout(100);
+  }
+  const relinkNotice = await page.evaluate(() => ({
+    shown: !document.querySelector('#cardMissing').hidden,
+    text: document.querySelector('#cardMissingText')?.textContent,
+  }));
+  await page.click('#cardMissingFind', { timeout: 3000 }).catch(() => {});
+  for (let i = 0; i < 30; i += 1) {
+    if (await page.evaluate(() => !!document.querySelector('#missingPick_1'))) break;
+    await page.waitForTimeout(100);
+  }
+  const relinkDialog = await page.evaluate(() => ({
+    rows: document.querySelectorAll('#missingList .missing-row').length,
+    first: document.querySelector('#missingPick_0')?.value ?? null,
+    second: document.querySelector('#missingPick_1')?.value ?? null,
+    status: document.querySelector('#missingStatus')?.textContent,
+  }));
+  check(
+    'Card Fields says pictures are missing, and Relink… opens them with a single same-name match chosen',
+    relinkNotice.shown === true && relinkNotice.text === '2 pictures are missing (3 cards)' &&
+      relinkDialog.rows === 2 && relinkDialog.first === relinkMoved && relinkDialog.second === '' &&
+      /^1 found by file name/.test(relinkDialog.status || ''),
+    JSON.stringify({ relinkNotice, relinkDialog })
+  );
+  await page.evaluate(async () => {
+    const buttons = [...document.querySelectorAll('#modalFoot button')];
+    buttons.find((b) => b.textContent === 'Relink')?.click();
+  });
+  for (let i = 0; i < 50; i += 1) {
+    if (await page.evaluate(() => /^Relinked/.test(document.querySelector('#missingStatus')?.textContent || ''))) break;
+    await page.waitForTimeout(100);
+  }
+  const relinked = await page.evaluate(async ({ lost, moved, twin }) => {
+    try {
+      const { state, editor } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const cards = await import('/js/core/cards.js');
+      const status = document.querySelector('#missingStatus')?.textContent;
+      const rows = document.querySelectorAll('#missingList .missing-row').length;
+      const art = editor.findBySlot('art')[0];
+      const shown = t.isPlacedArt(art) ? art.tcgAsset : 'placeholder';
+      const zoom = t.readFraming(art)?.zoom ?? null;
+      const dirty = state.dirty;
+      document.querySelector('#modalFoot button')?.click();
+      cards.syncActive();
+      const values = cards.cardList().map((c) => c.values.art);
+      await new Promise((r) => setTimeout(r, 600));
+      return {
+        status, rows, shown, zoom, dirty,
+        values: values.map((v) => (v === moved ? 'moved' : v === lost ? 'lost' : v === twin ? 'twin' : v)),
+        notice: document.querySelector('#cardMissingText')?.textContent,
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }, relinkPaths);
+  check(
+    'Relink points every card naming the picture at its new place, shows it framed as before, and leaves the rest',
+    /^Relinked 1 picture on 2 cards\./.test(relinked.status || '') && relinked.rows === 1 &&
+      relinked.shown === relinkMoved && relinked.zoom === 2 && relinked.dirty === true &&
+      JSON.stringify(relinked.values) === JSON.stringify(['moved', null, 'moved', 'twin']) &&
+      relinked.notice === '1 picture is missing (1 card)',
+    JSON.stringify(relinked)
+  );
+  await page.evaluate(async ({ paths, uploads }) => {
+    const { api, state } = window.TCGForge;
+    for (const folder of [paths.moved, paths.twinA, paths.twinB]) {
+      await api.trash(folder.split('/').slice(0, -1).join('/')).catch(() => {});
+    }
+    await api.trash(paths.turned).catch(() => {});
+    for (const upload of uploads) await api.trash(upload).catch(() => {});
+    state.setDirty(false);
+  }, { paths: { ...relinkPaths, turned: turnedArtPath }, uploads: [...new Set(pickedUploads)] });
+  fs.rmSync(pickedFile, { force: true });
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

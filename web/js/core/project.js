@@ -8,7 +8,7 @@ import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
 import { history } from './history.js';
-import { forEachImageJSON, isImageJSON, toLayoutJSON } from './objects.js';
+import { forEachImageJSON, standInForMissingArt, toLayoutJSON } from './objects.js';
 import { bleedPixels, mirrorBleed } from './bleed.js';
 import { loadCards, resetCards, serializeCards, settled, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
@@ -140,39 +140,6 @@ async function loadProject(data) {
   bus.emit(EVT.OBJECTS, editor.objects());
   history.reset();
   return { missingArt: Object.values(missing) };
-}
-
-/*
- * A card's picture that has gone from the workspace (renamed, moved, on
- * another machine) made Fabric refuse the whole file, so the project could not
- * be opened at all until the picture came back. Card switches already show the
- * slot's placeholder for such a picture and keep its path; the card the file
- * opens on now does the same. Other images — a frame, a background — still
- * refuse the file: there is no layer to stand in for them.
- */
-async function standInForMissingArt(canvasJSON) {
-  const missing = {};
-  const objects = Array.isArray(canvasJSON.objects) ? canvasJSON.objects : [];
-  await Promise.all(
-    objects.map(async (obj, index) => {
-      const placeholder = obj?.tcgPlaceholder;
-      if (!isImageJSON(obj) || !obj.tcgArtBox || !obj.tcgSlot || !placeholder || typeof placeholder !== 'object') return;
-      if (await imageLoads(obj.src)) return;
-      objects[index] = placeholder;
-      missing[obj.tcgSlot] = obj.tcgAsset || obj.src;
-    })
-  );
-  return missing;
-}
-
-function imageLoads(src) {
-  if (!src) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => resolve(true);
-    image.onerror = () => resolve(false);
-    image.src = src;
-  });
 }
 
 function restoreImagePaths(canvasJSON) {

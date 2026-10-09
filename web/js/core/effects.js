@@ -229,11 +229,10 @@ export function fitImage(img, box, mode = 'contain') {
     mode === 'cover'
       ? Math.max(box.width / w, box.height / h)
       : Math.min(box.width / w, box.height / h);
-  img.set({
-    scaleX: scale,
-    scaleY: scale,
-    left: box.left + (box.width - w * scale) / 2,
-    top: box.top + (box.height - h * scale) / 2,
-  });
+  img.set({ scaleX: scale, scaleY: scale });
+  // Placed by its centre: `left`/`top` are a turned or flipped picture's
+  // corner, so working them out as if it were upright put the picture half
+  // outside the box.
+  img.setPositionByOrigin(new fabric.Point(box.left + box.width / 2, box.top + box.height / 2), 'center', 'center');
   img.setCoords();
 }

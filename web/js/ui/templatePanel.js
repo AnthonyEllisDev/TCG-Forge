@@ -111,8 +111,12 @@ async function load(tpl) {
   }
   try {
     const data = await loadTemplateFile(tpl.path);
-    await applyTemplate(data);
-    toast(`Loaded template “${data.name}”.`, 'ok');
+    const { missingArt = [] } = (await applyTemplate(data)) || {};
+    if (missingArt.length) {
+      toast(`Loaded template “${data.name}”, but its art is missing (${missingArt.join(', ')}) — the art box is shown instead.`, 'warn', 6000);
+    } else {
+      toast(`Loaded template “${data.name}”.`, 'ok');
+    }
   } catch (err) {
     toast(`Could not load template: ${err.message}`, 'err');
   }

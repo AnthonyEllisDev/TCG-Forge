@@ -193,6 +193,38 @@ filled, the picture centred.
 This is the zoom-and-drag that Hearthcards and Card Conjurer give a card's art,
 and Magic Set Editor's image slice, kept per card.
 
+## When a picture goes missing
+
+A card remembers its picture by where it is in the workspace —
+`assets/art/wyrm.png`. Move that file into a subfolder, rename it, or open the
+project on a computer where it is somewhere else, and the card names a file
+that is not there. The project still opens: the art window shows the
+template's art box, and the card keeps the path, so putting the file back
+brings the picture back as it was framed.
+
+While any card names a missing picture, **Card Fields** says so under the
+fields ("2 pictures are missing (3 cards)") with a **Relink…** button. The
+dialog lists each missing picture and the cards that use it, with a choice of
+every picture in the asset library:
+
+- A picture with exactly one file of the same name anywhere in the library
+  has it chosen already — the usual case after tidying files into folders.
+  Files of the same name, or the same name with another extension, are listed
+  first; when there are two, which one is meant is left to you.
+- **Relink** points every card naming each chosen picture at its new place at
+  once, and the card on screen shows it straight away. How each card framed
+  the picture is kept — it is the same picture, somewhere else.
+- **Look again** reads the library again, for a file you have just put back
+  or copied in by hand.
+
+Relinking marks the project unsaved; save to keep it. Like an update from a
+spreadsheet, it is not a step **Ctrl+Z** takes back — relink to the old name
+if you need to. Only card artwork is listed: a frame or background that is
+missing stops the project opening, and the message names the file.
+
+This is the *Relink* of a desktop-publishing program's Links panel, which
+also searches a folder for files of the same name.
+
 ## Filling a project from a spreadsheet
 
 In the batch dialog, **Add rows as cards** turns every row into a card in this
