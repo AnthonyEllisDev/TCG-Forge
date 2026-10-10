@@ -6801,6 +6801,199 @@ try {
     await api.trash(art).catch(() => {});
   }, guardPaths);
 
+  /* ---- 0.21.0: spacing by a typed gap, and two arranging fixes --------- */
+  /* Guards first, each returning data. A multi-selection the user stretched
+     or turned as a whole keeps its members in its own space: Align, Match
+     and the arrow keys measured in card pixels and wrote them there. Match
+     size and the Width box left out a layer's stroke. */
+  await page.evaluate(async () => {
+    const { api, editor, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/blank-starter.json'));
+    editor.canvas.discardActiveObject();
+    state.setDirty(false);
+  });
+  const gapRects = (list) => page.evaluate((list) => {
+    const { editor } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    for (const obj of editor.objects().filter((o) => /^Gap /.test(o.tcgName || ''))) editor.canvas.remove(obj);
+    for (const [name, left, top, width, height, stroke = 0] of list) {
+      const obj = new window.fabric.Rect({ left, top, width, height, fill: '#3366cc', stroke: '#ffffff', strokeWidth: stroke, strokeUniform: true });
+      obj.set('tcgName', name);
+      editor.place(obj, { center: false, select: false });
+    }
+    editor.canvas.discardActiveObject();
+    editor.canvas.requestRenderAll();
+  }, list);
+  const stretchedSelection = async (action) => {
+    await gapRects([['Gap A', 100, 100, 100, 50], ['Gap B', 300, 300, 200, 80]]);
+    return page.evaluate((action) => {
+      try {
+        const { editor } = window.TCGForge;
+        const named = (name) => editor.objects().find((o) => o.tcgName === name);
+        editor.select([named('Gap A'), named('Gap B')]);
+        editor.setKeyLayer(named('Gap A'));
+        // What dragging a corner of the selection box leaves behind.
+        const box = editor.active();
+        if (action === 'turned') box.rotate(90); else box.set({ scaleX: 2, scaleY: 2 });
+        box.setCoords();
+        const bb = (name) => { const b = named(name).getBoundingRect(); return { x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width) }; };
+        const before = { a: bb('Gap A'), b: bb('Gap B') };
+        if (action === 'alignKey') editor.align('left', { to: 'key' });
+        if (action === 'alignSelection' || action === 'turned') editor.align('left', { to: 'selection' });
+        if (action === 'match') editor.matchSize('width');
+        if (action === 'nudge') editor.nudge(10, 0);
+        editor.canvas.discardActiveObject();
+        return { before, after: { a: bb('Gap A'), b: bb('Gap B') } };
+      } catch (err) {
+        return { error: err.message };
+      }
+    }, action);
+  };
+  const stretchAlignKey = await stretchedSelection('alignKey');
+  const stretchAlignSel = await stretchedSelection('alignSelection');
+  const stretchTurned = await stretchedSelection('turned');
+  const stretchMatch = await stretchedSelection('match');
+  const stretchNudge = await stretchedSelection('nudge');
+  check(
+    'Align, Match and the arrow keys measure in card pixels when the selection itself was stretched or turned',
+    stretchAlignKey.after?.b.x === stretchAlignKey.after?.a.x && stretchAlignKey.after?.a.x === stretchAlignKey.before?.a.x &&
+      stretchAlignSel.after?.b.x === stretchAlignSel.after?.a.x &&
+      stretchTurned.after?.a.x === stretchTurned.after?.b.x && stretchTurned.after?.a.y === stretchTurned.before?.a.y &&
+      stretchMatch.after?.b.w === stretchMatch.after?.a.w &&
+      stretchNudge.after?.a.x === stretchNudge.before?.a.x + 10 && stretchNudge.after?.b.x === stretchNudge.before?.b.x + 10 &&
+      stretchNudge.after?.a.y === stretchNudge.before?.a.y,
+    JSON.stringify({ stretchAlignKey, stretchAlignSel, stretchTurned, stretchMatch, stretchNudge })
+  );
+
+  await gapRects([['Gap Key', 100, 100, 300, 60], ['Gap Stroked', 100, 300, 200, 60, 12], ['Gap Wide', 100, 500, 150, 60, 12]]);
+  const strokeMatch = await page.evaluate(() => {
+    try {
+      const { editor } = window.TCGForge;
+      const named = (name) => editor.objects().find((o) => o.tcgName === name);
+      editor.select([named('Gap Key'), named('Gap Stroked')]);
+      editor.setKeyLayer(named('Gap Key'));
+      const result = editor.matchSize('width');
+      editor.canvas.discardActiveObject();
+      return { result, key: named('Gap Key').getScaledWidth(), stroked: Math.round(named('Gap Stroked').getScaledWidth()) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select(editor.objects().find((o) => o.tcgName === 'Gap Wide'));
+  });
+  await page.fill('#pW', '240');
+  await page.fill('#pH', '90');
+  const strokeBoxes = await page.evaluate(() => {
+    const obj = window.TCGForge.editor.objects().find((o) => o.tcgName === 'Gap Wide');
+    return { w: Math.round(obj.getScaledWidth()), h: Math.round(obj.getScaledHeight()) };
+  });
+  await page.evaluate(() => { document.activeElement?.blur?.(); window.TCGForge.editor.canvas.discardActiveObject(); });
+  check(
+    'Match size and the Width and Height boxes count a layer\'s stroke in the size they give it',
+    strokeMatch.result?.changed === 1 && strokeMatch.key === 300 && strokeMatch.stroked === 300 &&
+      strokeBoxes.w === 240 && strokeBoxes.h === 90,
+    JSON.stringify({ strokeMatch, strokeBoxes })
+  );
+
+  /* Spacing by a typed gap (Properties → Space from the key by …):
+     the key layer stays put, the others close up to it or follow it in the
+     order they start, exactly that many pixels apart. */
+  await gapRects([
+    ['Gap Left', 40, 700, 60, 40], ['Gap Key', 300, 720, 120, 40],
+    ['Gap Right', 650, 690, 50, 40], ['Gap Far', 520, 740, 30, 40],
+  ]);
+  const gapPicked = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const named = (name) => editor.objects().find((o) => o.tcgName === name);
+    editor.select(['Gap Left', 'Gap Key', 'Gap Right', 'Gap Far'].map(named));
+    return String(editor.selection().findIndex((o) => o.tcgName === 'Gap Key'));
+  });
+  await page.selectOption('#pKey', gapPicked);
+  const gapRow = () => page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const row = {};
+    for (const obj of editor.objects().filter((o) => /^Gap /.test(o.tcgName || ''))) {
+      const b = obj.getBoundingRect();
+      row[obj.tcgName.slice(4)] = [Math.round(b.left * 100) / 100, Math.round(b.top * 100) / 100, Math.round(b.width), Math.round(b.height)];
+    }
+    return { row, toast: Array.from(document.querySelectorAll('#toasts .toast')).map((n) => n.textContent).pop() || '' };
+  });
+  const gapBefore = await gapRow();
+  await page.fill('#pGap', '12');
+  await page.click('#pSpaceH');
+  await page.waitForTimeout(400);
+  const gapAcross = await gapRow();
+  const gapSetting = await page.evaluate(() => window.TCGForge.state.settings.spaceGap);
+  await page.fill('#pGap', '0');
+  await page.click('#pSpaceV');
+  await page.waitForTimeout(400);
+  const gapDown = await gapRow();
+  await page.evaluate(async () => { await window.TCGForge.history.undo(); });
+  const gapUndone = await gapRow();
+  const ends = ({ row }) => Object.fromEntries(Object.entries(row).map(([k, [x, y, w, h]]) => [k, { x, y, r: x + w, b: y + h }]));
+  const across = ends(gapAcross);
+  const down = ends(gapDown);
+  check(
+    'Space them by a typed gap keeps the key layer where it is and sets the others exactly that far apart, in order',
+    // Across: Left · Key · Far · Right, 12 px between each, Key unmoved.
+    across.Key.x === 300 && across.Left.r === 300 - 12 && across.Far.x === across.Key.r + 12 &&
+      across.Right.x === across.Far.r + 12 && gapAcross.row.Left[1] === 700 &&
+      /12 px apart across the card, from Gap Key/.test(gapAcross.toast) && gapSetting === 12 &&
+      // Down, gap 0: by top edge Right(690) · Left(700) · Key(720) · Far(740), butted.
+      down.Key.y === 720 && down.Left.b === 720 && down.Right.b === down.Left.y && down.Far.y === down.Key.b &&
+      JSON.stringify(gapUndone.row) === JSON.stringify(gapAcross.row),
+    JSON.stringify({ gapBefore, gapAcross, gapDown, gapUndone, gapSetting })
+  );
+
+  // Two layers are enough with a gap (equal shares still need three); a
+  // locked key still anchors the row; a blank gap moves nothing and says why.
+  await gapRects([['Gap Key', 300, 400, 100, 40], ['Gap Other', 50, 400, 80, 40]]);
+  const gapTwo = await page.evaluate(() => {
+    try {
+      const { editor } = window.TCGForge;
+      const named = (name) => editor.objects().find((o) => o.tcgName === name);
+      const key = named('Gap Key');
+      key.set({ selectable: false, lockMovementX: true, lockMovementY: true });
+      editor.select([key, named('Gap Other')]);
+      editor.setKeyLayer(key);
+      const equal = editor.distribute('horizontal');
+      const typed = editor.distribute('horizontal', { gap: 20 });
+      editor.canvas.discardActiveObject();
+      const b = named('Gap Other').getBoundingRect();
+      return { equal, typed, keyX: key.getBoundingRect().left, otherRight: Math.round(b.left + b.width) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const named = (name) => editor.objects().find((o) => o.tcgName === name);
+    named('Gap Key').set({ selectable: true, lockMovementX: false, lockMovementY: false });
+    editor.select([named('Gap Other'), named('Gap Key')]);
+  });
+  const gapBlankBefore = await gapRow();
+  await page.fill('#pGap', '');
+  await page.click('#pSpaceH', { timeout: 3000 }).catch(() => {});
+  const gapBlank = await gapRow();
+  check(
+    'a typed gap spaces two layers from a locked key; a blank gap moves nothing and says so',
+    gapTwo.equal === false && gapTwo.typed === true && gapTwo.keyX === 300 && gapTwo.otherRight === 280 &&
+      JSON.stringify(gapBlank.row) === JSON.stringify(gapBlankBefore.row) && /Type the gap in pixels/.test(gapBlank.toast),
+    JSON.stringify({ gapTwo, gapBlank })
+  );
+
+  await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    document.activeElement?.blur?.();
+    editor.canvas.discardActiveObject();
+    for (const obj of editor.objects().filter((o) => /^Gap /.test(o.tcgName || ''))) editor.canvas.remove(obj);
+    state.set('spaceGap', 0);
+    state.setDirty(false);
+  });
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

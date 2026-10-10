@@ -71,12 +71,13 @@ it.
   are measured against a key layer (the first one picked, or one chosen in
   Properties); align them to the selection, the key or the card, and give
   them the key's width, height or both. See [`LAYOUT.md`](LAYOUT.md).
+- **Spacing by a typed gap** (0.21.0) — several layers set an exact number of
+  pixels apart across or down the card, from the key layer, which stays put.
+  See [`LAYOUT.md`](LAYOUT.md#space-by-a-gap).
 
 ## Next
 
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
-- **More alignment.** Distribute with a gap you type rather than an equal
-  share, measured from the key layer.
 - **Rulers and manual guides.** Draggable guides that snap, saved with the
   template.
 

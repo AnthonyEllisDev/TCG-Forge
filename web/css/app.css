@@ -158,7 +158,9 @@
   border-bottom: 1px solid var(--line);
 }
 .several[hidden] { display: none; }
-.several .field-row.several-match { align-items: center; }
+.several .field-row.several-match,
+.several .field-row.several-space { align-items: center; }
+.several .several-space input[type="number"] { width: 58px; flex: none; }
 .several-label { margin-right: auto; font-size: var(--fs-xs); color: var(--text-dim); }
 .stack { display: flex; flex-direction: column; gap: 8px; }
 

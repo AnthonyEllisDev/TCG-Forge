@@ -290,6 +290,12 @@
                   <button class="btn tiny" type="button" id="pMatchH" title="Give the other selected layers the key layer's height">Height</button>
                   <button class="btn tiny" type="button" id="pMatchBoth" title="Give the other selected layers the key layer's width and height">Both</button>
                 </div>
+                <div class="field-row several-space" role="group" aria-labelledby="pSpaceLabel">
+                  <span class="several-label" id="pSpaceLabel">Space from the key by</span>
+                  <input type="number" id="pGap" step="1" aria-label="Gap between the layers, in pixels" title="Pixels between neighbouring layers — 0 butts them together, a negative gap overlaps them">
+                  <button class="btn tiny" type="button" id="pSpaceH" title="Set the layers this far apart across the card, the key layer staying where it is">Across</button>
+                  <button class="btn tiny" type="button" id="pSpaceV" title="Set the layers this far apart down the card, the key layer staying where it is">Down</button>
+                </div>
               </div>
               <div class="field-row">
                 <label class="field"><span>X</span><input type="number" id="pX" step="1"></label>

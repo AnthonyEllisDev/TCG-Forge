@@ -35,6 +35,7 @@ const defaultSettings = {
   lastExportScale: 2,
   lastExportBleed: 0,
   alignTo: 'selection',   // what several layers align to: selection | key | card
+  spaceGap: 0,            // pixels between layers spaced from the key layer
 };
 
 function loadSettings() {

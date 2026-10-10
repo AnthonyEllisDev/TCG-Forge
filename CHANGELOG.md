@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.21.0 — spacing layers by a gap you type
+
+- **Space from the key by …** With several layers selected,
+  **Properties → Transform** takes a gap in pixels and sets the layers exactly
+  that far apart, **Across** or **Down** the card. The key layer stays where
+  it is; the layers before it close up to it and the ones after it follow, in
+  the order they start. A gap of 0 butts them together, a negative gap
+  overlaps them. Two layers are enough, and a locked key still anchors the
+  row. The gap is remembered; each press is one undo step. The ⋯ ⋮ buttons
+  still share the space out equally. See
+  [`docs/LAYOUT.md`](docs/LAYOUT.md#space-by-a-gap).
+
+### Fixed
+
+- **Align, Match size and the arrow keys** went wrong on a selection that had
+  been stretched or turned as a whole with its handles: in a selection
+  stretched to twice its size, *Align left* sent layers off the card, *Match
+  width* gave half the key's width, and an arrow key moved the layers two
+  pixels at a time; in a turned one, *Align left* moved layers up and down.
+- **Match size, and the Width and Height boxes,** left a layer's stroke out:
+  a box with a 12 px stroke matched to a 300 px key came out 312 px wide, and
+  typing 240 into Width gave 252.
+
 ## 0.20.0 — a key layer, Align to and Match size
 
 - **A key layer for several layers.** With more than one layer selected, the

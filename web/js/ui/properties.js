@@ -107,6 +107,12 @@ function bindTransform() {
   on(el('pMatchW'), 'click', () => matchSelection('width'));
   on(el('pMatchH'), 'click', () => matchSelection('height'));
   on(el('pMatchBoth'), 'click', () => matchSelection('both'));
+  on(el('pGap'), 'input', () => {
+    const gap = Number(el('pGap').value);
+    if (el('pGap').value !== '' && Number.isFinite(gap)) state.set('spaceGap', gap);
+  });
+  on(el('pSpaceH'), 'click', () => spaceSelection('horizontal'));
+  on(el('pSpaceV'), 'click', () => spaceSelection('vertical'));
 
   bindInput('pW', (n) => apply((o) => resize(o, num(n.value), null)));
   bindInput('pH', (n) => apply((o) => resize(o, null, num(n.value))));
@@ -149,6 +155,25 @@ function matchSelection(dimension) {
   toast(said.join(' '), result.changed ? 'ok' : 'warn');
 }
 
+/** Space by a typed gap, from the panel's buttons; says what it did, or why nothing moved. */
+function spaceSelection(axis) {
+  const raw = el('pGap').value.trim();
+  const gap = Number(raw);
+  if (raw === '' || !Number.isFinite(gap)) {
+    toast('Type the gap in pixels first — 0 butts the layers together.', 'warn');
+    el('pGap').focus();
+    return;
+  }
+  const limit = Math.max(state.card.width, state.card.height);
+  const used = clamp(Math.round(gap * 100) / 100, -limit, limit);
+  const key = labelOf(editor.keyLayer());
+  if (!editor.distribute(axis, { gap: used })) {
+    toast('Select two or more layers to space them by a gap.', 'warn');
+    return;
+  }
+  toast(`Spaced ${used} px apart ${axis === 'vertical' ? 'down' : 'across'} the card, from ${key}.`, 'ok');
+}
+
 /** The several-layers block: which one is the key, and whether there is anything to match. */
 function syncSeveral(objs) {
   const box = el('pSeveral');
@@ -168,14 +193,18 @@ function syncSeveral(objs) {
   el('pKey').value = String(Math.max(0, objs.indexOf(key)));
   setVal('pAlignTo', ['selection', 'key', 'card'].includes(state.settings.alignTo) ? state.settings.alignTo : 'selection');
   const others = objs.some((obj) => obj !== key && obj.selectable !== false);
-  ['pMatchW', 'pMatchH', 'pMatchBoth'].forEach((id) => { el(id).disabled = !others; });
+  ['pMatchW', 'pMatchH', 'pMatchBoth', 'pSpaceH', 'pSpaceV'].forEach((id) => { el(id).disabled = !others; });
+  if (document.activeElement !== el('pGap')) {
+    const gap = Number(state.settings.spaceGap);
+    el('pGap').value = String(Number.isFinite(gap) ? gap : 0);
+  }
 }
 
 function resize(obj, width, height) {
   if (width !== null) {
     const w = Math.max(1, width);
     if (obj.type === 'textbox') obj.set('width', w);
-    else obj.set('scaleX', w / obj.width);
+    else obj.set('scaleX', editor.scaleToShow(obj, 'x', w));
     if (lockRatio) {
       const ratio = obj.type === 'textbox' ? 1 : obj.scaleX;
       if (obj.type !== 'textbox') obj.set('scaleY', ratio);
@@ -187,7 +216,7 @@ function resize(obj, width, height) {
       obj.set('tcgFitHeight', h);
       if (obj.tcgAutoFit) editor.autoFitText(obj);
     } else {
-      obj.set('scaleY', h / obj.height);
+      obj.set('scaleY', editor.scaleToShow(obj, 'y', h));
       if (lockRatio) obj.set('scaleX', obj.scaleY);
     }
   }

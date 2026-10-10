@@ -49,10 +49,32 @@ Height boxes show for the key. Each layer keeps its top-left corner.
 - A layer marked *Only on this card* is matched on this card only, like any
   other change to it.
 
-Each press is one undo step.
+Each press is one undo step. The size counts a layer's stroke, as the Width
+and Height boxes do.
 
 ## Distribute
 
 **⋯** and **⋮** (or **Alt + Shift + H / V**) space three or more layers so
 the gaps between them are equal. The layer that starts first stays put and
 the last one ends where the furthest edge was.
+
+## Space by a gap
+
+When the gaps should be a particular size rather than an equal share — cost
+pips 6 px apart, stat icons butted together — type the gap into
+**Properties → Transform → Space from the key by** and press
+**Across** or **Down**.
+
+- The **key layer** stays where it is.
+- The other layers are taken in the order they start (left to right for
+  *Across*, top to bottom for *Down*). The ones before the key close up to
+  it; the ones after it follow it. Each is set exactly the gap away from its
+  neighbour, edge to edge.
+- **0** butts the layers together; a **negative** gap overlaps them by that
+  much.
+- Two layers are enough. A **locked** key still anchors the row; other
+  locked layers are left out.
+- Only the one axis moves — spacing *Across* leaves every layer's height on
+  the card as it was. Align them first if they should share a line.
+
+The gap is remembered between sessions. Each press is one undo step.

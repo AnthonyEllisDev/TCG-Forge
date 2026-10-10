@@ -48,8 +48,8 @@ python launch.py --verbose            # log every request
 **Full layout control.** Everything on the card is a layer you can move, scale,
 rotate, reorder, lock, hide, group and rename. Align layers to the card, to
 each other or to a key layer that stays put, give several layers one layer's
-width or height, and distribute three or more — a row of cost pips, a column
-of stat icons — so the gaps between them come out equal (see
+width or height, and distribute them — a row of cost pips, a column of stat
+icons — with equal gaps or a gap you type, measured from the key (see
 [`docs/LAYOUT.md`](docs/LAYOUT.md)). Nothing about the layout is hard-coded to
 a particular game.
 

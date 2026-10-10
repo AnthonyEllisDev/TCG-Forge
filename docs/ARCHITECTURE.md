@@ -204,8 +204,15 @@ hook straight onto the canvas context. An `exporting` flag suppresses them while
 
 Anything that arranges layers works from `getBoundingRect()`, which is in card
 coordinates, rather than from `left`/`top`: a member of a multi-layer selection
-keeps those relative to the selection's centre. `align()` and `nudge()` only add
-deltas, so they can stay inside the selection. They, `distribute()` and
+keeps those relative to the selection's centre — and in the selection's own
+scale and angle, which the user can change with its handles. `align()` and
+`nudge()` only add deltas, so they can stay inside the selection, but a delta
+in card pixels is turned into the selection's space first (`moveBy()`, through
+the inverse of `group.calcTransformMatrix()`); `matchSize()` drops the
+selection before it measures anything. A size the Properties boxes show
+includes the layer's stroke, which a uniform stroke does not scale with, so
+`scaleToShow(obj, axis, size)` solves for the scale from two samples rather
+than dividing by `width` (0.21.0). They, `distribute()` and
 `remove()` all leave locked layers alone: a locked layer can still be picked
 from the Layers panel, so the lock is honoured by the commands, not only by the
 canvas. `distribute()` measures every
@@ -235,6 +242,15 @@ triangles), a text box's `width` only (then `autoFitText()`), each layer's
 top-left corner kept; it returns `{changed, skipped}` or `false`. Properties
 shows `#pSeveral` (`#pKey`, `#pAlignTo`, `#pMatchW`/`#pMatchH`/`#pMatchBoth`)
 for a multi-selection; the view toolbar had no room.
+
+**Spacing by a typed gap** (0.21.0) is `distribute(axis, {gap})`. With a
+finite `gap` it needs two layers, not three: the members are sorted by start
+edge, the key layer keeps its place (a locked key is measured but never moved;
+other locked layers are left out), and each start edge is computed outwards
+from the key — those before it close up to it, those after it follow — so
+every neighbouring pair is exactly `gap` apart. Without `gap` it is the equal
+share as before. Properties' `#pGap`, `#pSpaceH` and `#pSpaceV` sit in
+`#pSeveral`; the gap is `state.settings.spaceGap`.
 
 ### History
 

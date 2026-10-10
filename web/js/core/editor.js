@@ -706,8 +706,7 @@ class Editor {
       if (mode === 'top') dy = bounds.top - bb.top;
       if (mode === 'bottom') dy = bounds.top + bounds.height - (bb.top + bb.height);
       if (mode === 'vcenter') dy = bounds.top + bounds.height / 2 - (bb.top + bb.height / 2);
-      obj.set({ left: obj.left + dx, top: obj.top + dy });
-      obj.setCoords();
+      moveBy(obj, dx, dy);
     }
     // Select again so the selection box is drawn around where the layers
     // are now, not where they were.
@@ -718,36 +717,70 @@ class Editor {
   }
 
   /**
-   * Space three or more layers evenly along one axis ('horizontal' or
-   * 'vertical'). The gaps between neighbouring bounding boxes come out equal,
-   * not the distances between their centres, which is what a row of cost pips
-   * or icons of different widths needs. The layer that starts first stays put,
-   * the last one ends where the furthest edge was, and the rest fill in by
-   * where they start. Returns false, having moved nothing, below three layers.
+   * Space layers along one axis ('horizontal' or 'vertical'), measuring the
+   * gaps between neighbouring bounding boxes, not their centres — which is
+   * what a row of cost pips or icons of different widths needs.
+   *
+   * Without `gap`: three or more layers get equal gaps; the layer that starts
+   * first stays put, the last one ends where the furthest edge was, and the
+   * rest fill in by where they start.
+   *
+   * With `gap` (card pixels; 0 butts them together, negative overlaps): two
+   * or more layers are set exactly that far apart, in the order they start,
+   * and the key layer stays where it is — the ones before it close up to it,
+   * the ones after it follow it. A locked key still anchors the row; other
+   * locked layers are left out, as every arranging command leaves them.
+   *
+   * Returns false, having moved nothing, when there are too few layers.
    */
-  distribute(axis = 'horizontal') {
+  distribute(axis = 'horizontal', { gap = null } = {}) {
+    const typed = gap !== null && gap !== '' && Number.isFinite(Number(gap));
+    const key = typed ? this.keyLayer() : null;
     const movable = unlocked(this.selection());
-    if (movable.length < 3) return false;
+    const members = key && !movable.includes(key) ? [key, ...movable] : movable;
+    if (members.length < (typed ? 2 : 3)) return false;
     const [start, size] = axis === 'vertical' ? ['top', 'height'] : ['left', 'width'];
     // Measure first: bounding rects are in card coordinates even for members
     // of a multi-layer selection, whose own left/top are not.
-    const items = movable
+    const items = members
       .map((obj, order) => ({ obj, order, bb: obj.getBoundingRect() }))
       .sort((a, b) => a.bb[start] - b.bb[start] || a.order - b.order);
-    const from = items[0].bb[start];
-    const to = Math.max(...items.map(({ bb }) => bb[start] + bb[size]));
-    const total = items.reduce((sum, { bb }) => sum + bb[size], 0);
-    const gap = (to - from - total) / (items.length - 1);
+
+    // Where each layer's start edge goes, in card coordinates.
+    const targets = new Map();
+    if (typed) {
+      const space = Number(gap);
+      const at = items.findIndex(({ obj }) => obj === key);
+      let edge = items[at].bb[start];
+      for (let i = at - 1; i >= 0; i -= 1) {
+        edge -= space + items[i].bb[size];
+        targets.set(items[i].obj, edge);
+      }
+      edge = items[at].bb[start] + items[at].bb[size];
+      for (let i = at + 1; i < items.length; i += 1) {
+        targets.set(items[i].obj, edge + space);
+        edge += space + items[i].bb[size];
+      }
+    } else {
+      const from = items[0].bb[start];
+      const to = Math.max(...items.map(({ bb }) => bb[start] + bb[size]));
+      const total = items.reduce((sum, { bb }) => sum + bb[size], 0);
+      const share = (to - from - total) / (items.length - 1);
+      let at = from;
+      for (const { obj, bb } of items) {
+        targets.set(obj, at);
+        at += bb[size] + share;
+      }
+    }
 
     // Dropping the selection hands every member its card coordinates back, and
     // selecting again afterwards redraws the selection box around where the
     // layers now are rather than where they were.
     const objs = this.memberSelection();
-    let at = from;
     for (const { obj, bb } of items) {
-      obj.set(start, obj[start] + (at - bb[start]));
+      if (!targets.has(obj)) continue;
+      obj.set(start, obj[start] + (targets.get(obj) - bb[start]));
       obj.setCoords();
-      at += bb[size] + gap;
     }
     this.select(objs);
     this.touch();
@@ -766,15 +799,16 @@ class Editor {
   matchSize(dimension = 'width') {
     if (this.selection().length < 2) return false;
     const key = this.keyLayer();
-    const width = key.getScaledWidth();
-    const height = key.getScaledHeight();
     const wantW = dimension === 'width' || dimension === 'both';
     const wantH = dimension === 'height' || dimension === 'both';
     const others = unlocked(this.selection()).filter((obj) => obj !== key);
-    // Members of a multi-selection hold selection-relative coordinates, and
-    // the selection box must be redrawn around the new sizes: drop it, resize
-    // in card coordinates, select again.
+    // Members of a multi-selection hold selection-relative coordinates, and a
+    // selection the user has stretched as a whole scales them all until it is
+    // dropped — so drop it before measuring anything, resize in card
+    // coordinates, and select again.
     const objs = this.memberSelection();
+    const width = key.getScaledWidth();
+    const height = key.getScaledHeight();
     let changed = 0;
     let skipped = 0;
     for (const obj of others) {
@@ -786,10 +820,16 @@ class Editor {
       const before = `${obj.getScaledWidth()}x${obj.getScaledHeight()}`;
       const corner = obj.getPointByOrigin('left', 'top');
       if (wantW) {
-        if (text) obj.set('width', Math.max(1, width) / (obj.scaleX || 1));
-        else obj.set('scaleX', Math.max(1, width) / (obj.width || 1));
+        if (text) {
+          // Whatever the box shows beyond width × scale is its stroke.
+          const sx = obj.scaleX || 1;
+          const extra = obj.getScaledWidth() - obj.width * sx;
+          obj.set('width', Math.max(1, width - extra) / sx);
+        } else {
+          obj.set('scaleX', this.scaleToShow(obj, 'x', width));
+        }
       }
-      if (wantH && !text) obj.set('scaleY', Math.max(1, height) / (obj.height || 1));
+      if (wantH && !text) obj.set('scaleY', this.scaleToShow(obj, 'y', height));
       if (text) {
         obj.initDimensions?.();
         if (obj.tcgAutoFit) this.autoFitText(obj);
@@ -805,13 +845,30 @@ class Editor {
     return { changed, skipped };
   }
 
+  /**
+   * The scale along `axis` ('x' | 'y') at which a layer shows `size` px in
+   * the Properties boxes. A stroke is part of what they show, and a uniform
+   * stroke does not grow with the scale, so `size / width` came out a
+   * stroke too wide. What shows is linear in the scale; two samples give the
+   * line. A layer with nothing to scale (a flat line's height) keeps its own.
+   */
+  scaleToShow(obj, axis, size) {
+    const prop = axis === 'y' ? 'scaleY' : 'scaleX';
+    const shown = () => (axis === 'y' ? obj.getScaledHeight() : obj.getScaledWidth());
+    const was = obj[prop];
+    obj[prop] = 1;
+    const one = shown();
+    obj[prop] = 2;
+    const per = shown() - one;
+    obj[prop] = was;
+    if (!(per > 1e-6)) return was;
+    return Math.max(1, size - (one - per)) / per;
+  }
+
   nudge(dx, dy) {
     const objs = unlocked(this.selection());
     if (!objs.length) return;
-    for (const obj of objs) {
-      obj.set({ left: obj.left + dx, top: obj.top + dy });
-      obj.setCoords();
-    }
+    for (const obj of objs) moveBy(obj, dx, dy);
     this.canvas.requestRenderAll();
     this.touch();
     bus.emit(EVT.SELECTION, objs);
@@ -1186,6 +1243,22 @@ export function formatNumbering(pattern, { n = 1, total = 1 } = {}) {
  */
 function unlocked(objects) {
   return objects.filter((o) => o.selectable !== false);
+}
+
+/**
+ * Move a layer by (dx, dy) card pixels. A member of a multi-selection keeps
+ * its left/top in the selection's own space, which the user may have
+ * stretched or turned as a whole; adding card pixels there moved it twice as
+ * far in a selection scaled ×2, and sideways in a turned one.
+ */
+function moveBy(obj, dx, dy) {
+  let d = { x: dx, y: dy };
+  if (obj.group) {
+    const inverse = fabric.util.invertTransform(obj.group.calcTransformMatrix());
+    d = fabric.util.transformPoint(new fabric.Point(dx, dy), inverse, true);
+  }
+  obj.set({ left: obj.left + d.x, top: obj.top + d.y });
+  obj.setCoords();
 }
 
 export function isTypingTarget(node) {
