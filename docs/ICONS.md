@@ -42,9 +42,41 @@ Hover over a palette button to see its name.
 | `{element-light}` | sunburst | `{star}` | star |
 | `{element-water}` | drop | `{sword}` | sword |
 
-An icon takes the colour, size and weight of the text around it. That is what
-a font glyph is: one colour, the text's own. For a full-colour symbol, place the
-SVG from the Asset Library as its own layer instead.
+An icon takes the size and weight of the text around it, and its colour too
+unless the layer gives it one of its own (next section). A font glyph is one
+colour; for a many-coloured symbol, place the SVG from the Asset Library as its
+own layer instead.
+
+## Colouring icons
+
+Select a text layer and open **Properties → Typography → Icon colours**:
+
+- **All icons** — one colour for every icon in the layer that has none of its
+  own. A gold for every symbol in the rules box, say.
+- **One row per icon** — the icons in the layer's text are listed; give any of
+  them its own colour. `{element-fire}` red and `{element-water}` blue, with
+  everything else gold.
+- **Colour another icon** — the colours belong to the *layer*, not to the
+  words on screen. A rules box shows different icons on different cards, so
+  pick an icon here to colour it before any card uses it. An icon that has a
+  colour stays in the list after it leaves the text.
+- **Reset** — the icon takes the text colour again (or the *All icons* colour,
+  if there is one).
+
+Because the colours are part of the layer, they hold on every card in a
+project, in every batch row, export, print sheet and tabletop sheet, and in a
+template saved from the card. The text is unchanged — `{gem}` is still one
+character, so spreadsheets, the CSV round trip and auto-fit see exactly what
+they did before. Each change is one undo step.
+
+The colours are saved on the layer as `tcgIconColors`, by icon name:
+
+```json
+"tcgIconColors": { "element-fire": "#d8432a", "*": "#d9a520" }
+```
+
+`*` is *All icons*. A name no icon font provides any more is kept and does
+nothing until the font is back.
 
 ## Making your own icons
 
@@ -113,6 +145,15 @@ character the layer's font lacks is drawn from the icon font. Measuring goes
 through the same fallback, which is why wrapping and auto-fit see an icon at its
 real width. The text boxes in the side panels use the same fallback, so an icon
 in a field shows as the icon.
+
+Icon colours are applied as the text is drawn, not stored in the text: Fabric's
+per-character styles are keyed by position and wiped by every change of text
+(Card Fields, batch rows and card switches all make one), so `core/icons.js`
+wraps `getCompleteStyleDeclaration()` to give an icon character its layer's
+colour, and `isEmptyStyles()` so a line holding a coloured icon is drawn run by
+run rather than in one call. Colour does not change a glyph's width, so
+measuring, wrapping and auto-fit are untouched. (The side-panel text boxes show
+icons in the text colour; an input cannot colour single characters.)
 
 If an icon font is removed from the workspace, its characters are still in the
 text and show as empty boxes until it is put back.

@@ -24,6 +24,7 @@ import { initAssetPanel } from './ui/assetPanel.js';
 import { initTemplatePanel, refresh as refreshTemplates } from './ui/templatePanel.js';
 import { initFieldsPanel } from './ui/fieldsPanel.js';
 import { initIconPalette } from './ui/iconPalette.js';
+import { initIconColours } from './ui/iconColours.js';
 import { initBatchPanel } from './ui/batchPanel.js';
 import { initPrintPanel } from './ui/printPanel.js';
 import { initTabletopPanel } from './ui/tabletopPanel.js';
@@ -55,6 +56,7 @@ async function boot() {
   initTemplatePanel();
   initFieldsPanel();
   initIconPalette();
+  initIconColours();
   initBatchPanel();
   initPrintPanel();
   initTabletopPanel();

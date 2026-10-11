@@ -689,7 +689,9 @@ class Editor {
       key = this.keyLayer();
       const bb = key.getBoundingRect();
       bounds = { left: bb.left, top: bb.top, width: bb.width, height: bb.height };
-    } else if (objs.length > 1 && to !== 'card') {
+    } else if (this.selection().length > 1 && to !== 'card') {
+      // A locked layer is never moved, but it is still part of what the
+      // user selected, so its edges count towards the selection's bounds.
       const active = this.active();
       const bb = active.getBoundingRect();
       bounds = { left: bb.left, top: bb.top, width: bb.width, height: bb.height };
@@ -937,6 +939,25 @@ class Editor {
     obj.set('text', text);
     if (obj.tcgAutoFit) this.autoFitText(obj);
     this.canvas.requestRenderAll();
+    return true;
+  }
+
+  /**
+   * Give the icon `name` in a text layer its own colour, or `null` to let it
+   * take the text's colour again. `'*'` is every icon the layer does not
+   * name. The colour is drawn, not written into the text (core/icons.js), so
+   * it holds through Card Fields, batch rows and card switches.
+   */
+  setIconColour(obj, name, colour) {
+    if (!isTextObject(obj) || !name) return false;
+    const colours = { ...(obj.tcgIconColors || {}) };
+    if (colour) colours[name] = colour;
+    else delete colours[name];
+    obj.set('tcgIconColors', Object.keys(colours).length ? colours : undefined);
+    // A custom property does not mark the cached drawing stale on its own.
+    obj.dirty = true;
+    this.canvas.requestRenderAll();
+    this.touch();
     return true;
   }
 

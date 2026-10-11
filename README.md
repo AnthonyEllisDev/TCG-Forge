@@ -86,7 +86,9 @@ spreadsheet cell or the card itself, or pick from the **Icons** palette, and the
 symbol sits in the line of text — wrapping, shrinking and printing with the
 words around it. The icons come from a font built from the SVGs in
 `assets/icons` by `tools/build_icon_font.py`, so your own symbols are one
-command away. See [`docs/ICONS.md`](docs/ICONS.md).
+command away. An icon takes the text's colour, or one of its own — a red
+flame, a blue drop — set once on the layer for the whole set. See
+[`docs/ICONS.md`](docs/ICONS.md).
 
 **Print-ready output.** Card presets are sized in real inches at your chosen dpi
 (Poker 2.5 × 3.5 in at 300 dpi = 750 × 1050 px). Export PNG or JPEG at 1× to 4×,

@@ -263,10 +263,13 @@ function decodeImage(url) {
 /**
  * Render the card on the canvas, `bleedMm` larger on every side.
  *
- * With no bleed this is `editor.toDataURL()` exactly. With bleed the card is
+ * A PNG with no bleed is `editor.toDataURL()` exactly. With bleed the card is
  * drawn with square corners — a shop cuts its own radius, and a rounded
  * corner's transparent pixels would be mirrored into the bleed as notches —
- * and as PNG, so a JPEG is only encoded once, after the edges are added.
+ * and as PNG, so a JPEG is only encoded once, after the edges are added. A
+ * JPEG is always drawn as PNG and laid on white first: it has no
+ * transparency, and the encoder turns transparent pixels (rounded corners,
+ * a transparent background) black.
  */
 export async function renderCard({
   multiplier = 2,
@@ -277,22 +280,26 @@ export async function renderCard({
   squareCorners = false,
 } = {}) {
   const bleed = bleedPixels(bleedMm, state.card.dpi || 300, multiplier);
-  if (!bleed) return editor.toDataURL({ multiplier, format, quality, transparent, squareCorners });
-
-  const trimmed = editor.toDataURL({ multiplier, format: 'png', transparent, squareCorners: true });
-  const canvas = mirrorBleed(await decodeImage(trimmed), bleed);
-  if (format === 'jpeg') {
-    // JPEG has no transparency; without a backdrop it would turn black.
-    const flat = document.createElement('canvas');
-    flat.width = canvas.width;
-    flat.height = canvas.height;
-    const ctx = flat.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, flat.width, flat.height);
-    ctx.drawImage(canvas, 0, 0);
-    return flat.toDataURL('image/jpeg', quality);
+  if (!bleed && format !== 'jpeg') {
+    return editor.toDataURL({ multiplier, format, quality, transparent, squareCorners });
   }
+
+  const drawn = editor.toDataURL({ multiplier, format: 'png', transparent, squareCorners: squareCorners || !!bleed });
+  const canvas = bleed ? mirrorBleed(await decodeImage(drawn), bleed) : await decodeImage(drawn);
+  if (format === 'jpeg') return flatJpeg(canvas, quality);
   return canvas.toDataURL('image/png');
+}
+
+/** A JPEG of `source` (an image or canvas) laid on white. */
+function flatJpeg(source, quality) {
+  const flat = document.createElement('canvas');
+  flat.width = source.width;
+  flat.height = source.height;
+  const ctx = flat.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, flat.width, flat.height);
+  ctx.drawImage(source, 0, 0);
+  return flat.toDataURL('image/jpeg', quality);
 }
 
 export async function exportImage({

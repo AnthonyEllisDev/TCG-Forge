@@ -209,6 +209,55 @@ export function collapseIcons(text) {
   return out;
 }
 
+/* ------------------------------------------------------------ colour -- */
+
+/**
+ * The colour a text layer gives the icon `char`, or null for the text's own
+ * colour. A layer keeps its icon colours as `tcgIconColors`, by icon name
+ * ({gem: '#3fa0ff'}), with '*' standing for every icon it does not name.
+ */
+export function iconColourOf(obj, char) {
+  const colours = obj?.tcgIconColors;
+  if (!colours || !char) return null;
+  const icon = claimed.get(char.codePointAt(0));
+  if (!icon) return null;
+  return colours[icon.name] || colours['*'] || null;
+}
+
+/** Whether a wrapped line of `obj` holds an icon the layer colours. */
+function lineHasColour(obj, lineIndex) {
+  const line = obj._textLines?.[lineIndex];
+  if (!line) return false;
+  return line.some((char) => iconColourOf(obj, char));
+}
+
+/*
+ * The colour is applied as the text is drawn, not stored as Fabric character
+ * styles: those are keyed by character position and wiped by every
+ * set('text') — Card Fields, batch rows and card switches all do one. Drawn
+ * this way, an icon keeps its colour wherever its character goes, and the
+ * text, its measuring and auto-fit are untouched. Fabric draws a run of
+ * characters in one call until their style changes, and skips the per-run
+ * path for a line with no styles at all; both questions are answered here.
+ */
+if (typeof fabric !== 'undefined' && fabric.FabricText) {
+  const completeStyle = fabric.FabricText.prototype.getCompleteStyleDeclaration;
+  fabric.FabricText.prototype.getCompleteStyleDeclaration = function styleWithIconColour(lineIndex, charIndex) {
+    const style = completeStyle.call(this, lineIndex, charIndex);
+    if (!this.tcgIconColors) return style;
+    const colour = iconColourOf(this, this._textLines?.[lineIndex]?.[charIndex]);
+    return colour ? { ...style, fill: colour } : style;
+  };
+  for (const klass of [fabric.FabricText, fabric.Textbox]) {
+    if (!klass || !Object.prototype.hasOwnProperty.call(klass.prototype, 'isEmptyStyles')) continue;
+    const emptyStyles = klass.prototype.isEmptyStyles;
+    klass.prototype.isEmptyStyles = function emptyUnlessIconsColoured(lineIndex) {
+      if (this.tcgIconColors && lineIndex !== undefined && lineHasColour(this, lineIndex)) return false;
+      return emptyStyles.call(this, lineIndex);
+    };
+  }
+}
+
 /* ---------------------------------------------------------- fallback -- */
 
 const quoted = (family) => `"${family.replace(/["\\]/g, '')}"`;

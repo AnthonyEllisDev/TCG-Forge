@@ -433,6 +433,12 @@
               <label class="field"><span>Card numbering</span>
                 <input type="text" id="pNumbering" class="search" placeholder="e.g. {n:3}/{total}" spellcheck="false" aria-describedby="pNumberingHint"></label>
               <p class="hint" id="pNumberingHint">{n} is the card's place in the set, {total} the set's size; {n:3} pads to three digits. Leave empty for plain text.</p>
+              <div class="icon-colours" id="pIconColours" hidden>
+                <h3 class="sub">Icon colours</h3>
+                <div id="pIconColourRows" class="ic-rows" role="group" aria-label="Icon colours in this layer"></div>
+                <label class="field"><span>Colour another icon</span><select id="pIconColourAdd"></select></label>
+                <p class="hint">An icon takes the text's colour unless it has one here. The colours belong to this layer, so they hold on every card in the set.</p>
+              </div>
             </div>
 
             <!-- image -->

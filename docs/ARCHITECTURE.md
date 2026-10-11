@@ -106,6 +106,7 @@ web/
         ├── templatePanel.js
         ├── fieldsPanel.js the form view of a template
         ├── iconPalette.js the icon palette, and {name} typed into a box
+        ├── iconColours.js Properties → Icon colours, per text layer
         ├── batchPanel.js  the batch generator dialog
         ├── printPanel.js  the print sheet dialog
         ├── tabletopPanel.js the tabletop deck sheet dialog
@@ -162,6 +163,7 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgCardClip` | marks the clipPath `tcgClip` installed, so it can be removed again |
 | `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
 | `tcgNumbering` | a pattern (`"{n:3}/{total}"`): the text layer's text is written from the card's place in its set |
+| `tcgIconColors` | on a text layer: a colour per icon name (`{"gem": "#3fa0ff"}`, `"*"` for every other icon), applied as the text is drawn |
 | `tcgPlaceholder` | on art placed in a slot: the serialised layer it replaced, so the slot can be emptied again |
 | `tcgBase` | on a layer the card on screen has changed for itself: the layout's own values for what it changed. In undo snapshots only — saved files never carry it |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
@@ -196,7 +198,11 @@ width measurements go through the same declaration. When an icon font arrives,
 layer. `{name}` tokens are turned into characters on the way in —
 `setFieldText()` (Card Fields, batch rows, card switches), the Properties text
 box, and the end of on-canvas editing — so the text always holds the
-character, never the token.
+character, never the token. Icon colours (`tcgIconColors`) are drawn the same
+way, without touching the text: `getCompleteStyleDeclaration()` is wrapped to
+give an icon character its layer's colour, and `isEmptyStyles()` to stop
+Fabric drawing a line holding one in a single call. `editor.setIconColour()`
+sets one and marks the layer's cached drawing stale.
 
 Smart guides, the safe zone and the bleed guide are painted in an `after:render`
 hook straight onto the canvas context. An `exporting` flag suppresses them while
@@ -479,7 +485,9 @@ dialog, `runBatch()` (so *Every card* and batch runs) and the batch preview all
 render through it — and with a bleed it draws the card with
 `editor.toDataURL({ squareCorners: true })` (the rounded-corner clip is left
 off, or its transparent corners would be mirrored into the margin as notches),
-mirrors it, and only then encodes JPEG on a white backdrop. And
+mirrors it, and only then encodes JPEG on a white backdrop (a JPEG without
+bleed is drawn as PNG and laid on white the same way, or its rounded corners
+would encode black). And
 `buildSheets({ mirror: true })` replaces each decoded image with its mirrored
 version, the bleed scaled from sheet pixels to the image's own, after which
 `drawCard()` lays it over slot + bleed exactly as it does an image that carried

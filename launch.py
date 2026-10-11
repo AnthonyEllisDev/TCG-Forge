@@ -38,7 +38,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.21.0"
+APP_VERSION = "0.22.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -121,7 +121,12 @@ def slugify(value: str, fallback: str = "untitled") -> str:
 def safe_filename(name: str) -> str:
     name = os.path.basename(name or "").strip()
     name = re.sub(r"[^A-Za-z0-9._ \-()]", "_", name)
-    name = name.lstrip(".") or "untitled"
+    bare = name.lstrip(".")
+    if bare != name and bare and "." not in bare:
+        # ".png" or "..png" is all extension; stripping the dots alone left
+        # "png", a file the asset scan never lists.
+        bare = "untitled." + bare
+    name = bare or "untitled"
     # Cut the stem, not the whole name: a long batch pattern otherwise lost its
     # ".png", and the "-2" that kept two cards apart along with it.
     stem, ext = os.path.splitext(name)

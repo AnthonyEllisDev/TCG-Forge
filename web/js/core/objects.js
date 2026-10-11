@@ -45,6 +45,7 @@ export const CUSTOM_PROPS = [
   'tcgFitSize',
   'tcgShowIf',
   'tcgNumbering',
+  'tcgIconColors',
   'tcgPlaceholder',
   'tcgBase',
   '_baseWidth',

@@ -74,17 +74,18 @@ it.
 - **Spacing by a typed gap** (0.21.0) — several layers set an exact number of
   pixels apart across or down the card, from the key layer, which stays put.
   See [`LAYOUT.md`](LAYOUT.md#space-by-a-gap).
+- **Coloured icons in text** (0.22.0) — a text layer gives each icon, or all
+  of them, a colour of its own, kept through Card Fields, batch rows, card
+  switches and every output. See [`ICONS.md`](ICONS.md#colouring-icons).
 
 ## Next
 
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
 - **Rulers and manual guides.** Draggable guides that snap, saved with the
   template.
-
-- **Coloured icons in text.** Today an icon takes the text's colour. A
-  per-icon colour (or full-colour SVG runs) needs Fabric's per-character
-  styles kept in step with the text, through Card Fields, batch and card
-  switches.
+- **Many-coloured icons in text.** An icon is one colour (its own or the
+  text's). Full-colour symbols in a line of text would need image runs drawn
+  inside Fabric's text layout.
 
 ## Soon after
 

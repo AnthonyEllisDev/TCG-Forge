@@ -112,7 +112,8 @@ percent-encoded.
 ```
 
 Copies a file into `assets/<category>[/<group>]`. Names are sanitised and
-de-duplicated (`fire-2.png`), and the payload is capped at 64 MB. Returns the
+de-duplicated (`fire-2.png`; a name that is all extension, like `.png`, becomes
+`untitled.png`), and the payload is capped at 64 MB. Returns the
 new `path` and `url`.
 
 ### `POST /api/export`

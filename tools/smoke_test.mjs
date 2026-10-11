@@ -6994,6 +6994,311 @@ try {
     state.setDirty(false);
   });
 
+  /* ---- 0.22.0: arranging with a locked layer, JPEG corners, upload names, icon colours */
+
+  // Align to the selection counts a locked member's edges: it is never moved,
+  // but it was selected. With one unlocked layer left the selection's bounds
+  // used to fall back to the card, so the other layer went to the card edge.
+  const lockedAlign = await page.evaluate(() => {
+    try {
+      const { editor, state } = window.TCGForge;
+      state.set('alignTo', 'selection');
+      const a = editor.insert('rect');
+      a.set({ left: 200, top: 100, width: 100, height: 50, strokeWidth: 0, tcgName: 'Locked Align A' });
+      const b = editor.insert('rect');
+      b.set({ left: 400, top: 300, width: 100, height: 50, strokeWidth: 0, tcgName: 'Locked Align B' });
+      a.setCoords();
+      b.setCoords();
+      b.set({ selectable: false, lockMovementX: true, lockMovementY: true });
+      const edges = () => {
+        editor.canvas.discardActiveObject();
+        const r = a.getBoundingRect();
+        return [Math.round(r.left), Math.round(r.left + r.width)];
+      };
+      editor.select([a, b]);
+      editor.align('left');
+      const left = edges();
+      editor.select([a, b]);
+      editor.align('right');
+      const right = edges();
+      return { left, right, bLeft: Math.round(b.getBoundingRect().left) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    for (const obj of editor.objects().filter((o) => /^Locked Align /.test(o.tcgName || ''))) editor.canvas.remove(obj);
+  });
+  check(
+    'Align to the selection measures a locked layer in it instead of sending the other layer to the card edge',
+    lockedAlign.left?.[0] === 200 && lockedAlign.right?.[1] === 500 && lockedAlign.bLeft === 400,
+    JSON.stringify(lockedAlign)
+  );
+
+  // A JPEG has no transparency: the rounded corners (and a transparent
+  // background) were encoded black unless bleed was on.
+  const jpegCorners = await page.evaluate(async () => {
+    try {
+      const { state } = window.TCGForge;
+      const { renderCard } = await import('/js/core/project.js');
+      const corner = async (url) => {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return [...ctx.getImageData(1, 1, 1, 1).data.slice(0, 3)];
+      };
+      return {
+        radius: state.card.radius,
+        plain: await corner(await renderCard({ multiplier: 1, format: 'jpeg' })),
+        transparent: await corner(await renderCard({ multiplier: 1, format: 'jpeg', transparent: true })),
+        png: await corner(await renderCard({ multiplier: 1, format: 'png' })),
+        jpegType: (await renderCard({ multiplier: 1, format: 'jpeg' })).slice(0, 15),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const whiteish = (rgb) => Array.isArray(rgb) && rgb.every((v) => v > 240);
+  check(
+    'a JPEG export lays the rounded corners and a transparent background on white, not black',
+    jpegCorners.radius > 0 && whiteish(jpegCorners.plain) && whiteish(jpegCorners.transparent) &&
+      jpegCorners.jpegType === 'data:image/jpeg',
+    JSON.stringify(jpegCorners)
+  );
+
+  // An upload called "..png" or ".png" lost its extension ("png") and never
+  // showed in the library.
+  const dotUpload = await page.evaluate(async () => {
+    try {
+      const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+      const send = async (filename) => {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, category: 'art', data: pixel }),
+        });
+        return (await res.json()).path || '';
+      };
+      const paths = [await send('..png'), await send('.png')];
+      const listed = await (await fetch('/api/assets')).json();
+      const art = JSON.stringify(listed);
+      const shown = paths.map((p) => art.includes(JSON.stringify(p)));
+      for (const path of paths) await window.TCGForge.api.trash(path).catch(() => {});
+      return { paths, shown };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'an upload named "..png" or ".png" keeps its extension and is listed in the library',
+    Array.isArray(dotUpload.paths) && dotUpload.paths.every((p) => /^assets\/art\/untitled(-\d+)?\.png$/.test(p)) &&
+      dotUpload.shown.every(Boolean),
+    JSON.stringify(dotUpload)
+  );
+
+  // Icon colours. Count, inside a layer's box on a render, the pixels of a
+  // pure colour no template uses — so only an icon drawn in it can paint them.
+  const iconInk = async ({ slot = null, name = null, colours }) =>
+    page.evaluate(async ({ slot, name, colours }) => {
+      try {
+        const { editor } = window.TCGForge;
+        const { renderCard } = await import('/js/core/project.js');
+        const layer = editor.objects().find((o) => (slot ? o.tcgSlot === slot : o.tcgName === name));
+        editor.canvas.discardActiveObject();
+        const box = layer.getBoundingRect();
+        const img = new Image();
+        img.src = await renderCard({ multiplier: 1, format: 'png' });
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(Math.floor(box.left), Math.floor(box.top), Math.ceil(box.width), Math.ceil(box.height)).data;
+        const out = Object.fromEntries(Object.keys(colours).map((k) => [k, 0]));
+        for (let i = 0; i < data.length; i += 4) {
+          for (const [k, [r, g, b]] of Object.entries(colours)) {
+            if (Math.abs(data[i] - r) < 40 && Math.abs(data[i + 1] - g) < 40 && Math.abs(data[i + 2] - b) < 40 && data[i + 3] > 200) out[k] += 1;
+          }
+        }
+        return out;
+      } catch (err) {
+        return { error: err.message };
+      }
+    }, { slot, name, colours });
+
+  // One icon coloured through the real Properties inputs, then every other
+  // icon through "All icons"; the text and the uncoloured icon stay black.
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const text = editor.insert('text');
+    text.set({
+      left: 60, top: 60, width: 600, fontSize: 140, fill: '#0000ff', stroke: null, strokeWidth: 0, shadow: null,
+      fontWeight: 'normal', text: 'X{gem}{gem}{skull}', tcgName: 'Icon Ink', tcgAutoFit: false,
+    });
+    editor.select([text]);
+  });
+  await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const { expandIcons } = await import('/js/core/icons.js');
+    const text = editor.objects().find((o) => o.tcgName === 'Icon Ink');
+    text.set('text', expandIcons('X{gem}{gem}{skull}'));
+    text.initDimensions();
+    editor.touch();
+    editor.select([text]);
+  });
+  await page.waitForTimeout(300);
+  const inkColours = { red: [255, 0, 0], green: [0, 255, 0], blue: [0, 0, 255] };
+  const inkBefore = await iconInk({ name: 'Icon Ink', colours: inkColours });
+  // A render drops the selection (as an export does); pick the layer again.
+  const inkSelect = () => page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select([editor.objects().find((o) => o.tcgName === 'Icon Ink')]);
+  });
+  await inkSelect();
+  const inkRows = await page.evaluate(() => ({
+    hidden: document.getElementById('pIconColours').hidden,
+    rows: [...document.querySelectorAll('#pIconColourRows .ic-row')].map((r) => r.dataset.iconRow).join(' '),
+  }));
+  await page.fill('#pIconColourRows input[data-icon-colour="gem"]', '#ff0000');
+  await page.waitForTimeout(200);
+  const inkGem = await iconInk({ name: 'Icon Ink', colours: inkColours });
+  await inkSelect();
+  await page.fill('#pIconColourRows input[data-icon-colour="*"]', '#00ff00');
+  await page.waitForTimeout(200);
+  const inkAll = await iconInk({ name: 'Icon Ink', colours: inkColours });
+  await inkSelect();
+  const inkStored = await page.evaluate(() => window.TCGForge.editor.objects().find((o) => o.tcgName === 'Icon Ink').tcgIconColors);
+  check(
+    'an icon given a colour in Properties is drawn in it, "All icons" colours the rest, and the words keep the text colour',
+    !inkRows.hidden && inkRows.rows === '* gem skull' &&
+      // Blue is the text's own colour: the X and every icon at first, then
+      // less of it as each icon takes a colour, and never none (the X).
+      inkBefore.red === 0 && inkBefore.green === 0 && inkBefore.blue > 500 &&
+      inkGem.red > 500 && inkGem.green === 0 && inkGem.blue > 200 && inkGem.blue < inkBefore.blue &&
+      inkAll.red === inkGem.red && inkAll.green > 200 && inkAll.blue > 200 && inkAll.blue < inkGem.blue &&
+      inkStored?.gem === '#ff0000' && inkStored?.['*'] === '#00ff00',
+    JSON.stringify({ inkRows, inkBefore, inkGem, inkAll, inkStored })
+  );
+
+  // The colours belong to the layer, not to the words: a row of the list
+  // stays when its icon leaves the text, Reset hands the icon back to the
+  // text colour, a picked icon joins the list, and undo puts a colour back.
+  const inkUi = await page.evaluate(async () => {
+    try {
+      const { editor, history } = window.TCGForge;
+      const { expandIcons } = await import('/js/core/icons.js');
+      const text = editor.objects().find((o) => o.tcgName === 'Icon Ink');
+      const rows = () => [...document.querySelectorAll('#pIconColourRows .ic-row')].map((r) => `${r.dataset.iconRow}${r.classList.contains('unset') ? '' : '!'}`).join(' ');
+      text.set('text', expandIcons('Y{heart}'));
+      editor.touch();
+      const afterText = rows();
+      document.querySelector('[data-icon-colour-clear="gem"]').click();
+      const afterReset = rows();
+      const gemAfterReset = text.tcgIconColors?.gem ?? null;
+      // Let the history record the reset as its own step before the next.
+      await new Promise((r) => setTimeout(r, 450));
+      const add = document.getElementById('pIconColourAdd');
+      add.value = 'star';
+      add.dispatchEvent(new Event('change'));
+      const afterAdd = rows();
+      const focused = document.activeElement?.dataset?.iconColour || '';
+      await history.flush?.();
+      await new Promise((r) => setTimeout(r, 400));
+      await history.undo();
+      await new Promise((r) => setTimeout(r, 300));
+      const undone = editor.objects().find((o) => o.tcgName === 'Icon Ink')?.tcgIconColors || null;
+      return { afterText, afterReset, gemAfterReset, afterAdd, focused, undone };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'the icon-colour list keeps coloured icons that left the text, Reset and "Colour another icon" work, and undo takes a picked colour back off',
+    inkUi.afterText === '*! heart gem!' && inkUi.afterReset === '*! heart' && inkUi.gemAfterReset === null &&
+      inkUi.afterAdd === '*! heart star!' && inkUi.focused === 'star' &&
+      inkUi.undone && !('star' in inkUi.undone) && !('gem' in inkUi.undone) && inkUi.undone['*'] === '#00ff00',
+    JSON.stringify(inkUi)
+  );
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    for (const obj of editor.objects().filter((o) => o.tcgName === 'Icon Ink')) editor.canvas.remove(obj);
+    editor.emitSelection();
+  });
+
+  // On a real template: a rules box that colours {gem} keeps doing so on a
+  // second card, through a card switch, in a batch row and in the saved file.
+  const inkProject = await page.evaluate(async () => {
+    try {
+      const { editor, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const project = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const rules = () => editor.objects().find((o) => o.tcgSlot === 'rules');
+      editor.setIconColour(rules(), 'gem', '#00ff00');
+      return { ok: true, saved: JSON.stringify((await project.serializeProject({ embed: false })).canvas.objects.find((o) => o.tcgSlot === 'rules').tcgIconColors) };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.fill('#ff_rules', 'Pay {gem}{gem} now.');
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    await cards.addCard();
+  });
+  await page.waitForTimeout(300);
+  await page.fill('#ff_rules', 'Two {gem}{gem}{gem} here.');
+  await page.evaluate(async () => {
+    const cards = await import('/js/core/cards.js');
+    await cards.switchCard(0);
+    await cards.switchCard(1);
+  });
+  const greenOnly = { green: [0, 255, 0] };
+  const inkCard2 = await iconInk({ slot: 'rules', colours: greenOnly });
+  await page.evaluate(async () => { const cards = await import('/js/core/cards.js'); await cards.switchCard(0); });
+  const inkCard1 = await iconInk({ slot: 'rules', colours: greenOnly });
+  const inkBatch = await page.evaluate(async () => {
+    try {
+      const batch = await import('/js/core/batch.js');
+      const url = await batch.renderRow({ r: 'Row {gem}{gem}{gem}{gem}' }, { r: 'rules' }, { multiplier: 1 });
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, c.width, c.height).data;
+      let green = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] < 40 && data[i + 1] > 215 && data[i + 2] < 40) green += 1;
+      return { green };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a coloured icon keeps its colour on every card, through a switch, in a batch row and in the saved project',
+    inkProject.saved === '{"gem":"#00ff00"}' && inkCard1.green > 100 && inkCard2.green > 100 && inkBatch.green > 100,
+    JSON.stringify({ inkProject, inkCard1, inkCard2, inkBatch })
+  );
+  await page.evaluate(async () => {
+    const { editor, api, state } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    document.activeElement?.blur?.();
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    editor.canvas.discardActiveObject();
+    state.setDirty(false);
+  });
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

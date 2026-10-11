@@ -163,6 +163,15 @@
 .several .several-space input[type="number"] { width: 58px; flex: none; }
 .several-label { margin-right: auto; font-size: var(--fs-xs); color: var(--text-dim); }
 .stack { display: flex; flex-direction: column; gap: 8px; }
+/* Properties → Typography → Icon colours. */
+.icon-colours { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.icon-colours[hidden] { display: none; }
+.icon-colours .ic-rows { display: flex; flex-direction: column; gap: 4px; }
+.icon-colours .ic-row { display: flex; align-items: center; gap: 8px; }
+.icon-colours .ic-glyph { width: 22px; text-align: center; font-family: var(--font-icons); font-size: 17px; line-height: 1; }
+.icon-colours .ic-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-dim); }
+.icon-colours .ic-row.unset .ic-name { color: var(--text-faint); }
+.icon-colours .ic-row input[type="color"] { width: 40px; flex: none; }
 
 .color-row { display: flex; gap: 6px; align-items: center; }
 .hex { font-family: var(--font-mono); font-size: var(--fs-xs); text-transform: lowercase; }

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.22.0 — coloured icons in text
+
+- **Icon colours.** A text layer can give each icon its own colour — a red
+  `{element-fire}`, a blue `{element-water}` — or one colour to every icon,
+  in **Properties → Typography → Icon colours**. The list shows the icons in
+  the layer's text and any it already colours; **Colour another icon** adds
+  one that is not in the words on screen, and **Reset** hands an icon back to
+  the text colour. The colours belong to the layer, so a rules box colours
+  its icons the same way on every card, in every batch row, export, print
+  sheet and tabletop sheet, and in templates saved from it. The text itself
+  is unchanged — `{gem}` is still one character, measured and auto-fitted as
+  before. See [`docs/ICONS.md`](docs/ICONS.md#colouring-icons).
+
+### Fixed
+
+- **Align with a locked layer in the selection** sent the other layer to the
+  card's edge. With *Align to: selection*, a locked layer is still never
+  moved, but its edges now count towards the selection it is part of.
+- **JPEG exports without bleed** had black rounded corners, and a black
+  background when *Transparent* was ticked. JPEG has no transparency; the
+  card is now laid on white first, as it already was with bleed.
+- **A picture uploaded as `..png` or `.png`** was saved as `png`, with no
+  extension, and never appeared in the Asset Library. It is now saved as
+  `untitled.png`.
+
 ## 0.21.0 — spacing layers by a gap you type
 
 - **Space from the key by …** With several layers selected,
