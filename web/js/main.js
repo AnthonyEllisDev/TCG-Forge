@@ -31,6 +31,7 @@ import { initTabletopPanel } from './ui/tabletopPanel.js';
 import { initMissingPanel } from './ui/missingPanel.js';
 import { initCardStrip } from './ui/cardStrip.js';
 import { initShortcuts } from './ui/shortcuts.js';
+import { initRulers } from './ui/rulers.js';
 
 async function boot() {
   if (typeof fabric === 'undefined') {
@@ -63,6 +64,7 @@ async function boot() {
   initMissingPanel();
   initCardStrip();
   initShortcuts();
+  initRulers();
   history.attach();
 
   bus.emit(EVT.CARD, state.card);

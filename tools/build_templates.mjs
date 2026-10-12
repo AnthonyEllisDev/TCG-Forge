@@ -28,6 +28,7 @@ await page.waitForTimeout(600);
 const written = await page.evaluate(async () => {
   const { editor, state, api } = window.TCGForge;
   const { forEachImageJSON } = await import('/js/core/objects.js');
+  const { cardForFile } = await import('/js/core/guides.js');
   const W = 750;
   const H = 1050;
 
@@ -88,7 +89,7 @@ const written = await page.evaluate(async () => {
       description: meta.description,
       author: 'TCG Forge',
       tags: meta.tags,
-      card: { ...state.card },
+      card: cardForFile(state.card),
       fields: meta.fields,
       canvas,
     };

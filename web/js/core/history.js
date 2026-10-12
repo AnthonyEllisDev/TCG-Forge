@@ -10,6 +10,7 @@
 import { bus, EVT } from '../util/bus.js';
 import { state } from './state.js';
 import { editor } from './editor.js';
+import { cleanGuides } from './guides.js';
 
 class History {
   constructor(limit = 80) {
@@ -87,6 +88,7 @@ class History {
     editor.suspendEvents = true;
     try {
       Object.assign(state.card, data.card || {});
+      state.card.guides = cleanGuides(data.card?.guides, state.card);
       editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
       await editor.loadJSON(data.canvas);
       editor.canvas.backgroundColor = state.card.background || '';

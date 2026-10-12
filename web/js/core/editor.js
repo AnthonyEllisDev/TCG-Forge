@@ -8,6 +8,7 @@ import { bus, EVT } from '../util/bus.js';
 import { clamp, round } from '../util/dom.js';
 import { state } from './state.js';
 import { expandIcons } from './icons.js';
+import { AXES, MAX_GUIDES, cleanGuides, guideAt, noGuides } from './guides.js';
 import {
   CUSTOM_PROPS,
   makeArtBox,
@@ -40,6 +41,9 @@ class Editor {
     // one chosen by hand as the key layer (see keyLayer()).
     this.picked = [];
     this.keyChoice = null;
+    // A guide being dragged from a ruler, drawn but not yet placed:
+    // {axis, at, replaces} (replaces = the index of a guide being moved).
+    this.guideDraft = null;
     this._els = {};
   }
 
@@ -184,6 +188,8 @@ class Editor {
 
   setCard(patch = {}) {
     Object.assign(state.card, patch);
+    // A guide the new size leaves outside the card is gone (see cleanGuides).
+    state.card.guides = cleanGuides(state.card.guides, state.card);
     const { width, height, background } = state.card;
     this.canvas.setDimensions({ width, height });
     this.canvas.backgroundColor = background || '';
@@ -258,6 +264,10 @@ class Editor {
 
     const tol = SNAP_TOLERANCE / this.zoom;
     const { width: W, height: H } = state.card;
+    // Fabric moves the layer before this event without refreshing its
+    // corners, so the box would be where the last event left it: the snap
+    // then landed off its target by however far the mouse moved since.
+    obj.setCoords();
     const bb = obj.getBoundingRect();
 
     // Fabric 6 dropped isPartOfActiveSelection(), so asking an object whether
@@ -274,6 +284,11 @@ class Editor {
     for (const o of others) {
       targetsX.push(o.left, o.left + o.width / 2, o.left + o.width);
       targetsY.push(o.top, o.top + o.height / 2, o.top + o.height);
+    }
+    if (this.guidesShown()) {
+      const guides = this.cardGuides();
+      targetsX.push(...guides.x);
+      targetsY.push(...guides.y);
     }
 
     const edgesX = [bb.left, bb.left + bb.width / 2, bb.left + bb.width];
@@ -305,7 +320,9 @@ class Editor {
     if (state.settings.safeZone) overlays.push({ inset: 0.06, color: 'rgba(62,207,142,0.5)' });
     if (state.settings.bleed) overlays.push({ inset: -0.025, color: 'rgba(240,165,58,0.55)' });
     const key = this.keyLayer();
-    if (!this.guides.length && !overlays.length && !key) return;
+    const own = this.guidesShown() ? this.cardGuides() : noGuides();
+    const draft = this.guideDraft;
+    if (!this.guides.length && !overlays.length && !key && !own.x.length && !own.y.length && !draft) return;
 
     const ctx = this.canvas.getContext();
     const rs = this.canvas.getRetinaScaling ? this.canvas.getRetinaScaling() : 1;
@@ -324,6 +341,40 @@ class Editor {
       ctx.lineWidth = 1.5 / this.zoom;
       ctx.setLineDash([8 / this.zoom, 6 / this.zoom]);
       ctx.strokeRect(dx, dy, W - dx * 2, H - dy * 2);
+      ctx.restore();
+    }
+
+    // The user's own guides, then the one being dragged from a ruler.
+    const line = (axis, at) => {
+      if (axis === 'x') {
+        ctx.moveTo(at, 0);
+        ctx.lineTo(at, H);
+      } else {
+        ctx.moveTo(0, at);
+        ctx.lineTo(W, at);
+      }
+    };
+    if (own.x.length || own.y.length) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(47,184,214,0.85)';
+      ctx.lineWidth = 1 / this.zoom;
+      ctx.beginPath();
+      for (const axis of AXES) {
+        own[axis].forEach((at, i) => {
+          if (draft && draft.axis === axis && draft.replaces === i) return;
+          line(axis, at);
+        });
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (draft && Number.isFinite(draft.at)) {
+      ctx.save();
+      ctx.strokeStyle = '#2fb8d6';
+      ctx.lineWidth = 1.5 / this.zoom;
+      ctx.beginPath();
+      line(draft.axis, draft.at);
+      ctx.stroke();
       ctx.restore();
     }
 
@@ -355,6 +406,92 @@ class Editor {
       ctx.strokeRect(bb.left - pad, bb.top - pad, bb.width + pad * 2, bb.height + pad * 2);
     }
     ctx.restore();
+  }
+
+  /* ---------------------------------------------------------- card guides */
+
+  /** Whether the user's guides are on: drawn, snapped to, and on the rulers. */
+  guidesShown() {
+    return state.settings.rulers !== false;
+  }
+
+  /** The card's guides, `{x, y}` in card pixels. Treat it as read-only. */
+  cardGuides() {
+    return state.card.guides || noGuides();
+  }
+
+  /** Adds a guide; returns its index, or -1 (not a number, or the axis is full). */
+  addGuide(axis, at) {
+    if (!AXES.includes(axis)) return -1;
+    const value = guideAt(at, axis === 'x' ? state.card.width : state.card.height);
+    const guides = this.cardGuides();
+    if (value === null || guides[axis].length >= MAX_GUIDES) return -1;
+    this.setGuides({ ...guides, [axis]: [...guides[axis], value] });
+    return guides[axis].length;
+  }
+
+  /** Moves guide `index` to `at`, kept inside the card. */
+  moveGuide(axis, index, at) {
+    const guides = this.cardGuides();
+    const value = guideAt(at, axis === 'x' ? state.card.width : state.card.height);
+    if (!AXES.includes(axis) || value === null || !(index in guides[axis])) return false;
+    if (guides[axis][index] === value) return true;
+    const list = guides[axis].slice();
+    list[index] = value;
+    this.setGuides({ ...guides, [axis]: list });
+    return true;
+  }
+
+  removeGuide(axis, index) {
+    const guides = this.cardGuides();
+    if (!AXES.includes(axis) || !(index in guides[axis])) return false;
+    this.setGuides({ ...guides, [axis]: guides[axis].filter((_, i) => i !== index) });
+    return true;
+  }
+
+  /** Removes every guide; returns how many there were. */
+  removeAllGuides() {
+    const guides = this.cardGuides();
+    const count = guides.x.length + guides.y.length;
+    if (count) this.setGuides(noGuides());
+    return count;
+  }
+
+  /*
+   * Every change replaces the list rather than editing it, because undo
+   * snapshots, `replaceCard()`'s fallback and the files all copy the card
+   * shallowly. It is one edit of the layout: dirty, and one undo step.
+   */
+  setGuides(next) {
+    state.card.guides = cleanGuides(next, state.card);
+    this.canvas.requestRenderAll();
+    bus.emit(EVT.GUIDES, state.card.guides);
+    this.touch();
+  }
+
+  /** Draws (or, with null, stops drawing) a guide still being dragged. */
+  showGuideDraft(draft) {
+    this.guideDraft = draft && AXES.includes(draft.axis) ? { ...draft } : null;
+    this.canvas.requestRenderAll();
+  }
+
+  /**
+   * Where a guide dropped at `at` should land: on the card's edges, centre or
+   * safe zone, or a layer's edge or centre, when one is within the snap
+   * distance and snapping is on.
+   */
+  snapGuide(axis, at) {
+    if (!state.settings.snap || !Number.isFinite(at)) return at;
+    const size = axis === 'x' ? state.card.width : state.card.height;
+    const targets = [0, size / 2, size, size * (axis === 'x' ? 0.08 : 0.06), size * (axis === 'x' ? 0.92 : 0.94)];
+    for (const o of this.canvas.getObjects()) {
+      if (o.visible === false) continue;
+      const bb = o.getBoundingRect();
+      if (axis === 'x') targets.push(bb.left, bb.left + bb.width / 2, bb.left + bb.width);
+      else targets.push(bb.top, bb.top + bb.height / 2, bb.top + bb.height);
+    }
+    const best = nearest([at], targets, SNAP_TOLERANCE / this.zoom);
+    return best ? best.target : at;
   }
 
   /* ------------------------------------------------------------ selection */

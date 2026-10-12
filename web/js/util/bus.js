@@ -33,6 +33,7 @@ export const EVT = {
   OBJECTS: 'editor:objects',          // layer list changed
   MODIFIED: 'editor:modified',        // anything that dirties the project
   CARD: 'editor:card',                // card size/background changed
+  GUIDES: 'editor:guides',            // the card's own guides changed
   ZOOM: 'editor:zoom',
   HISTORY: 'history:changed',
   ASSETS: 'assets:changed',

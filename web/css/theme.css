@@ -36,6 +36,7 @@
   --on-ok:         #06180f;   /* text on a solid green badge, either theme */
   --warn:          #f0a53a;
   --warn-soft:     rgba(240, 165, 58, 0.14);
+  --guide:         #2fb8d6;   /* the card's own guides and their ruler marks */
 
   /* geometry */
   --r-sm: 4px;
@@ -45,6 +46,7 @@
   --dock-w-right: 340px;
   --topbar-h: 46px;
   --statusbar-h: 26px;
+  --ruler: 18px;
 
   /* type */
   --font-ui: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;

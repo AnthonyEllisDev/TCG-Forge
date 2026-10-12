@@ -10,6 +10,7 @@ import { editor } from './editor.js';
 import { history } from './history.js';
 import { forEachImageJSON, standInForMissingArt, toLayoutJSON } from './objects.js';
 import { bleedPixels, mirrorBleed } from './bleed.js';
+import { cardForFile, cleanGuides, noGuides } from './guides.js';
 import { loadCards, resetCards, serializeCards, settled, slotKinds } from './cards.js';
 import { downloadText, downloadURL, slugify } from '../util/dom.js';
 
@@ -36,7 +37,7 @@ export async function serializeProject({ embed = state.settings.embedImages, onl
     version: PROJECT_VERSION,
     name: state.project.name,
     templateId: state.project.templateId,
-    card: { ...state.card },
+    card: cardForFile(state.card),
     fields: state.project.fields || [],
     canvas,
     cards,
@@ -120,6 +121,8 @@ export async function applyProject(data) {
 
 async function loadProject(data) {
   Object.assign(state.card, data.card || {});
+  // A file from before guides (or without any) must not keep the last ones.
+  state.card.guides = cleanGuides(data.card?.guides, state.card);
   state.project.name = data.name || state.project.name;
   state.project.templateId = data.templateId || data.id || null;
   state.project.fields = data.fields || [];
@@ -230,6 +233,7 @@ export async function newProject({ width, height, dpi, radius, background, prese
     radius: radius ?? state.card.radius,
     background: background ?? state.card.background,
     preset: preset ?? state.card.preset,
+    guides: noGuides(),
   });
   state.project.name = 'Untitled Card';
   state.project.path = null;

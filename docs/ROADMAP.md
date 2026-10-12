@@ -77,12 +77,13 @@ it.
 - **Coloured icons in text** (0.22.0) — a text layer gives each icon, or all
   of them, a colour of its own, kept through Card Fields, batch rows, card
   switches and every output. See [`ICONS.md`](ICONS.md#colouring-icons).
+- **Rulers and guides** (0.23.0) — guides pulled from the rulers, moved and
+  typed exactly, snapped to and from, saved with the layout and never
+  exported. See [`LAYOUT.md`](LAYOUT.md#rulers-and-guides).
 
 ## Next
 
 - **Text on a path / arced titles.** Fabric supports path text; it needs UI.
-- **Rulers and manual guides.** Draggable guides that snap, saved with the
-  template.
 - **Many-coloured icons in text.** An icon is one colour (its own or the
   text's). Full-colour symbols in a line of text would need image runs drawn
   inside Fabric's text layout.

@@ -7208,6 +7208,7 @@ try {
       const add = document.getElementById('pIconColourAdd');
       add.value = 'star';
       add.dispatchEvent(new Event('change'));
+      document.getElementById('pIconColourAddBtn').click();
       const afterAdd = rows();
       const focused = document.activeElement?.dataset?.iconColour || '';
       await history.flush?.();
@@ -7298,6 +7299,463 @@ try {
     editor.canvas.discardActiveObject();
     state.setDirty(false);
   });
+
+  /* ---- 0.23.0: icon-colour fixes, folder names, rulers and guides ------ */
+
+  // Icon colours were only drawn on Textbox layers: IText and plain Text
+  // inherit the line shortcut from a parent class the wrap never reached.
+  const iconOtherKinds = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const { expandIcons } = await import('/js/core/icons.js');
+      const { renderCard } = await import('/js/core/project.js');
+      const made = [];
+      for (const [Kind, top] of [[fabric.IText, 120], [fabric.FabricText, 420]]) {
+        const t = new Kind(expandIcons('X{gem}'), { left: 60, top, fontSize: 140, fill: '#0000ff', tcgName: 'Icon Kind' });
+        editor.canvas.add(t);
+        editor.setIconColour(t, 'gem', '#ff0000');
+        made.push(t);
+      }
+      editor.canvas.discardActiveObject();
+      const img = new Image();
+      img.src = await renderCard({ multiplier: 1, format: 'png' });
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const red = made.map((t) => {
+        const box = t.getBoundingRect();
+        const data = ctx.getImageData(Math.floor(box.left), Math.floor(box.top), Math.ceil(box.width), Math.ceil(box.height)).data;
+        let n = 0;
+        for (let i = 0; i < data.length; i += 4) if (data[i] > 215 && data[i + 1] < 40 && data[i + 2] < 40) n += 1;
+        return n;
+      });
+      for (const t of made) editor.canvas.remove(t);
+      return { red };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'an icon colour is drawn on IText and plain text layers too, not only text boxes',
+    Array.isArray(iconOtherKinds.red) && iconOtherKinds.red.every((n) => n > 500),
+    JSON.stringify(iconOtherKinds)
+  );
+
+  // Copying text asks Fabric for each character's full style; that answer
+  // carried the icon's colour, so a pasted icon kept it as a style of its own
+  // that the target layer's Icon colours could neither show nor reset.
+  const iconPasted = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const { expandIcons } = await import('/js/core/icons.js');
+      const { renderCard } = await import('/js/core/project.js');
+      const from = editor.insert('text');
+      const to = editor.insert('text');
+      for (const [t, top, name] of [[from, 60, 'Paste From'], [to, 420, 'Paste To']]) {
+        t.set({ left: 60, top, width: 600, fontSize: 140, fill: '#0000ff', stroke: null, strokeWidth: 0, shadow: null, text: expandIcons('X{gem}'), tcgName: name, tcgAutoFit: false });
+        t.initDimensions();
+      }
+      editor.setIconColour(from, 'gem', '#ff0000');
+      // What Fabric's copy (and a text drag) takes with the characters.
+      const copied = from.getSelectionStyles(0, from.text.length, true);
+      to.insertChars(from.text, copied, to.text.length);
+      to.initDimensions();
+      editor.canvas.discardActiveObject();
+      const box = to.getBoundingRect();
+      const img = new Image();
+      img.src = await renderCard({ multiplier: 1, format: 'png' });
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(Math.floor(box.left), Math.floor(box.top), Math.ceil(box.width), Math.ceil(box.height)).data;
+      let red = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] > 215 && data[i + 1] < 40 && data[i + 2] < 40) red += 1;
+      const copiedFill = copied.map((s) => s.fill);
+      editor.canvas.remove(from);
+      editor.canvas.remove(to);
+      return { copiedFill, red };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'copying text does not bake a layer\'s icon colour into the pasted characters',
+    Array.isArray(iconPasted.copiedFill) && iconPasted.copiedFill.every((f) => f === '#0000ff') && iconPasted.red === 0,
+    JSON.stringify(iconPasted)
+  );
+
+  // A gradient-filled text layer: "Colour another icon" started the new row
+  // at black (the fallback for a fill that is not a string), painting the
+  // icon black at once.
+  const iconGradient = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const { expandIcons } = await import('/js/core/icons.js');
+      const effects = await import('/js/core/effects.js');
+      const t = editor.insert('text');
+      t.set({ left: 60, top: 60, width: 600, fontSize: 100, text: expandIcons('X{gem}'), tcgName: 'Icon Gradient', tcgAutoFit: false });
+      effects.setGradientFill(t, { from: '#ffcc00', to: '#ffcc00' });
+      editor.select([t]);
+      await new Promise((r) => setTimeout(r, 100));
+      const add = document.getElementById('pIconColourAdd');
+      add.value = 'skull';
+      add.dispatchEvent(new Event('change'));
+      document.getElementById('pIconColourAddBtn')?.click();
+      const colours = t.tcgIconColors || null;
+      editor.canvas.remove(t);
+      return { colours };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    '"Colour another icon" on a gradient-filled layer starts from the gradient\'s colour, not black',
+    iconGradient.colours?.skull === '#ffcc00',
+    JSON.stringify(iconGradient)
+  );
+
+  // The add-select coloured an icon on every arrow key (a closed select
+  // changes as you step through it), and Reset dropped focus to the page.
+  await page.evaluate(async () => {
+    const { editor } = window.TCGForge;
+    const { expandIcons } = await import('/js/core/icons.js');
+    const t = editor.insert('text');
+    t.set({ left: 60, top: 60, width: 600, fontSize: 100, fill: '#0000ff', text: expandIcons('X{gem}'), tcgName: 'Icon Keys', tcgAutoFit: false });
+    editor.setIconColour(t, 'gem', '#ff0000');
+    editor.select([t]);
+  });
+  await page.waitForTimeout(450);
+  await page.focus('#pIconColourAdd');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.waitForTimeout(100);
+  const iconArrowed = await page.evaluate(() => ({
+    colours: window.TCGForge.editor.objects().find((o) => o.tcgName === 'Icon Keys')?.tcgIconColors || null,
+    focused: document.activeElement?.id || document.activeElement?.tagName,
+  }));
+  await page.focus('#pIconColourRows [data-icon-colour-clear="gem"]');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  const iconResetFocus = await page.evaluate(() => ({
+    colours: window.TCGForge.editor.objects().find((o) => o.tcgName === 'Icon Keys')?.tcgIconColors || null,
+    focused: document.activeElement?.dataset?.iconColour ?? document.activeElement?.tagName,
+  }));
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    document.activeElement?.blur?.();
+    editor.canvas.discardActiveObject();
+    for (const o of editor.objects().filter((x) => x.tcgName === 'Icon Keys')) editor.canvas.remove(o);
+  });
+  check(
+    'stepping through "Colour another icon" with the arrow keys colours nothing until Add',
+    JSON.stringify(iconArrowed.colours) === '{"gem":"#ff0000"}' && iconArrowed.focused === 'pIconColourAdd',
+    JSON.stringify(iconArrowed)
+  );
+  check(
+    'Reset on an icon colour leaves keyboard focus in the list',
+    !iconResetFocus.colours?.gem && iconResetFocus.focused === 'gem',
+    JSON.stringify(iconResetFocus)
+  );
+
+  // 0.22.0's ".png → untitled.png" rule also turned a folder ".cards" into
+  // "untitled.cards" for an export folder or an upload group.
+  const dotFolders = await page.evaluate(async () => {
+    try {
+      const pixel = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+      const post = async (route, body) => (await (await fetch(`/api/${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })).json()).path || '';
+      const uploaded = await post('upload', { category: 'art', filename: 'dot.png', group: '.smokegroup', data: pixel });
+      const exported = await post('export', { folder: '.smoke-dot', filename: 'dot.png', data: `data:image/png;base64,${pixel}` });
+      for (const p of [uploaded, exported]) {
+        if (p) await window.TCGForge.api.trash(p.split('/').slice(0, -1).join('/')).catch(() => {});
+      }
+      return { uploaded, exported };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a folder name that starts with a dot loses the dot, without becoming "untitled.<name>"',
+    dotFolders.uploaded === 'assets/art/smokegroup/dot.png' && dotFolders.exported === 'exports/smoke-dot/dot.png',
+    JSON.stringify(dotFolders)
+  );
+
+  // Snapping read the layer's box from before the mouse's latest move (Fabric
+  // moves the layer without refreshing its corners), so a layer dragged in
+  // ordinary small steps landed off the card's centre by the last step.
+  const snapStepGeometry = await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    state.set('snap', true);
+    for (const o of editor.objects()) {
+      o.smokeWasVisible = o.visible;
+      o.visible = false;
+    }
+    const rect = editor.insert('rect');
+    rect.set({ left: 100, top: 820, width: 60, height: 60, angle: 0, strokeWidth: 0, tcgName: 'Snap Steps' });
+    rect.setCoords();
+    editor.canvas.discardActiveObject();
+    editor.canvas.requestRenderAll();
+    const c = editor.canvas.lowerCanvasEl.getBoundingClientRect();
+    return { cx: c.left, cy: c.top, scale: c.width / state.card.width };
+  });
+  {
+    const sx = (x) => snapStepGeometry.cx + x * snapStepGeometry.scale;
+    const sy = (y) => snapStepGeometry.cy + y * snapStepGeometry.scale;
+    await page.mouse.move(sx(130), sy(850));
+    await page.mouse.down();
+    // Centre 130 → 372: the last steps fall inside the snap to the centre (375).
+    for (let i = 1; i <= 8; i++) await page.mouse.move(sx(130 + (242 * i) / 8), sy(850));
+    await page.mouse.up();
+  }
+  const snapSteps = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const rect = editor.objects().find((o) => o.tcgName === 'Snap Steps');
+    const centre = rect ? Math.round((rect.left + 30) * 10) / 10 : null;
+    editor.canvas.discardActiveObject();
+    if (rect) editor.canvas.remove(rect);
+    for (const o of editor.objects()) {
+      o.visible = o.smokeWasVisible !== false;
+      delete o.smokeWasVisible;
+    }
+    editor.canvas.requestRenderAll();
+    return { centre };
+  });
+  check(
+    'a layer dragged in small steps snaps exactly onto the card\'s centre',
+    snapSteps.centre === 375,
+    JSON.stringify(snapSteps)
+  );
+
+  /* -- rulers and guides -- */
+
+  // The core: guides are layout, kept to the card, saved with the project
+  // (and only when there are some), cleared by a file without them, undone.
+  const guideCore = await page.evaluate(async () => {
+    try {
+      const { editor, state, api, history } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const project = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const fresh = JSON.stringify(state.card.guides);
+      const plainFile = await project.serializeProject({ embed: false });
+      const added = [editor.addGuide('x', 100.04), editor.addGuide('y', 2000), editor.addGuide('x', 'abc')];
+      const moved = editor.moveGuide('x', 0, -50);
+      const afterEdit = JSON.stringify(state.card.guides);
+      const saved = (await project.serializeProject({ embed: false })).card.guides;
+      await project.saveProject({ name: 'Smoke Guides' });
+      const path = state.project.path;
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const afterTemplate = JSON.stringify(state.card.guides);
+      await project.openProjectPath(path);
+      const reopened = JSON.stringify(state.card.guides);
+      await new Promise((r) => setTimeout(r, 450));
+      editor.removeGuide('y', 0);
+      await history.flush?.();
+      await new Promise((r) => setTimeout(r, 400));
+      const removed = JSON.stringify(state.card.guides);
+      await history.undo();
+      const undone = JSON.stringify(state.card.guides);
+      await api.trash(path).catch(() => {});
+      return { fresh, plainHasGuides: 'guides' in plainFile.card, added, moved, afterEdit, saved, afterTemplate, reopened, removed, undone };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'guides are kept inside the card, saved with the project, cleared by a layout without them, and undone',
+    guideCore.fresh === '{"x":[],"y":[]}' && guideCore.plainHasGuides === false &&
+      JSON.stringify(guideCore.added) === '[0,0,-1]' && guideCore.moved === true &&
+      guideCore.afterEdit === '{"x":[0],"y":[1050]}' && JSON.stringify(guideCore.saved) === '{"x":[0],"y":[1050]}' &&
+      guideCore.afterTemplate === '{"x":[],"y":[]}' && guideCore.reopened === '{"x":[0],"y":[1050]}' &&
+      guideCore.removed === '{"x":[0],"y":[]}' && guideCore.undone === '{"x":[0],"y":[1050]}',
+    JSON.stringify(guideCore)
+  );
+
+  // Guides never reach an output: a render with guides is the same image as
+  // one without.
+  const guideExport = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const { renderCard } = await import('/js/core/project.js');
+      editor.removeAllGuides();
+      const without = await renderCard({ multiplier: 1, format: 'png' });
+      editor.addGuide('x', 200);
+      editor.addGuide('y', 300);
+      const withGuides = await renderCard({ multiplier: 1, format: 'png' });
+      // And the editor does draw them: the on-screen canvas changes.
+      const lower = editor.canvas.lowerCanvasEl;
+      const zoom = editor.zoom * (editor.canvas.getRetinaScaling?.() || 1);
+      editor.canvas.renderAll();
+      const at = (x, y) => [...lower.getContext('2d').getImageData(Math.round(x * zoom), Math.round(y * zoom), 1, 1).data.slice(0, 3)];
+      const onScreen = at(200, 700);
+      editor.removeAllGuides();
+      editor.canvas.renderAll();
+      const offScreen = at(200, 700);
+      return { same: without === withGuides, onScreen, offScreen };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'guides are drawn on the editor\'s canvas but never in an export',
+    guideExport.same === true && JSON.stringify(guideExport.onScreen) !== JSON.stringify(guideExport.offScreen),
+    JSON.stringify(guideExport)
+  );
+
+  // The rulers, with the real mouse: pull a guide down from the top ruler
+  // and one across from the left, move a mark, drop a new one back on its
+  // ruler (nothing), and drag a mark past the end of the card (removed).
+  await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    editor.removeAllGuides();
+    state.set('snap', false);
+    editor.canvas.discardActiveObject();
+  });
+  await page.waitForTimeout(200);
+  const rulerGeometry = () => page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const c = editor.canvas.lowerCanvasEl.getBoundingClientRect();
+    const t = document.getElementById('rulerTop').getBoundingClientRect();
+    const l = document.getElementById('rulerLeft').getBoundingClientRect();
+    return { cx: c.left, cy: c.top, scale: c.width / window.TCGForge.state.card.width, top: t.top + t.height / 2, left: l.left + l.width / 2 };
+  });
+  const rulerAt = await rulerGeometry();
+  const rulerDrag = async (from, to) => {
+    await page.mouse.move(from[0], from[1]);
+    await page.mouse.down();
+    await page.mouse.move((from[0] + to[0]) / 2, (from[1] + to[1]) / 2, { steps: 4 });
+    await page.mouse.move(to[0], to[1], { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(50);
+  };
+  const rulerX = (x) => rulerAt.cx + x * rulerAt.scale;
+  const rulerY = (y) => rulerAt.cy + y * rulerAt.scale;
+  const guidesNow = () => page.evaluate(() => JSON.stringify(window.TCGForge.state.card.guides));
+  await rulerDrag([rulerX(400), rulerAt.top], [rulerX(400), rulerY(300)]);
+  const rulerPulledDown = await guidesNow();
+  await rulerDrag([rulerAt.left, rulerY(500)], [rulerX(200), rulerY(500)]);
+  const rulerPulledAcross = await guidesNow();
+  await rulerDrag([rulerX(200), rulerAt.top], [rulerX(260), rulerAt.top]);
+  const rulerMoved = await guidesNow();
+  await rulerDrag([rulerX(500), rulerAt.top], [rulerX(520), rulerAt.top]);
+  const rulerStayed = await guidesNow();
+  await rulerDrag([rulerAt.left, rulerY(300)], [rulerAt.left, rulerY(-60)]);
+  const rulerRemoved = await guidesNow();
+  check(
+    'a guide pulled from a ruler lands where it is dropped, its mark moves it, and past the card\'s end removes it',
+    rulerPulledDown === '{"x":[],"y":[300]}' && rulerPulledAcross === '{"x":[200],"y":[300]}' &&
+      rulerMoved === '{"x":[260],"y":[300]}' && rulerStayed === rulerMoved && rulerRemoved === '{"x":[260],"y":[]}',
+    JSON.stringify({ rulerAt, rulerPulledDown, rulerPulledAcross, rulerMoved, rulerStayed, rulerRemoved })
+  );
+
+  // Snapping both ways: a guide dropped near the card's centre lands on it,
+  // and a layer dragged near a guide lands on the guide — until Ctrl+;
+  // hides rulers and guides, which also stops the snap. The template's own
+  // layers are hidden meanwhile, so their edges are not snapped to instead.
+  await page.evaluate(() => {
+    const { editor, state } = window.TCGForge;
+    state.set('snap', true);
+    editor.removeAllGuides();
+    for (const o of editor.objects()) {
+      o.smokeWasVisible = o.visible;
+      o.visible = false;
+    }
+  });
+  await rulerDrag([rulerAt.left, rulerY(500)], [rulerX(378), rulerY(500)]);
+  const guideSnapped = await guidesNow();
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.removeAllGuides();
+    editor.addGuide('x', 200);
+    const rect = editor.insert('rect');
+    rect.set({ left: 100, top: 820, width: 60, height: 60, angle: 0, strokeWidth: 0, tcgName: 'Guide Snap' });
+    rect.setCoords();
+    editor.canvas.discardActiveObject();
+    editor.canvas.requestRenderAll();
+  });
+  const guideRectDrag = async (dx) => {
+    const p = await page.evaluate(() => {
+      const r = window.TCGForge.editor.objects().find((o) => o.tcgName === 'Guide Snap');
+      return { x: r.left + 30, y: r.top + 30 };
+    });
+    await rulerDrag([rulerX(p.x), rulerY(p.y)], [rulerX(p.x + dx), rulerY(p.y)]);
+    return page.evaluate(() => Math.round(window.TCGForge.editor.objects().find((o) => o.tcgName === 'Guide Snap').getBoundingRect().left * 10) / 10);
+  };
+  const guideLayerSnap = await guideRectDrag(103);
+  await page.evaluate(() => {
+    const r = window.TCGForge.editor.objects().find((o) => o.tcgName === 'Guide Snap');
+    r.set({ left: 100 });
+    r.setCoords();
+  });
+  await page.click('#canvasScroll', { position: { x: 5, y: 5 } });
+  await page.keyboard.press('Control+;');
+  const guideHidden = await page.evaluate(() => ({
+    shown: window.TCGForge.editor.guidesShown(),
+    ruler: getComputedStyle(document.getElementById('rulerTop')).display,
+    box: document.getElementById('showRulers').checked,
+  }));
+  const guideLayerFree = await guideRectDrag(103);
+  await page.keyboard.press('Control+;');
+  const guideBack = await page.evaluate(() => ({
+    shown: window.TCGForge.editor.guidesShown(),
+    ruler: getComputedStyle(document.getElementById('rulerTop')).display,
+  }));
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.canvas.discardActiveObject();
+    for (const o of editor.objects().filter((x) => x.tcgName === 'Guide Snap')) editor.canvas.remove(o);
+    for (const o of editor.objects()) {
+      o.visible = o.smokeWasVisible !== false;
+      delete o.smokeWasVisible;
+    }
+    editor.removeAllGuides();
+    editor.canvas.requestRenderAll();
+  });
+  check(
+    'a guide snaps to the card\'s centre, a layer snaps to a guide, and Ctrl+; hides rulers and guides (and their snap)',
+    guideSnapped === '{"x":[375],"y":[]}' && guideLayerSnap === 200 &&
+      guideHidden.shown === false && guideHidden.ruler === 'none' && guideHidden.box === false &&
+      Math.abs(guideLayerFree - 203) <= 2 && guideBack.shown === true && guideBack.ruler === 'block',
+    JSON.stringify({ guideSnapped, guideLayerSnap, guideHidden, guideLayerFree, guideBack })
+  );
+
+  // The keyboard way: Card Setup adds a guide at the middle and focuses its
+  // box, typing moves it, × removes it, and Clear empties the list.
+  await page.click('#guideAddV');
+  const guideTyped = { added: await guidesNow(), focused: await page.evaluate(() => document.activeElement?.id) };
+  await page.keyboard.type('120');
+  guideTyped.typed = await guidesNow();
+  await page.click('#guideAddH');
+  guideTyped.label = await page.evaluate(() => document.getElementById('guideAt_y_0')?.getAttribute('aria-label'));
+  await page.focus('[data-guide-remove="x:0"]');
+  await page.keyboard.press('Enter');
+  guideTyped.removed = await guidesNow();
+  guideTyped.afterRemove = await page.evaluate(() => document.activeElement?.dataset?.guideRemove || document.activeElement?.id);
+  await page.click('#guideClear');
+  guideTyped.cleared = await guidesNow();
+  guideTyped.clearDisabled = await page.evaluate(() => document.getElementById('guideClear').disabled);
+  guideTyped.empty = await page.evaluate(() => document.querySelector('#guideList .guide-empty')?.textContent || '');
+  await page.evaluate(() => {
+    document.activeElement?.blur?.();
+    window.TCGForge.state.setDirty(false);
+  });
+  check(
+    'Card Setup → Guides adds, types, removes and clears guides from the keyboard',
+    guideTyped.added === '{"x":[375],"y":[]}' && guideTyped.focused === 'guideAt_x_0' &&
+      guideTyped.typed === '{"x":[120],"y":[]}' && guideTyped.label === 'Horizontal guide 1, pixels from the top edge' &&
+      guideTyped.removed === '{"x":[],"y":[525]}' && guideTyped.afterRemove === 'y:0' &&
+      guideTyped.cleared === '{"x":[],"y":[]}' && guideTyped.clearDisabled === true && guideTyped.empty !== '',
+    JSON.stringify(guideTyped)
+  );
 
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();

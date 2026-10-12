@@ -605,6 +605,7 @@ export function openShortcuts() {
     ['Page Up / Down', 'Previous / next card (of the filtered cards, while filtering)'],
     ['/', 'Filter the cards; Enter / Shift+Enter step through the matches'],
     ['Ctrl/⌘ + 0', 'Fit card to window'],
+    ['Ctrl/⌘ + ;', 'Show / hide rulers and guides'],
     ['Ctrl/⌘ + + / −', 'Zoom in / out'],
     ['Ctrl/⌘ + wheel', 'Zoom at pointer'],
     ['Space + drag', 'Pan the work area'],

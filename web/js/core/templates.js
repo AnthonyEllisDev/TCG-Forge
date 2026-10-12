@@ -23,6 +23,7 @@ import {
 } from './objects.js';
 import { fitImage } from './effects.js';
 import { expandIcons } from './icons.js';
+import { cardForFile, cleanGuides } from './guides.js';
 import { resetCards, settled } from './cards.js';
 import { slugify } from '../util/dom.js';
 
@@ -51,6 +52,7 @@ export async function applyTemplate(data, { keepName = false } = {}) {
 
 async function loadTemplate(data, { keepName }) {
   Object.assign(state.card, data.card || {});
+  state.card.guides = cleanGuides(data.card?.guides, state.card);
   state.project.templateId = data.id || slugify(data.name, 'template');
   state.project.fields = normaliseFields(data.fields, data.canvas);
   if (!keepName) state.project.name = data.name || state.project.name;
@@ -462,7 +464,7 @@ export function buildTemplate({ name, description = '', author = '', tags = [] }
     description,
     author,
     tags,
-    card: { ...state.card },
+    card: cardForFile(state.card),
     fields,
     canvas,
   };

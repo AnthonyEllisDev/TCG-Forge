@@ -17,6 +17,7 @@ import { clearFieldImage, isImageSlot, setFieldImage, setFieldText } from './tem
 import { renderCard, serializeProject } from './project.js';
 import { DECK_FILE, buildDeck, readQuantity } from './printSheet.js';
 import { toLayoutJSON } from './objects.js';
+import { cleanGuides } from './guides.js';
 import { settled } from './cards.js';
 import { downloadURL, slugify } from '../util/dom.js';
 
@@ -283,6 +284,7 @@ function layoutSnapshot(snapshot) {
 async function restoreSnapshot(snapshot) {
   const data = JSON.parse(snapshot);
   Object.assign(state.card, data.card);
+  state.card.guides = cleanGuides(data.card?.guides, state.card);
   editor.canvas.setDimensions({ width: state.card.width, height: state.card.height });
   await editor.loadJSON(data.canvas);
   editor.canvas.backgroundColor = data.canvas.background ?? state.card.background;

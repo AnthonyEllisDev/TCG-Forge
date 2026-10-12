@@ -97,6 +97,17 @@
           </div>
           <button class="btn wide" id="applyCardSetup">Apply card size</button>
           <p class="hint">Changing the size keeps your layers; use Fit (Ctrl+0) to re-centre the view.</p>
+          <div class="subgroup card-guides">
+            <h3>Guides</h3>
+            <label class="check" title="Rulers round the card, and the guides placed from them (Ctrl+;)"><input type="checkbox" id="showRulers" checked> Rulers and guides</label>
+            <div id="guideList" class="guide-list" role="group" aria-label="Guides on this card"></div>
+            <div class="field-row guide-actions">
+              <button class="btn tiny" type="button" id="guideAddV" title="A vertical guide down the middle of the card">+ Vertical</button>
+              <button class="btn tiny" type="button" id="guideAddH" title="A horizontal guide across the middle of the card">+ Horizontal</button>
+              <button class="btn tiny" type="button" id="guideClear" title="Remove every guide">Clear</button>
+            </div>
+            <p class="hint" id="guideHint">Drag from a ruler onto the card for a guide; drag its mark along the ruler to move it, past the end of the card (or double-click the mark) to remove it. Layers snap to guides. Guides are saved with the layout and never exported.</p>
+          </div>
         </div>
       </section>
 
@@ -190,10 +201,16 @@
         </div>
       </div>
 
-      <div id="canvasScroll">
-        <div id="canvasStage">
-          <canvas id="cardCanvas"></canvas>
+      <div id="canvasArea">
+        <div id="canvasScroll">
+          <div id="canvasStage">
+            <canvas id="cardCanvas"></canvas>
+          </div>
         </div>
+        <!-- Mouse only; the keyboard way to the same guides is Card Setup → Guides. -->
+        <canvas id="rulerTop" class="ruler ruler-top" aria-hidden="true" title="Drag down onto the card for a horizontal guide; drag a mark to move its vertical guide"></canvas>
+        <canvas id="rulerLeft" class="ruler ruler-left" aria-hidden="true" title="Drag across onto the card for a vertical guide; drag a mark to move its horizontal guide"></canvas>
+        <div class="ruler-corner" aria-hidden="true"></div>
       </div>
 
       <section id="cardStrip" aria-label="Cards in this project">
@@ -436,7 +453,10 @@
               <div class="icon-colours" id="pIconColours" hidden>
                 <h3 class="sub">Icon colours</h3>
                 <div id="pIconColourRows" class="ic-rows" role="group" aria-label="Icon colours in this layer"></div>
-                <label class="field"><span>Colour another icon</span><select id="pIconColourAdd"></select></label>
+                <div class="ic-add">
+                  <label class="field"><span>Colour another icon</span><select id="pIconColourAdd"></select></label>
+                  <button class="btn tiny" type="button" id="pIconColourAddBtn" disabled>Add</button>
+                </div>
                 <p class="hint">An icon takes the text's colour unless it has one here. The colours belong to this layer, so they hold on every card in the set.</p>
               </div>
             </div>

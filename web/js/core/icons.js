@@ -241,17 +241,38 @@ function lineHasColour(obj, lineIndex) {
  * path for a line with no styles at all; both questions are answered here.
  */
 if (typeof fabric !== 'undefined' && fabric.FabricText) {
+  // Only while characters are being drawn. Fabric asks the same question when
+  // text is copied or dragged, and would then write the icon's colour into the
+  // pasted characters' own styles, where the layer's icon colours (and Reset)
+  // can no longer reach it.
+  let drawing = 0;
+  const renderChars = fabric.FabricText.prototype._renderChars;
+  fabric.FabricText.prototype._renderChars = function charsWithIconColour(...args) {
+    drawing += 1;
+    try {
+      return renderChars.apply(this, args);
+    } finally {
+      drawing -= 1;
+    }
+  };
   const completeStyle = fabric.FabricText.prototype.getCompleteStyleDeclaration;
   fabric.FabricText.prototype.getCompleteStyleDeclaration = function styleWithIconColour(lineIndex, charIndex) {
     const style = completeStyle.call(this, lineIndex, charIndex);
-    if (!this.tcgIconColors) return style;
+    if (!drawing || !this.tcgIconColors) return style;
     const colour = iconColourOf(this, this._textLines?.[lineIndex]?.[charIndex]);
     return colour ? { ...style, fill: colour } : style;
   };
-  for (const klass of [fabric.FabricText, fabric.Textbox]) {
-    if (!klass || !Object.prototype.hasOwnProperty.call(klass.prototype, 'isEmptyStyles')) continue;
-    const emptyStyles = klass.prototype.isEmptyStyles;
-    klass.prototype.isEmptyStyles = function emptyUnlessIconsColoured(lineIndex) {
+  // The method is inherited by FabricText and IText from a shared parent and
+  // overridden by Textbox, so wrap every class that owns it, once each.
+  const owners = new Set();
+  for (const klass of [fabric.FabricText, fabric.IText, fabric.Textbox]) {
+    let proto = klass?.prototype;
+    while (proto && !Object.prototype.hasOwnProperty.call(proto, 'isEmptyStyles')) proto = Object.getPrototypeOf(proto);
+    if (proto) owners.add(proto);
+  }
+  for (const proto of owners) {
+    const emptyStyles = proto.isEmptyStyles;
+    proto.isEmptyStyles = function emptyUnlessIconsColoured(lineIndex) {
       if (this.tcgIconColors && lineIndex !== undefined && lineHasColour(this, lineIndex)) return false;
       return emptyStyles.call(this, lineIndex);
     };

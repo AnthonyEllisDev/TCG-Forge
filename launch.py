@@ -38,7 +38,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.22.0"
+APP_VERSION = "0.23.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -118,13 +118,14 @@ def slugify(value: str, fallback: str = "untitled") -> str:
     return out or fallback
 
 
-def safe_filename(name: str) -> str:
+def safe_filename(name: str, folder: bool = False) -> str:
     name = os.path.basename(name or "").strip()
     name = re.sub(r"[^A-Za-z0-9._ \-()]", "_", name)
     bare = name.lstrip(".")
-    if bare != name and bare and "." not in bare:
+    if not folder and bare != name and bare and "." not in bare:
         # ".png" or "..png" is all extension; stripping the dots alone left
-        # "png", a file the asset scan never lists.
+        # "png", a file the asset scan never lists. A folder has no extension
+        # to keep, so ".cards" stays the folder "cards".
         bare = "untitled." + bare
     name = bare or "untitled"
     # Cut the stem, not the whole name: a long batch pattern otherwise lost its
@@ -485,7 +486,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             target_dir = os.path.join(WORKSPACE, "assets", category)
             subgroup = body.get("group")
             if subgroup:
-                target_dir = os.path.join(target_dir, safe_filename(subgroup))
+                target_dir = os.path.join(target_dir, safe_filename(subgroup, folder=True))
             os.makedirs(target_dir, exist_ok=True)
             dest = unique_path(target_dir, filename)
             with open(dest, "wb") as fh:
@@ -500,7 +501,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             target_dir = os.path.join(WORKSPACE, "exports")
             folder = body.get("folder")
             if folder:
-                target_dir = os.path.join(target_dir, safe_filename(folder))
+                target_dir = os.path.join(target_dir, safe_filename(folder, folder=True))
             os.makedirs(target_dir, exist_ok=True)
             # Batch runs overwrite deliberately; single exports never clobber.
             dest = (os.path.join(target_dir, filename) if body.get("overwrite")

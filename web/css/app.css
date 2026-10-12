@@ -172,6 +172,8 @@
 .icon-colours .ic-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--text-dim); }
 .icon-colours .ic-row.unset .ic-name { color: var(--text-faint); }
 .icon-colours .ic-row input[type="color"] { width: 40px; flex: none; }
+.icon-colours .ic-add { display: flex; align-items: flex-end; gap: 8px; }
+.icon-colours .ic-add .field { flex: 1 1 auto; min-width: 0; }
 
 .color-row { display: flex; gap: 6px; align-items: center; }
 .hex { font-family: var(--font-mono); font-size: var(--fs-xs); text-transform: lowercase; }
@@ -538,6 +540,49 @@
   cursor: default;
 }
 .readout.muted { color: var(--text-faint); }
+
+/* The rulers lie over the work area's edges rather than inside its scroll,
+   so they stay put while it scrolls. */
+#canvasArea {
+  position: relative;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+.ruler {
+  position: absolute;
+  z-index: 3;
+  display: block;
+  background: var(--bg-dock);
+  touch-action: none;
+}
+/* A canvas is a replaced element: left + right alone do not stretch it. */
+.ruler-top { top: 0; left: var(--ruler); width: calc(100% - var(--ruler)); height: var(--ruler); border-bottom: 1px solid var(--line); cursor: row-resize; }
+.ruler-left { top: var(--ruler); left: 0; height: calc(100% - var(--ruler)); width: var(--ruler); border-right: 1px solid var(--line); cursor: col-resize; }
+.ruler-corner {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: var(--ruler);
+  height: var(--ruler);
+  background: var(--bg-dock);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  pointer-events: none;
+}
+.ruler.on-mark { cursor: grab; }
+.ruler.dragging { cursor: grabbing; }
+#canvasArea.no-rulers .ruler,
+#canvasArea.no-rulers .ruler-corner { display: none; }
+
+.card-guides .guide-list { display: flex; flex-direction: column; gap: 4px; }
+.card-guides .guide-row { display: flex; align-items: center; gap: 8px; }
+.card-guides .guide-axis { flex: 1 1 auto; font-size: var(--fs-xs); color: var(--text-dim); }
+.card-guides .guide-row input[type="number"] { width: 76px; flex: none; }
+.card-guides .guide-empty { font-size: var(--fs-xs); color: var(--text-faint); }
+.card-guides .guide-actions { flex-wrap: wrap; }
 
 #canvasScroll {
   overflow: auto;

@@ -1,7 +1,8 @@
 # Arranging layers
 
 Everything on a card is a layer. This page covers lining layers up with each
-other and with the card, and making several layers the same size.
+other and with the card, making several layers the same size, and the rulers
+and guides that keep a layout's lines in place.
 
 ## Align
 
@@ -78,3 +79,38 @@ pips 6 px apart, stat icons butted together — type the gap into
   the card as it was. Align them first if they should share a line.
 
 The gap is remembered between sessions. Each press is one undo step.
+
+## Rulers and guides
+
+Rulers run along the top and left of the work area, measuring the card in
+pixels at whatever zoom you are at. The pale band on each ruler is the card;
+a thin gold line follows the mouse.
+
+- **Add a guide** — drag down from the top ruler for a horizontal guide, or
+  across from the left ruler for a vertical one, and let go over the card.
+  Letting go while still on the ruler adds nothing.
+- **Move it** — every guide has a mark on the ruler that measures it (a
+  vertical guide's mark is on the top ruler). Drag the mark along the ruler.
+- **Remove it** — drag its mark past the end of the card, or double-click the
+  mark.
+- **Type it** — **Card Setup → Guides** lists every guide with its position
+  in pixels from the card's left or top edge. **+ Vertical** and
+  **+ Horizontal** add one down or across the middle of the card, ready to
+  type over; **×** removes one and **Clear** removes them all.
+
+While **Snap** is on, a guide being dragged snaps to the card's edges, centre
+and safe zone and to the edges and centres of layers, and a layer being
+dragged snaps to guides as it does to the card and other layers.
+
+Guides belong to the **layout**, like the card's size: every card in a
+project shares them, they are saved in the project file and in a template
+saved from it, and adding, moving or removing one is an undo step. Opening a
+project or template without guides clears them; **New** starts with none. A
+guide that a smaller card size leaves outside the card is dropped. Guides are
+drawn only in the editor — never in an export, a batch run, a print sheet or
+a tabletop sheet.
+
+**Rulers and guides** in Card Setup, or **Ctrl + ;**, hides the rulers and
+the guides together; hidden guides are not snapped to. The choice is
+remembered between sessions.
+

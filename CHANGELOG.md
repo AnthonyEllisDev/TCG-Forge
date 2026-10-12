@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.23.0 — rulers and guides
+
+- **Rulers and guides.** Rulers run along the top and left of the work area,
+  in card pixels at any zoom. Drag down from the top ruler for a horizontal
+  guide, or across from the left ruler for a vertical one; drag a guide's mark
+  on its ruler to move it, and past the end of the card (or double-click the
+  mark) to remove it. Guides snap to the card's edges, centre and safe zone
+  and to other layers while you drag them, and layers snap to guides. They
+  belong to the layout: saved with the project and with templates made from
+  it, shared by every card, kept in undo, and never drawn in an export, a
+  print sheet or a tabletop sheet. **Card Setup → Guides** lists them for the
+  keyboard — add one at the middle of the card, type an exact position,
+  remove one, or clear them all — and **Rulers and guides** (or **Ctrl + ;**)
+  hides rulers and guides together. See
+  [`docs/LAYOUT.md`](docs/LAYOUT.md#rulers-and-guides).
+
+### Fixed
+
+- **Snapping landed a layer off its target.** While a layer was dragged, the
+  snap measured it where the previous mouse movement had left it, so it came
+  to rest a pixel or several away from the card's centre, an edge or another
+  layer. It now lands exactly on it.
+- **Icon colours on IText and plain text layers** (from older projects or
+  hand-written templates) were offered in Properties but never drawn.
+- **Copying text with a coloured icon** wrote the icon's colour into the
+  pasted characters as a colour of their own, which the layer's Icon colours
+  could no longer show or reset. A pasted icon now follows the colours of the
+  layer it is pasted into.
+- **Colour another icon** on a text layer with a gradient fill started the
+  icon at black; it now starts from the gradient's first colour.
+- **Colour another icon** coloured an icon on every arrow key pressed in the
+  list. Choose an icon and press **Add**. **Reset** no longer drops keyboard
+  focus to the page.
+- **A folder name starting with a dot** — an export folder or an upload
+  group — became `untitled.<name>` in 0.22.0. It is `<name>` again; the
+  `untitled.png` rule is for file names only.
+
 ## 0.22.0 — coloured icons in text
 
 - **Icon colours.** A text layer can give each icon its own colour — a red

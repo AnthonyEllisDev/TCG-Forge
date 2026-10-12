@@ -10,6 +10,7 @@ import { openBatchDialog } from './batchPanel.js';
 import { openPrintDialog } from './printPanel.js';
 import { focusFilter, stepCard } from './cardStrip.js';
 import { isModalOpen } from './dialogs.js';
+import { showRulers } from './rulers.js';
 
 /* Keys whose browser default opens something of the browser's own — a save,
    print or open dialog — on top of ours. */
@@ -111,6 +112,10 @@ export function initShortcuts() {
         case '0':
           e.preventDefault();
           editor.fitToWindow();
+          return;
+        case ';':
+          e.preventDefault();
+          showRulers(!editor.guidesShown());
           return;
         case '=':
         case '+':

@@ -84,7 +84,8 @@ web/
     │   ├── api.js      backend client, online/offline detection
     │   ├── state.js    card geometry, current project, persisted settings
     │   ├── objects.js  object factories + the custom props we persist
-    │   ├── editor.js   the Fabric canvas: zoom, snapping, ordering, clipboard
+    │   ├── editor.js   the Fabric canvas: zoom, snapping, guides, ordering, clipboard
+    │   ├── guides.js   the card's own guides: what a valid list and a file hold
     │   ├── history.js  undo/redo snapshots
     │   ├── effects.js  fills, strokes, shadows, filters, crop
     │   ├── assets.js   asset index and font registration
@@ -113,6 +114,7 @@ web/
         ├── missingPanel.js  missing card pictures, and relinking them
         ├── cardStrip.js   the card list under the canvas
         ├── shortcuts.js   keyboard map
+        ├── rulers.js      rulers, guide marks, Card Setup → Guides
         └── dialogs.js     modal + toasts
 ```
 
@@ -200,13 +202,50 @@ layer. `{name}` tokens are turned into characters on the way in —
 box, and the end of on-canvas editing — so the text always holds the
 character, never the token. Icon colours (`tcgIconColors`) are drawn the same
 way, without touching the text: `getCompleteStyleDeclaration()` is wrapped to
-give an icon character its layer's colour, and `isEmptyStyles()` to stop
-Fabric drawing a line holding one in a single call. `editor.setIconColour()`
-sets one and marks the layer's cached drawing stale.
+give an icon character its layer's colour — only while `_renderChars()` is
+drawing, because Fabric's copy and text drag ask the same question and would
+write the colour into the pasted characters' own styles — and
+`isEmptyStyles()` (on every class that owns it: Textbox's own and the parent
+FabricText and IText inherit) to stop Fabric drawing a line holding one in a
+single call. `editor.setIconColour()` sets one and marks the layer's cached
+drawing stale.
 
-Smart guides, the safe zone and the bleed guide are painted in an `after:render`
-hook straight onto the canvas context. An `exporting` flag suppresses them while
-`toDataURL()` runs, so guides never end up in the output.
+Smart guides, the safe zone, the bleed guide and the user's own guides are
+painted in an `after:render` hook straight onto the canvas context. An
+`exporting` flag suppresses them while `toDataURL()` runs, so guides never end
+up in the output. `handleMoving()` calls `setCoords()` on the moving layer
+before measuring it: Fabric moves the layer without refreshing its corners, so
+the box was one mouse event behind and every snap landed off its target by the
+last step (fixed in 0.23.0).
+
+**Rulers and guides** (0.23.0). The user's guides are layout, so they live on
+`state.card.guides` — `{x: [...], y: [...]}`, card pixels, `x` the vertical
+ones — and ride along wherever the card does: undo snapshots, batch
+snapshots, `replaceCard()`'s fallback. `core/guides.js` holds the pure part:
+`cleanGuides(raw, card)` (finite numbers inside the card, a tenth of a pixel,
+at most 64 per axis; a file without guides gives empty lists) and
+`cardForFile(card)`, which drops `guides` when there are none so files without
+guides are unchanged. Every place that `Object.assign`s a card from a file or a
+snapshot sets `state.card.guides = cleanGuides(...)` straight after — a file
+without the key would otherwise keep the previous project's guides — and
+`newProject()` starts with none; `setCard()` drops guides a smaller size leaves
+outside. The editor changes them only by replacing the list
+(`addGuide`, `moveGuide`, `removeGuide`, `removeAllGuides`, all through
+`setGuides()`: render, `EVT.GUIDES`, `touch()`), because the card is copied
+shallowly everywhere. `guideDraft` is a guide being dragged (drawn, not yet
+placed; `replaces` hides the one being moved); `snapGuide(axis, at)` snaps it
+to the card's edges, centre and safe zone and to layers' edges and centres.
+`handleMoving()` adds the guides to its targets. `guidesShown()` is
+`state.settings.rulers`; hidden guides are neither drawn nor snapped to.
+`ui/rulers.js` draws two canvases laid over the work area's edges (not inside
+its scroll), mapping card pixels through the lower canvas element's client
+rect; pointer capture on the ruler carries a drag over the card. The top
+ruler pulls horizontal guides and carries the vertical guides' marks, the
+left one the other way round; a drop past the card's end by 8 screen px
+removes, a new guide dropped on its own ruler is not added. Card Setup's
+`#guideList` rows (`#guideAt_<axis>_<i>`, `[data-guide-remove]`) are rebuilt
+only when the counts change, so typing (committed on `input`) keeps focus.
+Ctrl+; and `#showRulers` go through `showRulers()`.
 
 Anything that arranges layers works from `getBoundingRect()`, which is in card
 coordinates, rather than from `left`/`top`: a member of a multi-layer selection

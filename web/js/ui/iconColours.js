@@ -24,7 +24,8 @@ let shownKey = '';
 export function initIconColours() {
   const rows = document.getElementById('pIconColourRows');
   const add = document.getElementById('pIconColourAdd');
-  if (!rows || !add) return;
+  const addBtn = document.getElementById('pIconColourAddBtn');
+  if (!rows || !add || !addBtn) return;
 
   on(rows, 'input', (e) => {
     const name = e.target?.dataset?.iconColour;
@@ -37,17 +38,27 @@ export function initIconColours() {
     const obj = layer();
     if (!name || !obj) return;
     editor.setIconColour(obj, name, null);
+    // Reset disables itself, which would drop keyboard focus to the page; the
+    // row's colour is the natural next stop (or, if the row went with the
+    // colour, the first row).
+    (rowInput(name) || rows.querySelector('input'))?.focus();
   });
+  // Adding waits for the button: a closed select changes on every arrow key,
+  // which would have coloured each icon passed on the way down the list.
   on(add, 'change', () => {
+    addBtn.disabled = !add.value;
+  });
+  on(addBtn, 'click', () => {
     const obj = layer();
     const name = add.value;
     add.value = '';
+    addBtn.disabled = true;
     if (!name || !obj) return;
     // Start from the text's own colour, so adding a row changes nothing on
     // the card until a colour is picked.
     // The change redraws the list (EVT.OBJECTS), so the new row is there.
     editor.setIconColour(obj, name, textColour(obj));
-    document.querySelector(`#pIconColourRows input[data-icon-colour="${CSS.escape(name)}"]`)?.focus();
+    rowInput(name)?.focus();
   });
 
   bus.on(EVT.SELECTION, sync);
@@ -65,7 +76,10 @@ function layer() {
   return objs.length === 1 && isText(objs[0]) ? objs[0] : null;
 }
 
-const textColour = (obj) => toHex(typeof obj.fill === 'string' ? obj.fill : '', '#000000');
+const rowInput = (name) => document.querySelector(`#pIconColourRows input[data-icon-colour="${CSS.escape(name)}"]`);
+
+/* The colour the text shows; a gradient fill is read as its first stop. */
+const textColour = (obj) => toHex(typeof obj.fill === 'string' ? obj.fill : obj.fill?.colorStops?.[0]?.color || '', '#000000');
 
 /** Icon names in the order they should be listed: all, in the text, then the rest coloured. */
 function namesFor(obj, icons) {
@@ -127,6 +141,7 @@ function sync() {
     add.append(el('option', { value: '', text: others.length ? 'Choose an icon…' : 'Every icon is listed' }));
     for (const icon of others) add.append(el('option', { value: icon.name, text: `{${icon.name}}` }));
     add.disabled = !others.length;
+    document.getElementById('pIconColourAddBtn').disabled = true;
   }
 
   // Values follow the layer on every change, except the input being used.

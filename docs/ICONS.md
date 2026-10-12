@@ -58,7 +58,7 @@ Select a text layer and open **Properties → Typography → Icon colours**:
   everything else gold.
 - **Colour another icon** — the colours belong to the *layer*, not to the
   words on screen. A rules box shows different icons on different cards, so
-  pick an icon here to colour it before any card uses it. An icon that has a
+  choose an icon here and press **Add** to colour it before any card uses it. An icon that has a
   colour stays in the list after it leaves the text.
 - **Reset** — the icon takes the text colour again (or the *All icons* colour,
   if there is one).

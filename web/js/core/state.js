@@ -36,6 +36,7 @@ const defaultSettings = {
   lastExportBleed: 0,
   alignTo: 'selection',   // what several layers align to: selection | key | card
   spaceGap: 0,            // pixels between layers spaced from the key layer
+  rulers: true,           // rulers and the card's own guides shown (and snapped to)
 };
 
 function loadSettings() {
@@ -56,6 +57,7 @@ export const state = {
     radius: 36,
     background: '#12161f',
     preset: 'poker',
+    guides: { x: [], y: [] },   // the layout's own guides, card pixels (core/guides.js)
   },
 
   /* current project */

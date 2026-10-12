@@ -49,9 +49,10 @@ python launch.py --verbose            # log every request
 rotate, reorder, lock, hide, group and rename. Align layers to the card, to
 each other or to a key layer that stays put, give several layers one layer's
 width or height, and distribute them — a row of cost pips, a column of stat
-icons — with equal gaps or a gap you type, measured from the key (see
-[`docs/LAYOUT.md`](docs/LAYOUT.md)). Nothing about the layout is hard-coded to
-a particular game.
+icons — with equal gaps or a gap you type, measured from the key. Rulers and
+guides you pull from them line things up across a whole set, and are saved
+with the layout (see [`docs/LAYOUT.md`](docs/LAYOUT.md)). Nothing about the
+layout is hard-coded to a particular game.
 
 **Your own art.** Drop frames, backgrounds, icons, textures and fonts into the
 workspace folders and they appear in the Asset Library with thumbnails. Click to
@@ -95,8 +96,8 @@ flame, a blue drop — set once on the layer for the whole set. See
 with optional transparency, saved straight into `workspace/exports`. Add a
 print shop's **bleed** in millimetres and the card's own edges are mirrored out
 to make it, so a card designed at its finished size goes to the printer as it
-is. Safe-zone and bleed guides are on-screen only and never appear in the
-export.
+is. Safe-zone and bleed guides, and your own guides, are on-screen only and
+never appear in the export.
 
 **Sheets you can actually cut.** **Print** (`Ctrl/⌘ + P`) lays the current card
 or a whole rendered set onto A4, Letter, Legal, A3 or Tabloid at the cards' true
@@ -211,7 +212,7 @@ template…**. Your slots become that template's form fields.
 | --- | --- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the app is put together, module by module |
 | [`docs/TEMPLATES.md`](docs/TEMPLATES.md) | Template and project file format, slot system |
-| [`docs/LAYOUT.md`](docs/LAYOUT.md) | Aligning, matching sizes and distributing layers |
+| [`docs/LAYOUT.md`](docs/LAYOUT.md) | Aligning, matching sizes and distributing layers; rulers and guides |
 | [`docs/CARDS.md`](docs/CARDS.md) | Multi-card projects: one layout, a list of cards |
 | [`docs/BATCH.md`](docs/BATCH.md) | Generating a whole set from a spreadsheet |
 | [`docs/PRINT.md`](docs/PRINT.md) | Laying cards out on a printable page |

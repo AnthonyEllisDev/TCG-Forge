@@ -99,7 +99,8 @@ with `{n:3}/{total:3}`.
   "tags": ["fantasy", "starter"],
   "card": {
     "width": 750, "height": 1050, "dpi": 300,
-    "radius": 36, "background": "#1a1410", "preset": "poker"
+    "radius": 36, "background": "#1a1410", "preset": "poker",
+    "guides": { "x": [375], "y": [140, 600] }
   },
   "fields": [
     { "id": "title", "label": "Card name",  "type": "text",      "order": 1 },
@@ -113,7 +114,7 @@ with `{n:3}/{total:3}`.
 | Key | Notes |
 | --- | --- |
 | `id` | filename stem; must be unique |
-| `card` | geometry applied when the template loads |
+| `card` | geometry applied when the template loads; `guides` (optional) holds the layout's guides in card pixels — `x` vertical, `y` horizontal |
 | `fields` | form definition. `type` is `text`, `multiline` or `image`; `order` sorts the panel |
 | `canvas` | exactly what `canvas.toObject()` produced, including the `tcg*` properties. Images name their file by workspace path (`tcgAsset`, with `src` under `/files/`), never by a full URL |
 

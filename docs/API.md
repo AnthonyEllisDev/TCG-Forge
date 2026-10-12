@@ -113,8 +113,10 @@ percent-encoded.
 
 Copies a file into `assets/<category>[/<group>]`. Names are sanitised and
 de-duplicated (`fire-2.png`; a name that is all extension, like `.png`, becomes
-`untitled.png`), and the payload is capped at 64 MB. Returns the
-new `path` and `url`.
+`untitled.png`), and the payload is capped at 64 MB. A `group` (and an
+export's `folder`) is sanitised the same way but keeps no extension, so a
+leading dot is simply dropped (`.cards` → `cards`). Returns the new `path`
+and `url`.
 
 ### `POST /api/export`
 
