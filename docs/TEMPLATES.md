@@ -84,6 +84,39 @@ what was on screen at the time; it is worked out again whenever the card is
 loaded. The Classic Spell template numbers its cards in the bottom-right corner
 with `{n:3}/{total:3}`.
 
+## Arced text
+
+A text box can bend its words along a circle — a title arched like a banner
+across the top of a card, a type line that smiles under the art. Select the
+layer and drag **Properties → Typography → Arc**, or use the arrow keys on it
+(5° a press, Home and End for the extremes). Above zero arches the words,
+below zero curves them the other way; **Straighten** puts them back.
+
+The angle is how much of a circle the **box's width** spans, from 5° for a
+gentle lift to 180° for a half circle. So the same angle bends a wide box's
+words more gently than a narrow box's would: short words in a wide box sit on
+the flat top of a big arc. Centre the text (the alignment buttons beside the
+style toggles) for an arch that is even on both sides; left and right
+alignment start the words at that end of the curve.
+
+When you arc a layer, the ends of its line stay where the words were and the
+middle bends away — upwards for an arch, downwards for a smile — and the box
+grows by the height of the bend, so selecting, snapping and aligning see the
+words where they are drawn. Text that wraps onto several lines is drawn as
+parallel arcs. Auto-fit still fits the words, not the bend, so arcing a rules
+box does not shrink its text.
+
+The bend is worked out from the box each time the text is measured, so it
+follows everything that changes the box or its words: resizing it, a
+spreadsheet row, Card Fields, a card switch, a per-card width (*Only on this
+card*). It is drawn in every output.
+
+It is stored as `tcgArc` on the layer — just the angle; nothing else in the
+file changes. A build from before 0.24.0 opens the layer with straight text.
+Only text boxes can arc (every text layer TCG Forge makes is one); the row
+does not appear for other layers. Typing on the canvas works as usual on an
+arced layer, though the caret is drawn on the straight line.
+
 ## Template file
 
 `workspace/templates/<id>.json`

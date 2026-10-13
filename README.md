@@ -81,6 +81,9 @@ saturation, blur, grayscale, sepia and invert adjustments.
 registered automatically and appears in the font list. Line height, letter
 spacing, alignment, uppercase transform, and auto-fit that shrinks rules text
 until it fits its box (and never grows past the size the template intended).
+Text can arc, too — a title arched like a banner or a line curved under the
+art, wrapped lines running parallel (see
+[`docs/TEMPLATES.md`](docs/TEMPLATES.md#arced-text)).
 
 **Icons in the rules text.** Type `{gem}` or `{element-fire}` into a field, a
 spreadsheet cell or the card itself, or pick from the **Icons** palette, and the

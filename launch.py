@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import ipaddress
 import json
 import mimetypes
@@ -38,7 +39,7 @@ from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs, quote, unquote
 
 APP_NAME = "TCG Forge"
-APP_VERSION = "0.23.0"
+APP_VERSION = "0.24.0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -259,7 +260,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def _error(self, message, status=400):
         self._send_json({"ok": False, "error": message}, status=status)
@@ -328,6 +330,9 @@ class ForgeHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if not self._request_allowed():
             return self._refuse()
+        return self._route_get()
+
+    def _route_get(self):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -338,6 +343,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
                 return self.serve_workspace_file(path[len("/files/"):])
             if path == "/":
                 self.path = "/index.html"
+            if self.command == "HEAD":
+                return super().do_HEAD()
             return super().do_GET()
         except ValueError as exc:
             return self._error(str(exc), 400)
@@ -356,7 +363,10 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
             return None
-        return super().do_HEAD()
+        # Routed like a GET -- the API and /files/ included, which the base
+        # class would look for under web/ and answer 404 -- and every answer
+        # below leaves out its body for a HEAD.
+        return self._route_get()
 
     def do_POST(self):
         if not self._request_allowed():
@@ -448,7 +458,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             full = safe_join(rel)
             if os.path.isdir(full):
                 raise ValueError("path is a folder, not a file")
-            os.makedirs(os.path.dirname(full), exist_ok=True)
+            make_folder(os.path.dirname(full))
             if body.get("backup") and os.path.exists(full):
                 shutil.copy2(full, full + ".bak")
             # A temp file of its own, so two writes to one path at once cannot
@@ -487,7 +497,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             subgroup = body.get("group")
             if subgroup:
                 target_dir = os.path.join(target_dir, safe_filename(subgroup, folder=True))
-            os.makedirs(target_dir, exist_ok=True)
+            make_folder(target_dir)
             dest = unique_path(target_dir, filename)
             with open(dest, "wb") as fh:
                 fh.write(data)
@@ -502,7 +512,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
             folder = body.get("folder")
             if folder:
                 target_dir = os.path.join(target_dir, safe_filename(folder, folder=True))
-            os.makedirs(target_dir, exist_ok=True)
+            make_folder(target_dir)
             # Batch runs overwrite deliberately; single exports never clobber.
             dest = (os.path.join(target_dir, filename) if body.get("overwrite")
                     else unique_path(target_dir, filename))
@@ -514,7 +524,7 @@ class ForgeHandler(SimpleHTTPRequestHandler):
 
         if route == "mkdir":
             full = safe_join(body.get("path") or "")
-            os.makedirs(full, exist_ok=True)
+            make_folder(full)
             return self._send_json({"ok": True, "path": rel_path(full)})
 
         if route == "trash":
@@ -550,6 +560,8 @@ class ForgeHandler(SimpleHTTPRequestHandler):
         # where it could call the API.
         self.send_header("Content-Security-Policy", "sandbox")
         self.end_headers()
+        if self.command == "HEAD":
+            return
         with open(full, "rb") as fh:
             shutil.copyfileobj(fh, self.wfile)
 
@@ -562,7 +574,24 @@ def decode_data_url(value: str) -> bytes:
         if ";base64" not in head:
             raise ValueError("only base64 data URLs are supported")
         value = payload
-    return base64.b64decode(value)
+    # Without validation, characters outside base64 are dropped silently, so a
+    # damaged body decoded to nothing and was written -- over an existing card
+    # image, in a batch run -- as an empty file that reported success.
+    try:
+        data = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("the data is not valid base64") from None
+    if not data:
+        raise ValueError("no data provided")
+    return data
+
+
+def make_folder(full: str) -> None:
+    """Create a folder inside the workspace, refusing when a file is in the way."""
+    try:
+        os.makedirs(full, exist_ok=True)
+    except (FileExistsError, NotADirectoryError):
+        raise ValueError(f"a file is in the way of the folder {rel_path(full)}") from None
 
 
 def host_allowed(name: str, allowed: frozenset, network: bool) -> bool:

@@ -90,6 +90,7 @@ web/
     │   ├── effects.js  fills, strokes, shadows, filters, crop
     │   ├── assets.js   asset index and font registration
     │   ├── icons.js    icons in text: reads icon fonts, {name} tokens
+    │   ├── arc.js      arced text: the angle, its curve, and Fabric's text-on-path
     │   ├── templates.js template load/save and the slot system
     │   ├── cards.js    multi-card projects: the card list and switching
     │   ├── batch.js    spreadsheet parsing and set rendering
@@ -166,6 +167,7 @@ Fabric serialises its own properties. TCG Forge adds a small set, listed in
 | `tcgShowIf` | a slot name (`"cost"`, or `"!cost"` for the reverse): the layer is shown only while that slot is filled |
 | `tcgNumbering` | a pattern (`"{n:3}/{total}"`): the text layer's text is written from the card's place in its set |
 | `tcgIconColors` | on a text layer: a colour per icon name (`{"gem": "#3fa0ff"}`, `"*"` for every other icon), applied as the text is drawn |
+| `tcgArc` | on a text box: degrees of circle its width spans (positive arches, negative smiles); the curve is made from it, never saved |
 | `tcgPlaceholder` | on art placed in a slot: the serialised layer it replaced, so the slot can be emptied again |
 | `tcgBase` | on a layer the card on screen has changed for itself: the layout's own values for what it changed. In undo snapshots only — saved files never carry it |
 | `_baseWidth`, `_baseHeight` | natural image size, used by the crop sliders |
@@ -209,6 +211,22 @@ write the colour into the pasted characters' own styles — and
 FabricText and IText inherit) to stop Fabric drawing a line holding one in a
 single call. `editor.setIconColour()` sets one and marks the layer's cached
 drawing stale.
+
+Arced text (`tcgArc`, `docs/TEMPLATES.md#arced-text`) uses Fabric's own text
+on a path, with the path derived rather than stored. `core/arc.js` wraps
+`Textbox.prototype.initDimensions()`: after Fabric has wrapped the words to
+the box's width it builds a circular arc whose chord is that width
+(`arcGeometry()`), sets it as the layer's `path` (marked `tcgArcPath`), and
+makes the box `calcTextHeight() + sag` tall so its bounds hold the bend. Every
+path that changes a text box's width or words already ends in
+`initDimensions()`, so a resize, a per-card width, auto-fit, a batch row or a
+card switch re-bend the text without knowing about arcs. Fabric lays every
+line of a path text on the same curve, so `_measureLine()` is wrapped to move
+each wrapped line off the curve along its normal by its place in the block;
+`toObject()` drops the derived `path` so a file holds only the angle.
+`textHeightOf()` (height less the bend) is what `autoFitText()` and the
+Properties Height box measure. `editor.setTextArc()` keeps the line the words
+were on in place: the ends of an arch stay put and its middle rises.
 
 Smart guides, the safe zone, the bleed guide and the user's own guides are
 painted in an `after:render` hook straight onto the canvas context. An

@@ -13,6 +13,8 @@
  *               option off again knows which clip is ours. Fabric passes
  *               propertiesToInclude down into a clipPath, so this round-trips
  *               — but only because it is listed below.
+ *   tcgArc    - degrees of circle a text box's words are bent along (see
+ *               core/arc.js); absent for straight text
  *   tcgShowIf - a slot name: the layer is shown only while that slot holds
  *               something ("!slot" inverts it). See editor.applyConditions().
  *   tcgPlaceholder - on artwork placed into a slot, the serialised layer it
@@ -46,6 +48,7 @@ export const CUSTOM_PROPS = [
   'tcgShowIf',
   'tcgNumbering',
   'tcgIconColors',
+  'tcgArc',
   'tcgPlaceholder',
   'tcgBase',
   '_baseWidth',

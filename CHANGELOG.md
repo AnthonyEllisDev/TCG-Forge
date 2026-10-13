@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.24.0 — arced text
+
+- **Arced text.** A text box can bend its words along a circle: a title
+  arched like a banner, a type line curved under the art. Drag
+  **Properties → Typography → Arc** (or use the arrow keys on it) — above
+  zero arches the words, below zero curves them the other way — and
+  **Straighten** puts them back. The ends of the line stay where the words
+  were and the box grows by the bend, so selecting, snapping and aligning see
+  the words where they are drawn. Wrapped lines run as parallel arcs, and
+  auto-fit still fits the words rather than the bend. The curve is worked out
+  from the box every time, so it follows resizing, Card Fields, spreadsheet
+  rows, card switches and per-card widths, and it is drawn in every export,
+  print sheet and tabletop sheet. Saved as one number, `tcgArc`, on the
+  layer. See [`docs/TEMPLATES.md`](docs/TEMPLATES.md#arced-text).
+
+### Fixed
+
+- **A damaged image upload or export was written as an empty file** and
+  reported as saved. Data that is not valid base64 is now refused and
+  nothing is written — which matters most for a batch run, whose exports
+  replace the previous run's images.
+- **`HEAD` requests to the API and to workspace files answered 404** while
+  the same `GET` answered 200. They are now answered as `GET` is, without a
+  body.
+- **Writing to a path whose folder is an existing file** — or uploading into
+  a group named like one — answered a server error naming a Python
+  exception. It is now a plain bad request that says a file is in the way.
+
 ## 0.23.0 — rulers and guides
 
 - **Rulers and guides.** Rulers run along the top and left of the work area,

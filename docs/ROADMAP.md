@@ -81,9 +81,14 @@ it.
   typed exactly, snapped to and from, saved with the layout and never
   exported. See [`LAYOUT.md`](LAYOUT.md#rulers-and-guides).
 
+- **Arced text** (0.24.0) — a text box's words bent along a circle by an
+  angle, upwards or downwards, with wrapped lines as parallel arcs. See
+  [`TEMPLATES.md`](TEMPLATES.md#arced-text).
+
 ## Next
 
-- **Text on a path / arced titles.** Fabric supports path text; it needs UI.
+- **Text on any path.** Arcs are covered; a free curve (a wave, an S) would
+  need a way to draw and edit the path itself.
 - **Many-coloured icons in text.** An icon is one colour (its own or the
   text's). Full-colour symbols in a line of text would need image runs drawn
   inside Fabric's text layout.

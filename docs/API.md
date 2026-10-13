@@ -35,6 +35,9 @@ body that is not a JSON object (`400`).
 | `GET /js/…`, `/css/…`, `/vendor/…` | front-end files |
 | `GET /files/<workspace path>` | raw asset bytes (images, fonts) |
 
+`HEAD` is answered for every route as `GET` would be — the API and `/files/`
+included — with the same status and headers and no body.
+
 ## GET endpoints
 
 ### `GET /api/status`
@@ -94,7 +97,8 @@ All take a JSON body.
 
 Writes atomically (a temp file of its own, then a rename), so two writes to the
 same path at once cannot trip over each other; a write that fails leaves no
-temp file behind, and a path naming a folder is refused. With `backup: true` an existing
+temp file behind, and a path naming a folder is refused, as is one whose
+folder would have to be made where a file already is (`400`). With `backup: true` an existing
 file is copied to `<name>.bak` first. Returns the path and byte count. The text
 is written exactly as sent, UTF-8, with no line-ending translation on any
 platform.
@@ -116,7 +120,9 @@ de-duplicated (`fire-2.png`; a name that is all extension, like `.png`, becomes
 `untitled.png`), and the payload is capped at 64 MB. A `group` (and an
 export's `folder`) is sanitised the same way but keeps no extension, so a
 leading dot is simply dropped (`.cards` → `cards`). Returns the new `path`
-and `url`.
+and `url`. `data` must be valid base64 (a data URL or bare); anything else,
+or a payload that decodes to nothing, is refused with `400` and nothing is
+written — the same holds for `/api/export`.
 
 ### `POST /api/export`
 

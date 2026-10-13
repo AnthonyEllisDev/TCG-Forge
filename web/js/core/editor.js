@@ -8,6 +8,7 @@ import { bus, EVT } from '../util/bus.js';
 import { clamp, round } from '../util/dom.js';
 import { state } from './state.js';
 import { expandIcons } from './icons.js';
+import { cleanArc, textHeightOf } from './arc.js';
 import { AXES, MAX_GUIDES, cleanGuides, guideAt, noGuides } from './guides.js';
 import {
   CUSTOM_PROPS,
@@ -1039,7 +1040,8 @@ class Editor {
    */
   autoFitText(obj) {
     if (!obj || !obj.tcgAutoFit) return;
-    const target = obj.tcgFitHeight || obj.height;
+    // An arced box is taller by its bend; only the words are fitted.
+    const target = obj.tcgFitHeight || textHeightOf(obj);
     const maxSize = obj.tcgFitSize || obj.fontSize;
     if (!obj.tcgFitSize) obj.set('tcgFitSize', maxSize);
 
@@ -1048,17 +1050,17 @@ class Editor {
     obj.initDimensions?.();
 
     let guard = 0;
-    while (obj.height > target && size > 6 && guard < 300) {
+    while (textHeightOf(obj) > target && size > 6 && guard < 300) {
       size -= 1;
       obj.set('fontSize', size);
       obj.initDimensions?.();
       guard += 1;
     }
-    while (obj.height < target && size < maxSize && guard < 600) {
+    while (textHeightOf(obj) < target && size < maxSize && guard < 600) {
       size += 1;
       obj.set('fontSize', size);
       obj.initDimensions?.();
-      if (obj.height > target) {
+      if (textHeightOf(obj) > target) {
         obj.set('fontSize', size - 1);
         obj.initDimensions?.();
         break;
@@ -1092,6 +1094,36 @@ class Editor {
     else delete colours[name];
     obj.set('tcgIconColors', Object.keys(colours).length ? colours : undefined);
     // A custom property does not mark the cached drawing stale on its own.
+    obj.dirty = true;
+    this.canvas.requestRenderAll();
+    this.touch();
+    return true;
+  }
+
+  /**
+   * Bend a text box along a circle (`degrees` of arc across its width; 0 is
+   * straight). Only text boxes can: their width is the user's, so the curve
+   * can be made from it. One undo step, as for any other property.
+   */
+  setTextArc(obj, degrees) {
+    if (obj?.type !== 'textbox') return false;
+    const arc = cleanArc(degrees);
+    if (cleanArc(obj.tcgArc) === arc) return false;
+    // The ends of the words stay where they were and the middle bends away
+    // from them, as a line pulled into a curve would: an arch grows upwards, a
+    // smile downwards. The ends sit half the bend below (or above) the centre.
+    const endsOff = (o) => Math.sign(cleanArc(o.tcgArc)) * (o._arcSag || 0) / 2;
+    const before = endsOff(obj);
+    const centre = obj.getCenterPoint();
+    obj.set('tcgArc', arc || undefined);
+    obj.initDimensions();
+    if (obj.tcgAutoFit) this.autoFitText(obj);
+    const shift = before - endsOff(obj);
+    const turn = fabric.util.degreesToRadians(obj.angle || 0);
+    centre.x -= Math.sin(turn) * shift;
+    centre.y += Math.cos(turn) * shift;
+    obj.setPositionByOrigin(centre, 'center', 'center');
+    obj.setCoords();
     obj.dirty = true;
     this.canvas.requestRenderAll();
     this.touch();

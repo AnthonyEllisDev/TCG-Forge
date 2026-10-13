@@ -7757,6 +7757,325 @@ try {
     JSON.stringify(guideTyped)
   );
 
+  /* ---- 0.24.0: server answers to HEAD, bad base64, a file in the way ---- */
+
+  // A damaged data URL decoded to nothing and was written as an empty file
+  // over an existing card image (batch runs overwrite), reporting success.
+  const badBase64 = await page.evaluate(async () => {
+    try {
+      const { api } = window.TCGForge;
+      const good = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      const post = (data) => fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: 'card.png', folder: 'smoke-b64', overwrite: true, data }),
+      }).then(async (r) => ({ status: r.status, body: await r.json() }));
+      const first = await post(good);
+      const before = (await (await fetch(api.fileURL('exports/smoke-b64/card.png'))).arrayBuffer()).byteLength;
+      const bad = await post('data:image/png;base64,@@@');
+      const after = (await (await fetch(api.fileURL('exports/smoke-b64/card.png'))).arrayBuffer()).byteLength;
+      await api.trash('exports/smoke-b64').catch(() => {});
+      return { first: first.status, before, bad: bad.status, error: bad.body.error, after };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a body that is not base64 is refused, and the image it would have replaced keeps its bytes',
+    badBase64.first === 200 && badBase64.before > 0 && badBase64.bad === 400 && badBase64.after === badBase64.before,
+    JSON.stringify(badBase64)
+  );
+
+  // HEAD fell through to the static handler, which looks under web/ — so the
+  // API and every workspace file answered 404 to HEAD and 200 to GET.
+  const headStatus = await rawRequest({ method: 'HEAD', path: '/api/status' }).catch((err) => ({ error: err.message }));
+  const headFile = await rawRequest({ method: 'HEAD', path: '/files/templates/classic-spell.json' }).catch((err) => ({ error: err.message }));
+  const getFile = await rawRequest({ method: 'GET', path: '/files/templates/classic-spell.json' }).catch((err) => ({ error: err.message }));
+  const headMissing = await rawRequest({ method: 'HEAD', path: '/files/templates/smoke-none.json' }).catch((err) => ({ error: err.message }));
+  check(
+    'HEAD answers the API and workspace files as GET does, without a body',
+    headStatus.status === 200 && headFile.status === 200 && headMissing.status === 404 &&
+      headFile.headers?.['content-length'] === getFile.headers?.['content-length'] &&
+      headFile.headers?.['content-security-policy'] === 'sandbox',
+    JSON.stringify({ api: headStatus.status, file: headFile.status, missing: headMissing.status,
+      length: [headFile.headers?.['content-length'], getFile.headers?.['content-length']] })
+  );
+
+  // A write whose folder would have to be made through an existing file
+  // answered a 500 naming the exception; it is the caller's mistake (400).
+  const fileInTheWay = await page.evaluate(async () => {
+    const post = (route, body) => fetch(`/api/${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(async (r) => ({ status: r.status, error: (await r.json()).error }));
+    return {
+      write: await post('write', { path: 'templates/classic-spell.json/smoke.json', content: '{}' }),
+      deeper: await post('write', { path: 'templates/classic-spell.json/a/smoke.json', content: '{}' }),
+      mkdir: await post('mkdir', { path: 'templates/classic-spell.json' }),
+    };
+  });
+  check(
+    'a write or folder through an existing file is refused as a bad request, not a server error',
+    fileInTheWay.write.status === 400 && fileInTheWay.deeper.status === 400 && fileInTheWay.mkdir.status === 400 &&
+      /in the way/.test(fileInTheWay.write.error || ''),
+    JSON.stringify(fileInTheWay)
+  );
+
+  /* ---- 0.24.0: arced text ---------------------------------------------- */
+
+  // The geometry: an arc's ends are the box's ends and its middle stands off
+  // by the sagitta; small or silly angles are straight.
+  const arcMaths = await page.evaluate(async () => {
+    const { cleanArc, arcGeometry } = await import('/js/core/arc.js');
+    const half = arcGeometry(200, 180);
+    const sixty = arcGeometry(600, 60);
+    return {
+      clean: [cleanArc(0.3), cleanArc(-500), cleanArc('abc'), cleanArc(42.26), cleanArc(undefined)],
+      half: Math.round(half.sag * 100) / 100,
+      sixty: Math.round(sixty.radius),
+      straight: arcGeometry(300, 0).sag,
+      down: arcGeometry(600, -60).d.startsWith('M 0 0 A'),
+    };
+  });
+  check(
+    'arc geometry: a half circle stands off half its width, 60° is a radius of the width, tiny or bad angles are straight',
+    JSON.stringify(arcMaths.clean) === '[0,-180,0,42.3,0]' && arcMaths.half === 100 &&
+      arcMaths.sixty === 600 && arcMaths.straight === 0 && arcMaths.down === true,
+    JSON.stringify(arcMaths)
+  );
+
+  // Where the words are drawn: the title in pure green, rendered straight,
+  // arched and smiling. The ink's height at the ends against the middle tells
+  // which way it bends; nothing else on the card is pure green.
+  const arcInk = await page.evaluate(async () => {
+    try {
+      const { editor, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const { renderCard } = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const title = () => editor.objects().find((o) => o.tcgSlot === 'title');
+      t.setFieldText('title', 'WW WW WW WW');
+      title().set({ fill: '#00ff00', textAlign: 'center', top: 200 });
+      // The words fill the box, so the ink at its ends is the arc's ends.
+      title().set('width', Math.ceil(title().getLineWidth(0)) + 2);
+      title().setCoords();
+      const measure = async () => {
+        const url = await renderCard({ multiplier: 1, format: 'png' });
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, c.width, 500).data;
+        const band = (x0, x1) => {
+          let sum = 0;
+          let n = 0;
+          for (let y = 0; y < 500; y += 1) {
+            for (let x = x0; x < x1; x += 1) {
+              const i = (y * c.width + x) * 4;
+              if (data[i] < 60 && data[i + 1] > 200 && data[i + 2] < 60) { sum += y; n += 1; }
+            }
+          }
+          return n ? Math.round(sum / n) : null;
+        };
+        const box = title().getBoundingRect();
+        const third = box.width / 3;
+        return { ends: band(Math.round(box.left), Math.round(box.left + third / 2)), middle: band(Math.round(box.left + third * 1.25), Math.round(box.left + third * 1.75)) };
+      };
+      const straight = await measure();
+      const plainHeight = title().height;
+      const plainTop = title().getBoundingRect().top;
+      const plainBottom = plainTop + title().getBoundingRect().height;
+      editor.setTextArc(title(), 60);
+      const arched = await measure();
+      const box = title().getBoundingRect();
+      const archedBox = { height: Math.round(title().height - plainHeight), sag: Math.round(title()._arcSag), bottom: Math.round(box.top + box.height - plainBottom) };
+      editor.setTextArc(title(), -60);
+      const smile = await measure();
+      archedBox.smileTop = Math.round(title().getBoundingRect().top - plainTop);
+      // Card Fields, a batch row or a card switch write the text again; the
+      // bend is made from the box each time, not kept from the last text.
+      t.setFieldText('title', 'MM MM MM MM');
+      const rewritten = await measure();
+      return { straight, arched, archedBox, smile, rewritten };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  const bend = (m) => (m && m.ends !== null && m.middle !== null ? m.ends - m.middle : null);
+  check(
+    'an arced title draws its ends lower than its middle (a smile the other way), and its box grows by the bend from the line the words were on',
+    Math.abs(bend(arcInk.straight)) <= 3 && bend(arcInk.arched) > 25 && bend(arcInk.smile) < -25 &&
+      bend(arcInk.rewritten) < -25 && arcInk.archedBox?.height === arcInk.archedBox?.sag &&
+      Math.abs(arcInk.archedBox?.bottom) <= 1 && Math.abs(arcInk.archedBox?.smileTop) <= 1,
+    JSON.stringify({ ...arcInk, bends: [bend(arcInk.straight), bend(arcInk.arched), bend(arcInk.smile), bend(arcInk.rewritten)] })
+  );
+
+  // Fabric draws every line of a path text on the same curve; here wrapped
+  // lines run parallel. Down the middle of the box, two arced lines cover as
+  // much height as two straight ones, not one line's worth.
+  const arcLines = await page.evaluate(async () => {
+    try {
+      const { editor, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      const { renderCard } = await import('/js/core/project.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const rules = () => editor.objects().find((o) => o.tcgSlot === 'rules');
+      t.setFieldText('rules', 'MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM MMMMM');
+      rules().set({ fill: '#00ff00', textAlign: 'center', tcgAutoFit: false });
+      rules().initDimensions();
+      const spread = async () => {
+        const url = await renderCard({ multiplier: 1, format: 'png' });
+        const img = new Image();
+        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const box = rules().getBoundingRect();
+        const mid = Math.round(box.left + box.width / 2);
+        const data = ctx.getImageData(mid - 40, 0, 80, c.height).data;
+        let top = null;
+        let bottom = null;
+        for (let y = 0; y < c.height; y += 1) {
+          for (let x = 0; x < 80; x += 1) {
+            const i = (y * 80 + x) * 4;
+            if (data[i] < 60 && data[i + 1] > 200 && data[i + 2] < 60) {
+              if (top === null) top = y;
+              bottom = y;
+            }
+          }
+        }
+        return top === null ? null : bottom - top;
+      };
+      const lines = rules()._textLines.length;
+      const straight = await spread();
+      editor.setTextArc(rules(), 50);
+      const arced = await spread();
+      return { lines, straight, arced };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'wrapped lines of arced text run parallel instead of drawing over each other',
+    arcLines.lines === 2 && arcLines.straight > 40 && arcLines.arced >= arcLines.straight * 0.85 &&
+      arcLines.arced <= arcLines.straight * 1.3,
+    JSON.stringify(arcLines)
+  );
+
+  // Auto-fit fits the words, not the bend: arcing a full rules box must not
+  // shrink its font.
+  const arcFit = await page.evaluate(async () => {
+    try {
+      const { editor, api } = window.TCGForge;
+      const t = await import('/js/core/templates.js');
+      await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+      const rules = () => editor.objects().find((o) => o.tcgSlot === 'rules');
+      t.setFieldText('rules', 'Deal three damage to any target. Draw a card, then discard a card. Your units gain one power until the end of the turn. Then look at the top four cards of your deck and put them back in any order, or shuffle your deck and gain a shield.');
+      const straight = { size: rules().fontSize, height: Math.round(rules().height), fit: Math.round(rules().tcgFitHeight) };
+      editor.setTextArc(rules(), -40);
+      const arced = { size: rules().fontSize, height: Math.round(rules().height), sag: Math.round(rules()._arcSag) };
+      return { straight, arced };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'auto-fit keeps the font size when its box is arced',
+    arcFit.straight?.size === arcFit.arced?.size && arcFit.arced.sag > 0 &&
+      arcFit.straight.height + arcFit.arced.sag > arcFit.straight.fit,
+    JSON.stringify(arcFit)
+  );
+
+  // Saved as an angle only — no Fabric path in the file — and rebuilt from it
+  // on open; a resized box re-bends to its new width; undo straightens.
+  const arcFile = await page.evaluate(async () => {
+    try {
+      const { editor, state, history, api } = window.TCGForge;
+      const project = await import('/js/core/project.js');
+      const title = () => editor.objects().find((o) => o.tcgSlot === 'title');
+      await new Promise((r) => setTimeout(r, 450));
+      editor.setTextArc(title(), 75);
+      const file = await project.serializeProject({ embed: false });
+      const layer = file.canvas.objects.find((o) => o.tcgSlot === 'title');
+      const plain = file.canvas.objects.find((o) => o.tcgSlot === 'type');
+      await project.saveProject({ name: 'Smoke Arc' });
+      const path = state.project.path;
+      editor.setTextArc(title(), 0);
+      await project.openProjectPath(path);
+      const reopened = { arc: title().tcgArc, bent: !!title().path, chord: Math.round(title().path?.width) === Math.round(title().width) };
+      title().set('width', 400);
+      const resized = { width: title().width, chord: Math.round(title().path?.width) };
+      await new Promise((r) => setTimeout(r, 450));
+      editor.setTextArc(title(), 0);
+      await new Promise((r) => setTimeout(r, 450));
+      const straightened = !title().path && title().tcgArc === undefined;
+      await history.undo();
+      const undone = { arc: title().tcgArc, bent: !!title().path };
+      await api.trash(path).catch(() => {});
+      return { saved: layer.tcgArc, hasPath: 'path' in layer, plainKey: 'tcgArc' in plain, reopened, resized, straightened, undone };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'an arc is saved as its angle alone, rebuilt on open, re-bent to a new width, and undone',
+    arcFile.saved === 75 && arcFile.hasPath === false && arcFile.plainKey === false &&
+      arcFile.reopened?.arc === 75 && arcFile.reopened.bent && arcFile.reopened.chord &&
+      arcFile.resized?.chord === 400 && arcFile.straightened === true &&
+      arcFile.undone?.arc === 75 && arcFile.undone.bent,
+    JSON.stringify(arcFile)
+  );
+
+  // Properties: the slider is keyboard-driven, the readout follows, Straighten
+  // returns focus to the slider, and only text boxes show the row.
+  const arcUi = await page.evaluate(async () => {
+    const { editor, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    editor.select([editor.objects().find((o) => o.tcgSlot === 'title')]);
+  });
+  await page.focus('#pArc');
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('ArrowRight');
+  const arcStepped = await page.evaluate(() => ({
+    arc: window.TCGForge.editor.active()?.tcgArc,
+    readout: document.getElementById('pArcVal').textContent,
+    flat: document.getElementById('pArcFlat').disabled,
+    row: document.getElementById('pArcRow').hidden,
+  }));
+  await page.keyboard.press('Home');
+  const arcHome = await page.evaluate(() => window.TCGForge.editor.active()?.tcgArc);
+  await page.click('#pArcFlat');
+  const arcFlat = await page.evaluate(() => ({
+    arc: window.TCGForge.editor.active()?.tcgArc,
+    readout: document.getElementById('pArcVal').textContent,
+    flat: document.getElementById('pArcFlat').disabled,
+    focus: document.activeElement?.id,
+  }));
+  const arcOther = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select([editor.objects().find((o) => o.tcgSlot === 'art')]);
+    const rect = !document.getElementById('pArcRow').checkVisibility();
+    editor.select([editor.objects().find((o) => o.tcgSlot === 'title')]);
+    const title = !document.getElementById('pArcRow').checkVisibility();
+    document.activeElement?.blur?.();
+    editor.canvas.discardActiveObject();
+    window.TCGForge.state.setDirty(false);
+    return { rect, title };
+  });
+  check(
+    'Properties → Arc bends the text from the keyboard, shows the angle, and Straighten keeps focus',
+    arcUi === undefined && arcStepped.arc === 15 && arcStepped.readout === '15°' && arcStepped.flat === false &&
+      arcStepped.row === false && arcHome === -180 && arcFlat.arc === undefined && arcFlat.readout === '0°' &&
+      arcFlat.flat === true && arcFlat.focus === 'pArc' && arcOther.rect === true && arcOther.title === false,
+    JSON.stringify({ arcStepped, arcHome, arcFlat, arcOther })
+  );
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

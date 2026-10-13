@@ -11,6 +11,7 @@ import { state } from '../core/state.js';
 import { history } from '../core/history.js';
 import { assets } from '../core/assets.js';
 import { labelOf } from '../core/objects.js';
+import { cleanArc, textHeightOf } from '../core/arc.js';
 import { collectFields } from '../core/templates.js';
 import { activeIndex, canOverride, cardList, isOverridden, isSwitching, placeArt, setOverride } from '../core/cards.js';
 import { toast } from './dialogs.js';
@@ -213,7 +214,8 @@ function resize(obj, width, height) {
   if (height !== null) {
     const h = Math.max(1, height);
     if (obj.type === 'textbox') {
-      obj.set('tcgFitHeight', h);
+      // The box shown includes an arc's bend; the fit is for the words.
+      obj.set('tcgFitHeight', Math.max(1, h - (obj._arcSag || 0)));
       if (obj.tcgAutoFit) editor.autoFitText(obj);
     } else {
       obj.set('scaleY', editor.scaleToShow(obj, 'y', h));
@@ -428,12 +430,28 @@ function bindText() {
     });
   }
 
+  // The arc commits as the slider moves, like the other sliders here; history
+  // waits for the changes to settle, so a quick sweep is one undo step.
+  bindInput('pArc', (n) => {
+    if (syncing) return;
+    const obj = selection()[0];
+    if (selection().length !== 1 || !editor.setTextArc(obj, num(n.value))) return;
+    syncArc(obj);
+  });
+  on(el('pArcFlat'), 'click', () => {
+    const obj = selection()[0];
+    if (selection().length !== 1 || !editor.setTextArc(obj, 0)) return;
+    syncArc(obj);
+    // The button disables itself; keep the keyboard where it was working.
+    el('pArc')?.focus();
+  });
+
   bindInput('pAutoFit', (n) =>
     apply((o) => {
       if (!isText(o)) return;
       o.set('tcgAutoFit', n.checked);
       if (n.checked) {
-        o.set('tcgFitHeight', o.tcgFitHeight || o.height);
+        o.set('tcgFitHeight', o.tcgFitHeight || textHeightOf(o));
         o.set('tcgFitSize', o.tcgFitSize || o.fontSize);
         editor.autoFitText(o);
       }
@@ -818,6 +836,7 @@ export function sync() {
         b.classList.toggle('on', b.dataset.textalign === (obj.textAlign || 'left'))
       );
       setChecked('pAutoFit', !!obj.tcgAutoFit);
+      syncArc(obj);
       setVal('pSlot', obj.tcgSlot || '');
       setVal('pNumbering', obj.tcgNumbering || '');
       syncNumberingLocks(obj);
@@ -881,6 +900,20 @@ function syncTextValues() {
   } finally {
     syncing = false;
   }
+}
+
+/** The arc row: only text boxes bend, so other text layers do not show it. */
+function syncArc(obj) {
+  const row = el('pArcRow');
+  if (!row) return;
+  const shown = obj?.type === 'textbox';
+  row.hidden = !shown;
+  el('pArcHint').hidden = !shown;
+  if (!shown) return;
+  const arc = cleanArc(obj.tcgArc);
+  if (document.activeElement !== el('pArc')) setVal('pArc', arc);
+  setText('pArcVal', `${arc}°`);
+  el('pArcFlat').disabled = !arc;
 }
 
 /**
