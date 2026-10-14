@@ -8,7 +8,8 @@ import { bus, EVT } from '../util/bus.js';
 import { clamp, round } from '../util/dom.js';
 import { state } from './state.js';
 import { expandIcons } from './icons.js';
-import { cleanArc, textHeightOf } from './arc.js';
+import { arcGeometry, cleanArc, textHeightOf } from './arc.js';
+import './markup.js';
 import { AXES, MAX_GUIDES, cleanGuides, guideAt, noGuides } from './guides.js';
 import {
   CUSTOM_PROPS,
@@ -1111,9 +1112,13 @@ class Editor {
     if (cleanArc(obj.tcgArc) === arc) return false;
     // The ends of the words stay where they were and the middle bends away
     // from them, as a line pulled into a curve would: an arch grows upwards, a
-    // smile downwards. The ends sit half the bend below (or above) the centre.
-    const endsOff = (o) => Math.sign(cleanArc(o.tcgArc)) * (o._arcSag || 0) / 2;
+    // smile downwards. The ends sit half the bend below (or above) the centre
+    // — in the layer's own units, so a box scaled by its handles moves by the
+    // scaled bend, and a flipped one the other way.
+    const endsOff = (o) => Math.sign(cleanArc(o.tcgArc)) * (o._arcSag || 0) / 2
+      * (o.scaleY || 1) * (o.flipY ? -1 : 1);
     const before = endsOff(obj);
+    const oldArc = obj.tcgArc;
     const centre = obj.getCenterPoint();
     obj.set('tcgArc', arc || undefined);
     obj.initDimensions();
@@ -1124,6 +1129,25 @@ class Editor {
     centre.y += Math.cos(turn) * shift;
     obj.setPositionByOrigin(centre, 'center', 'center');
     obj.setCoords();
+    // The arc is the layout's, not the card's: on a layer this card changes
+    // for itself, the move above went into the card's own copy, so the
+    // layout's place moves too — by its own bend, from its own width — or
+    // every other card's words would shift by the whole bend.
+    const layout = obj.tcgBase;
+    if (layout && Number.isFinite(layout.left) && Number.isFinite(layout.top)) {
+      const width = layout.width ?? obj.width;
+      const scale = (layout.scaleY ?? obj.scaleY ?? 1) * (obj.flipY ? -1 : 1);
+      const sag = (deg) => arcGeometry(width, deg).sag;
+      const off = (deg) => Math.sign(deg) * sag(deg) / 2 * scale;
+      // The layout holds the box's corner (its origin), not its centre, and
+      // the box grows by the change in bend around the centre.
+      const grown = (sag(arc) - sag(cleanArc(oldArc))) * Math.abs(scale);
+      const pull = { top: -0.5, bottom: 0.5 }[obj.originY] || 0;
+      const moved = off(cleanArc(oldArc)) - off(arc) + pull * grown;
+      const tilt = fabric.util.degreesToRadians(layout.angle ?? obj.angle ?? 0);
+      layout.left -= Math.sin(tilt) * moved;
+      layout.top += Math.cos(tilt) * moved;
+    }
     obj.dirty = true;
     this.canvas.requestRenderAll();
     this.touch();
@@ -1449,6 +1473,16 @@ function moveBy(obj, dx, dy) {
   }
   obj.set({ left: obj.left + d.x, top: obj.top + d.y });
   obj.setCoords();
+}
+
+/* Inputs that keep an undo history of their own: Ctrl+Z belongs to them. A
+   slider, tick box or colour well has none, so there it means the card. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'number', 'email', 'url', 'tel', 'password']);
+
+export function isTextEntry(node) {
+  if (!node) return false;
+  if (node.tagName === 'TEXTAREA' || node.isContentEditable) return true;
+  return node.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((node.type || 'text').toLowerCase());
 }
 
 export function isTypingTarget(node) {

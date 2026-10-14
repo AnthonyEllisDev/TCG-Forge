@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.25.0 — bold and italic words
+
+- **Bold and italic words in text.** Wrap words in `<b>…</b>` or `<i>…</i>`
+  — `<b>Flying</b>, haste. <i>(It can block creatures with flying.)</i>` —
+  and they are set bold or italic in the layer's own font, inside the same
+  line as the rest. The tags take no room and are never drawn; wrapping and
+  auto-fit measure the words at their real width, and arced text bends them
+  like any other. In a Card Fields box or Properties → Text, select words
+  and press **Ctrl+B** or **Ctrl+I** to wrap them (again to unwrap). The
+  tags are plain text, so they work in spreadsheet cells, batch rows, every
+  card of a set, saved projects and every output, and the card strip shows
+  and searches the words without them. See
+  [`docs/TEMPLATES.md`](docs/TEMPLATES.md#bold-and-italic-words).
+
+### Fixed
+
+- **Arcing a text box that had been stretched with its handles moved its
+  words** — by half the difference the stretch made to the bend (about 80 px
+  for a box at double size), and the wrong way for a flipped box. The ends
+  of the line now stay put at any scale.
+- **Changing the arc on a layer a card changes for itself moved that title
+  on every other card**, by the whole height of the bend. The layout's own
+  place now moves with the arc, as the card's does.
+- **Justified arced text was drawn left-aligned.** Justified lines now fill
+  the curve from end to end, and the last line of the justify-centre and
+  justify-right modes sits where its name says.
+- **Ctrl+Z did nothing while a slider, tick box or colour well had focus** —
+  the Arc slider just after dragging it, for instance. Only text boxes keep
+  Ctrl+Z for themselves now; everywhere else it undoes the card.
+- **Removing a horizontal guide from Card Setup's list moved focus to a
+  vertical guide's row.** It now lands on the next horizontal guide.
+
 ## 0.24.0 — arced text
 
 - **Arced text.** A text box can bend its words along a circle: a title

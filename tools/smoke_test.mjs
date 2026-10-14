@@ -8076,6 +8076,362 @@ try {
     JSON.stringify({ arcStepped, arcHome, arcFlat, arcOther })
   );
 
+  /* ---- 0.25.0: arc ends when scaled or per card, undo from a slider ----- */
+
+  // Fills the page with a fresh Classic Spell, so a check starts clean.
+  const markupFresh = () => page.evaluate(async () => {
+    const { editor, api } = window.TCGForge;
+    const t = await import('/js/core/templates.js');
+    await t.applyTemplate(await api.readJSON('templates/classic-spell.json'));
+    editor.canvas.discardActiveObject();
+    window.TCGForge.state.setDirty(false);
+  });
+
+  // setTextArc kept the ends of the words by moving the box half the bend,
+  // measured unscaled: a text box stretched by its handles moved its words by
+  // the difference (78 px at ×2), and a flipped one moved the wrong way.
+  await markupFresh();
+  const arcScaledEnds = await page.evaluate(() => {
+    try {
+      const { editor } = window.TCGForge;
+      const out = [];
+      for (const [scale, flipY, angle] of [[2, false, 0], [1.5, true, 0], [2, true, 30]]) {
+        const t = editor.insert('text');
+        t.set({ text: 'Arc words', scaleX: scale, scaleY: scale, flipY, angle });
+        t.setCoords();
+        const end = (o) => {
+          const sag = o._arcSag || 0;
+          const y = (Math.sign(o.tcgArc || 0) > 0 ? sag : 0) + (o.height - sag) / 2 - o.height / 2;
+          const p = fabric.util.transformPoint(new fabric.Point(-o.width / 2, y), o.calcTransformMatrix());
+          return [p.x, p.y];
+        };
+        const before = end(t);
+        editor.setTextArc(t, 120);
+        const up = end(t);
+        editor.setTextArc(t, -60);
+        const down = end(t);
+        out.push(Math.round(Math.max(...[up, down].map((p) => Math.hypot(p[0] - before[0], p[1] - before[1])))));
+        editor.canvas.remove(t);
+      }
+      return out;
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'arcing a scaled, flipped or turned text box keeps the ends of its words in place',
+    Array.isArray(arcScaledEnds) && arcScaledEnds.every((d) => d <= 1),
+    JSON.stringify(arcScaledEnds)
+  );
+
+  // The arc is layout, but on a layer the card on screen changes for itself
+  // the box's move went into the card's own copy only — so every other card
+  // drew the new arc at the old place and its title dropped by the whole bend.
+  await markupFresh();
+  const arcOtherCard = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      const title = () => editor.objects().find((o) => o.tcgSlot === 'title');
+      const ends = (o) => Math.round(o.getCenterPoint().y + Math.sign(o.tcgArc || 0) * (o._arcSag || 0) / 2);
+      const before = ends(title());
+      await cards.addCard();
+      await cards.switchCard(0);
+      cards.setOverride(title(), true);
+      editor.setTextArc(title(), 90);
+      const own = ends(title());
+      await cards.switchCard(1);
+      const other = { ends: ends(title()), arc: title().tcgArc };
+      await cards.switchCard(0);
+      const back = ends(title());
+      return { before, own, other, back };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'an arc set on a card that moves its title for itself keeps the other cards\' titles in place',
+    arcOtherCard.before > 0 && arcOtherCard.own === arcOtherCard.before &&
+      arcOtherCard.other?.ends === arcOtherCard.before && arcOtherCard.other.arc === 90 &&
+      arcOtherCard.back === arcOtherCard.before,
+    JSON.stringify(arcOtherCard)
+  );
+
+  // Every <input> counted as typing, so Ctrl+Z was left to the browser on a
+  // slider — which has no undo — and nothing happened. A text box keeps its own.
+  await markupFresh();
+  await page.evaluate(() => {
+    const { editor, history } = window.TCGForge;
+    editor.select([editor.objects().find((o) => o.tcgSlot === 'title')]);
+    window.__smokeUndos = 0;
+    if (!history.__smokeCounted) {
+      const undo = history.undo.bind(history);
+      history.undo = (...args) => { window.__smokeUndos += 1; return undo(...args); };
+      history.__smokeCounted = true;
+    }
+  });
+  await page.focus('#pArc');
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(450);
+  const sliderUndo = { bent: await page.evaluate(() => window.TCGForge.editor.objects().find((o) => o.tcgSlot === 'title').tcgArc) };
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(400);
+  sliderUndo.undone = await page.evaluate(() => window.TCGForge.editor.objects().find((o) => o.tcgSlot === 'title').tcgArc ?? 0);
+  sliderUndo.sliderUndos = await page.evaluate(() => window.__smokeUndos);
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.select([editor.objects().find((o) => o.tcgSlot === 'title')]);
+  });
+  await page.focus('#pText');
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  await page.waitForTimeout(450);
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(400);
+  sliderUndo.textUndos = await page.evaluate(() => window.__smokeUndos);
+  await page.evaluate(() => document.activeElement?.blur?.());
+  check(
+    'Ctrl+Z on a focused slider undoes the card; in a text box it is still the box\'s own',
+    sliderUndo.bent === 20 && sliderUndo.undone === 0 && sliderUndo.sliderUndos === 1 && sliderUndo.textUndos === 1,
+    JSON.stringify(sliderUndo)
+  );
+
+  // Fabric lays path text by left/centre/right and widens a justified line's
+  // spaces afterwards, so a justified arc drew exactly as a left-aligned one.
+  await markupFresh();
+  const arcJustified = await page.evaluate(() => {
+    try {
+      const { editor } = window.TCGForge;
+      const rules = editor.objects().find((o) => o.tcgSlot === 'rules');
+      rules.set({ text: 'One two three four five six seven eight nine ten eleven twelve thirteen fourteen', tcgAutoFit: false });
+      editor.setTextArc(rules, 60);
+      const lastOfFirstLine = () => {
+        rules.initDimensions();
+        rules.getLineWidth(0);
+        const line = rules.__charBounds[0];
+        return Math.round(line[rules._textLines[0].length - 1].renderLeft);
+      };
+      rules.set('textAlign', 'left');
+      const left = lastOfFirstLine();
+      rules.set('textAlign', 'justify');
+      const justified = lastOfFirstLine();
+      // The far end of the arc, in the same frame as renderLeft.
+      const end = Math.round(rules.width / 2);
+      return { left, justified, end, lines: rules._textLines.length };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'justified arced text fills the curve to its end instead of drawing left-aligned',
+    arcJustified.lines >= 2 && Math.abs(arcJustified.end - arcJustified.justified) < 15 &&
+      arcJustified.justified - arcJustified.left > 20,
+    JSON.stringify(arcJustified)
+  );
+
+  // Removing a horizontal guide's row put focus on a vertical guide: the
+  // index counts within one axis but was used on the whole list.
+  await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    editor.removeAllGuides();
+    editor.addGuide('x', 100);
+    editor.addGuide('x', 200);
+    editor.addGuide('y', 300);
+    editor.addGuide('y', 400);
+  });
+  await page.focus('[data-guide-remove="y:0"]');
+  await page.keyboard.press('Enter');
+  const guideRowFocus = await page.evaluate(() => {
+    const { editor } = window.TCGForge;
+    const out = { focus: document.activeElement?.dataset?.guideRemove || document.activeElement?.id, guides: JSON.stringify(editor.cardGuides()) };
+    editor.removeAllGuides();
+    document.activeElement?.blur?.();
+    window.TCGForge.state.setDirty(false);
+    return out;
+  });
+  check(
+    'removing a horizontal guide from the list leaves focus on the next horizontal guide',
+    guideRowFocus.focus === 'y:0' && guideRowFocus.guides === '{"x":[100,200],"y":[400]}',
+    JSON.stringify(guideRowFocus)
+  );
+
+  /* ---- 0.25.0: bold and italic words in text --------------------------- */
+
+  const markupParse = await page.evaluate(async () => {
+    const { markupKinds, plainText, hasMarkup } = await import('/js/core/markup.js');
+    const kinds = markupKinds([[...'a<b>b</B>'], [...'<i>c'], [...'d</i>e</b>']]).map((l) => l.join(''));
+    return { kinds, plain: plainText('<b>Flying</b>, <I>haste</I> <u>x</u>'), has: [hasMarkup('a <i>b'), hasMarkup('a < b')] };
+  });
+  check(
+    'formatting tags are read across lines, case-insensitively, and left out of the plain text',
+    JSON.stringify(markupParse.kinds) === '["044414444","4442","2444404444"]' &&
+      markupParse.plain === 'Flying, haste <u>x</u>' && markupParse.has[0] === true && markupParse.has[1] === false,
+    JSON.stringify(markupParse)
+  );
+
+  // The tags take no room and are never painted, and the words between them
+  // are set bold or italic: a layer reading "<i>…</i>" draws pixel for pixel
+  // as the same words in an italic layer, and wraps at the same places.
+  await markupFresh();
+  const markupInk = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const rules = editor.objects().find((o) => o.tcgSlot === 'rules');
+      const flavor = editor.objects().find((o) => o.tcgSlot === 'flavor');
+      const words = 'Whenever this creature attacks, draw a card and then discard a card at random';
+      const render = async () => {
+        editor.canvas.requestRenderAll();
+        const url = editor.toDataURL({ multiplier: 1 });
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width;
+        c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        return ctx.getImageData(0, 0, c.width, c.height).data;
+      };
+      const diff = (a, b) => {
+        let n = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n += 1;
+        }
+        return n;
+      };
+      const out = {};
+      for (const [key, tag, prop, value] of [['italic', 'i', 'fontStyle', 'italic'], ['bold', 'b', 'fontWeight', 'bold']]) {
+        rules.set({ text: `<${tag}>${words}</${tag}>`, fontStyle: 'normal', fontWeight: 'normal' });
+        editor.autoFitText(rules);
+        const tagged = await render();
+        const taggedLines = rules._textLines.map((l) => l.join('')).join('|');
+        const taggedSize = rules.fontSize;
+        rules.set({ text: words, [prop]: value });
+        editor.autoFitText(rules);
+        const styled = await render();
+        const styledLines = rules._textLines.map((l) => l.join('')).join('|');
+        rules.set({ [prop]: 'normal' });
+        editor.autoFitText(rules);
+        const plain = await render();
+        out[key] = {
+          same: diff(tagged, styled), plainDiffers: diff(tagged, plain),
+          lines: taggedLines.replace(/<\/?[bi]>/g, '') === styledLines, size: taggedSize === rules.fontSize,
+        };
+      }
+      // Bold in the middle of a line, with icons and the layer's letter
+      // spacing: the tags still take no room.
+      flavor.set({ text: 'Deal <b>two</b> damage.', charSpacing: 120 });
+      flavor.initDimensions();
+      const spaced = flavor.getLineWidth(0);
+      flavor.set({ text: 'Deal two damage.' });
+      flavor.initDimensions();
+      out.spacing = { tagged: Math.round(spaced), plain: Math.round(flavor.getLineWidth(0)) };
+      return out;
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'a tagged word draws exactly as the same word set italic or bold, wraps the same, and its tags take no room',
+    markupInk.italic?.same === 0 && markupInk.bold?.same === 0 &&
+      markupInk.italic.plainDiffers > 200 && markupInk.bold.plainDiffers > 200 &&
+      markupInk.italic.lines && markupInk.bold.lines &&
+      Math.abs(markupInk.spacing.tagged - markupInk.spacing.plain) < 8,
+    JSON.stringify(markupInk)
+  );
+
+  // An arced layer measures and draws with the tags too.
+  await markupFresh();
+  const markupArc = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const title = editor.objects().find((o) => o.tcgSlot === 'title');
+      editor.setTextArc(title, 60);
+      const last = () => {
+        title.initDimensions();
+        title.getLineWidth(0);
+        // The last character that shows (a closing tag has no width).
+        const shown = title.__charBounds[0].slice(0, title._textLines[0].length).filter((c) => c.kernedWidth > 0);
+        return Math.round(shown[shown.length - 1].renderLeft);
+      };
+      title.set({ text: 'Ember <i>Wyrm</i>', fontStyle: 'normal' });
+      const tagged = last();
+      title.set({ text: 'Ember Wyrm' });
+      const plain = last();
+      title.set({ text: '<i>Ember Wyrm</i>' });
+      const whole = last();
+      title.set({ text: 'Ember Wyrm', fontStyle: 'italic' });
+      const styled = last();
+      return { tagged, plain, whole, styled };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  check(
+    'arced text places tagged words by their italic widths, and the tags take no room on the curve',
+    markupArc.whole === markupArc.styled && markupArc.tagged !== markupArc.plain &&
+      Math.abs(markupArc.tagged - markupArc.plain) < 20,
+    JSON.stringify(markupArc)
+  );
+
+  // Ctrl+I / Ctrl+B in Card Fields wrap the selected words, and again take
+  // the tags away; the canvas has them at once. Copying on the canvas does
+  // not stamp the bold into the pasted characters' own styles, and the strip
+  // filter reads the words without their tags.
+  await markupFresh();
+  await page.fill('#ff_rules', 'Flying, haste');
+  await page.focus('#ff_rules');
+  await page.evaluate(() => document.getElementById('ff_rules').setSelectionRange(0, 6));
+  await page.keyboard.press('Control+b');
+  const markupKeys = { bolded: await page.inputValue('#ff_rules') };
+  markupKeys.selected = await page.evaluate(() => {
+    const n = document.getElementById('ff_rules');
+    return n.value.slice(n.selectionStart, n.selectionEnd);
+  });
+  markupKeys.canvas = await page.evaluate(() => window.TCGForge.editor.objects().find((o) => o.tcgSlot === 'rules').text);
+  markupKeys.batchOpen = await page.evaluate(async () => (await import('/js/ui/dialogs.js')).isModalOpen());
+  await page.keyboard.press('Control+b');
+  markupKeys.unbolded = await page.inputValue('#ff_rules');
+  await page.evaluate(() => document.getElementById('ff_rules').setSelectionRange(8, 13));
+  await page.keyboard.press('Control+i');
+  markupKeys.italic = await page.inputValue('#ff_rules');
+  await page.evaluate(() => document.activeElement?.blur?.());
+  const markupMore = await page.evaluate(async () => {
+    try {
+      const { editor } = window.TCGForge;
+      const cards = await import('/js/core/cards.js');
+      const rules = editor.objects().find((o) => o.tcgSlot === 'rules');
+      rules.set('text', '<b>Flying</b>, haste');
+      rules.initDimensions();
+      const copied = rules.getSelectionStyles(3, 9, true);
+      const project = await import('/js/core/project.js');
+      const file = await project.serializeProject({ embed: false });
+      const saved = file.canvas.objects.find((o) => o.tcgSlot === 'rules');
+      return {
+        copiedBold: copied.some((s) => s.fontWeight === 'bold'),
+        drawnBold: rules.getCompleteStyleDeclaration(0, 4).fontWeight,
+        savedText: saved.text,
+        savedStyles: JSON.stringify(saved.styles || []),
+        found: cards.matchingCards('"flying, haste"')?.length,
+        label: cards.cardLabel({ values: { title: '<i>Ember</i> Wyrm' } }, 0, new Map([['title', 'text']])),
+      };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+  await page.evaluate(() => window.TCGForge.state.setDirty(false));
+  check(
+    'Ctrl+B / Ctrl+I wrap and unwrap the selected words; copies, files and the filter keep tags as text',
+    markupKeys.bolded === '<b>Flying</b>, haste' && markupKeys.selected === 'Flying' &&
+      markupKeys.canvas === '<b>Flying</b>, haste' && markupKeys.batchOpen === false &&
+      markupKeys.unbolded === 'Flying, haste' && markupKeys.italic === 'Flying, <i>haste</i>' &&
+      markupMore.copiedBold === false && markupMore.drawnBold === 'bold' &&
+      markupMore.savedText === '<b>Flying</b>, haste' && markupMore.savedStyles === '[]' &&
+      markupMore.found === 1 && markupMore.label === 'Ember Wyrm',
+    JSON.stringify({ markupKeys, markupMore })
+  );
+  await markupFresh();
+
   /* ---- graceful degradation ------------------------------------------- */
   const offlinePage = await browser.newPage();
   await offlinePage.goto(BASE, { waitUntil: 'networkidle' });

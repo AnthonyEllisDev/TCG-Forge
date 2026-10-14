@@ -91,8 +91,10 @@ if (typeof fabric !== 'undefined' && fabric.Textbox) {
   const measureLine = base._measureLine;
   base._measureLine = function measureLineOnArc(lineIndex, ...rest) {
     const result = measureLine.call(this, lineIndex, ...rest);
+    if (!this.path?.tcgArcPath) return result;
     const lines = this._textLines?.length || 0;
-    if (!this.path?.tcgArcPath || lines < 2) return result;
+    if (String(this.textAlign).startsWith('justify')) justifyOnArc(this, lineIndex, result.width);
+    if (lines < 2) return result;
     let above = 0;
     let total = 0;
     for (let i = 0; i < lines; i += 1) {
@@ -110,6 +112,46 @@ if (typeof fabric !== 'undefined' && fabric.Textbox) {
     }
     return result;
   };
+
+  /*
+   * Fabric places path text by left, centre or right only, and widens a
+   * justified line's spaces after placing it, so a justified arc drew as
+   * left-aligned with the Justify button lit. Here the spaces are widened
+   * first and the line laid along the curve again, filling it end to end; a
+   * line Fabric would not stretch (the last of a paragraph, for the
+   * justify-left/centre/right modes) follows the rest of the mode's name.
+   */
+  function justifyOnArc(obj, lineIndex, lineWidth) {
+    const chars = obj._textLines[lineIndex] || [];
+    const bounds = obj.__charBounds[lineIndex] || [];
+    const info = obj.path.segmentsInfo;
+    const length = info?.[info.length - 1]?.length;
+    if (!length) return;
+    const align = String(obj.textAlign);
+    const stretch = align === 'justify'
+      || (lineIndex !== obj._textLines.length - 1 && !obj.isEndOfWrapping(lineIndex));
+    const spaces = chars.filter((c) => obj._reSpaceAndTab.test(c)).length;
+    let start = 0;
+    let extra = 0;
+    if (stretch && spaces && lineWidth < length) {
+      extra = (length - lineWidth) / spaces;
+    } else if (align.endsWith('center')) {
+      start = (length - lineWidth) / 2;
+    } else if (align.endsWith('right')) {
+      start = length - lineWidth;
+    }
+    let at = start;
+    for (let i = 0; i < chars.length; i += 1) {
+      const box = bounds[i];
+      if (!box) continue;
+      if (extra && obj._reSpaceAndTab.test(chars[i])) {
+        box.width += extra;
+        box.kernedWidth += extra;
+      }
+      obj._setGraphemeOnPath(at, box);
+      at += box.kernedWidth;
+    }
+  }
 
   // The curve is derived, so the file keeps only the angle. An older build
   // opening it shows the words straight, which is the right thing to lose.

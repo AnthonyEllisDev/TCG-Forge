@@ -350,9 +350,13 @@ function initList() {
     if (!button) return;
     const [axis, index] = button.dataset.guideRemove.split(':');
     editor.removeGuide(axis, Number(index));
-    // The rows were rebuilt; stay on the list rather than drop to the page.
-    const rows = [...list.querySelectorAll('[data-guide-remove]')];
-    (rows[Math.min(Number(index), rows.length - 1)] || $('#guideAddV'))?.focus();
+    // The rows were rebuilt; stay on the list rather than drop to the page —
+    // on the same axis's next guide (the index counts within one axis, not
+    // down the whole list), else any guide left, else the Add button.
+    const same = [...list.querySelectorAll(`[data-guide-remove^="${axis}:"]`)];
+    const next = same[Math.min(Number(index), same.length - 1)]
+      || list.querySelector('[data-guide-remove]') || $('#guideAddV');
+    next?.focus();
   });
   renderList();
 }

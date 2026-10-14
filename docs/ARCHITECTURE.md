@@ -91,6 +91,7 @@ web/
     │   ├── assets.js   asset index and font registration
     │   ├── icons.js    icons in text: reads icon fonts, {name} tokens
     │   ├── arc.js      arced text: the angle, its curve, and Fabric's text-on-path
+    │   ├── markup.js   <b>/<i> tags in text: bold and italic words, drawn not stored
     │   ├── templates.js template load/save and the slot system
     │   ├── cards.js    multi-card projects: the card list and switching
     │   ├── batch.js    spreadsheet parsing and set rendering
@@ -226,7 +227,30 @@ each wrapped line off the curve along its normal by its place in the block;
 `toObject()` drops the derived `path` so a file holds only the angle.
 `textHeightOf()` (height less the bend) is what `autoFitText()` and the
 Properties Height box measure. `editor.setTextArc()` keeps the line the words
-were on in place: the ends of an arch stay put and its middle rises.
+were on in place: the ends of an arch stay put and its middle rises — scaled
+by the layer's `scaleY` (and the other way when flipped), and on a layer the
+card changes for itself (`tcgBase`) the layout's own place is moved by the
+layout's own bend too, since the arc is layout. A justified arc is laid out
+by `arc.js` itself (`justifyOnArc()`): Fabric places path text by left,
+centre or right and only widens spaces afterwards, which left it drawn
+left-aligned.
+
+**Bold and italic words** (`<b>…</b>`, `<i>…</i>`, 0.25.0,
+`docs/TEMPLATES.md#bold-and-italic-words`) follow the icon colours' pattern:
+the tags stay in the text and `core/markup.js` reads them at measure and draw
+time rather than storing Fabric character styles, which are keyed by position
+and wiped by every `set('text')`. `markupKinds()` gives every grapheme of the
+typed lines a kind (plain, bold, italic, tag), cached per text on the layer.
+`getCompleteStyleDeclaration()` is wrapped to add `fontWeight`/`fontStyle`
+(and to give a tag no colour) — for measuring as well as drawing, so wrapping
+and auto-fit see bold words at their bold width — except inside
+`getSelectionStyles()`, where Fabric's copy would stamp the style into the
+pasted characters. A Textbox names wrapped lines except while wrapping, so
+the lookup maps through `_styleMap` exactly as Fabric's own
+`_getStyleDeclaration()` does. `_getGraphemeBox()` gives a tag zero width
+(letter spacing included), and `isEmptyStyles()` answers false for a line
+with tags, or Fabric would draw it in one plain call. `cards.js` strips the
+tags (`plainText()`) for strip labels and the filter.
 
 Smart guides, the safe zone, the bleed guide and the user's own guides are
 painted in an `after:render` hook straight onto the canvas context. An

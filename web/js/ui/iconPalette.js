@@ -1,10 +1,11 @@
 /*
- * The icon palette under Card Fields, and `{name}` typed into a text box.
+ * The icon palette under Card Fields, `{name}` typed into a text box, and
+ * Ctrl+B / Ctrl+I there for bold and italic words.
  *
- * Both write the icon's character into a text input that is marked
- * `data-icon-target`: the Card Fields boxes and Properties → Text. The input's
- * own `input` handler then does what it always does with its value, so an
- * icon reaches the canvas by exactly the path a letter does.
+ * All three write into a text input that is marked `data-icon-target`: the
+ * Card Fields boxes and Properties → Text. The input's own `input` handler
+ * then does what it always does with its value, so an icon or a tag reaches
+ * the canvas by exactly the path a letter does.
  */
 
 import { $, el, on } from '../util/dom.js';
@@ -23,6 +24,45 @@ export function initIconPalette() {
   });
   bus.on(EVT.ICONS, render);
   render();
+  // The browser has no bold or italic of its own in a plain text box, so the
+  // keys are free there; elsewhere Ctrl+B still opens the batch dialog.
+  on(document, 'keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+    const tag = { b: 'b', i: 'i' }[e.key.toLowerCase()];
+    if (!tag || !e.target?.matches?.('[data-icon-target]')) return;
+    e.preventDefault();
+    toggleTag(e.target, tag);
+  });
+}
+
+/**
+ * Wrap the selected words of a text box in `<b>…</b>` or `<i>…</i>`, or take
+ * the tags away again when the selection is already wrapped in them (just
+ * inside or just outside it). With nothing selected, the caret lands between
+ * a new pair, ready to type. The selection stays on the same words.
+ */
+export function toggleTag(node, tag) {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const value = node.value;
+  let start = node.selectionStart ?? value.length;
+  let end = node.selectionEnd ?? start;
+  const picked = value.slice(start, end);
+  const lower = (text) => text.toLowerCase();
+  if (picked.length >= open.length + close.length
+      && lower(picked).startsWith(open) && lower(picked).endsWith(close)) {
+    // The tags were selected along with the words.
+    node.setRangeText(picked.slice(open.length, picked.length - close.length), start, end, 'select');
+  } else if (start >= open.length && lower(value.slice(start - open.length, start)) === open
+      && lower(value.slice(end, end + close.length)) === close) {
+    node.setRangeText(picked, start - open.length, end + close.length, 'select');
+  } else {
+    node.setRangeText(`${open}${picked}${close}`, start, end, 'select');
+    start += open.length;
+    end += open.length;
+    node.setSelectionRange(start, end);
+  }
+  node.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /**

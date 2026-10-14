@@ -1,6 +1,6 @@
 /* Global keyboard shortcuts. */
 
-import { editor, isTypingTarget } from '../core/editor.js';
+import { editor, isTextEntry, isTypingTarget } from '../core/editor.js';
 import { history } from '../core/history.js';
 import {
   deleteSelection, distributeSelection, groupSelection, handleSave, openExportDialog, openProjectDialog,
@@ -20,6 +20,8 @@ export function initShortcuts() {
   window.addEventListener('keydown', (e) => {
     const mod = e.ctrlKey || e.metaKey;
     const typing = isTypingTarget(e.target) || editor.canvas?.getActiveObject()?.isEditing;
+    // Undo is only the field's own where the field keeps a history of edits.
+    const ownUndo = isTextEntry(e.target) || editor.canvas?.getActiveObject()?.isEditing;
 
     // A dialog owns the keyboard. Focus usually sits on one of its buttons,
     // which is not a typing target, so without this Delete removed the layer
@@ -50,13 +52,14 @@ export function initShortcuts() {
         case 'z':
           // A field in the panels owns its own undo stack. Hijacking Ctrl+Z
           // there rolls back the whole canvas while the caret is mid-word,
-          // and leaves the input showing text the card no longer has.
-          if (typing) return;
+          // and leaves the input showing text the card no longer has. A
+          // slider or tick box has no such stack, so there it is the card's.
+          if (ownUndo) return;
           e.preventDefault();
           e.shiftKey ? history.redo() : history.undo();
           return;
         case 'y':
-          if (typing) return;
+          if (ownUndo) return;
           e.preventDefault();
           history.redo();
           return;

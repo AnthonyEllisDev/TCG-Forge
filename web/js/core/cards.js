@@ -30,6 +30,7 @@ import { editor } from './editor.js';
 import { history } from './history.js';
 import { applyRow, isRendering, runBatch, toCSV } from './batch.js';
 import { collapseIcons, expandIcons } from './icons.js';
+import { plainText } from './markup.js';
 import { readQuantity } from './printSheet.js';
 import {
   applyFraming,
@@ -536,7 +537,7 @@ export async function relinkArt(from, to) {
 export function cardLabel(card, index, kinds = slotKinds()) {
   for (const [slot, kind] of kinds) {
     if (kind !== 'text') continue;
-    const text = String(card.values?.[slot] ?? '').replace(/\s+/g, ' ').trim();
+    const text = plainText(card.values?.[slot]).replace(/\s+/g, ' ').trim();
     if (text) return text;
   }
   return `Card ${index + 1}`;
@@ -583,7 +584,9 @@ export function parseFilter(query, slots = new Set(slotKinds().keys())) {
 function searchable(value) {
   const text = String(value ?? '');
   if (/^(data|blob):/i.test(text)) return '';
-  return collapseIcons(text).toLowerCase();
+  // Tags are formatting, not words: "<b>Flying</b>, haste" is found by
+  // "flying, haste".
+  return collapseIcons(plainText(text)).toLowerCase();
 }
 
 /**

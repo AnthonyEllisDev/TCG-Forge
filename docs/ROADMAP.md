@@ -84,6 +84,10 @@ it.
 - **Arced text** (0.24.0) — a text box's words bent along a circle by an
   angle, upwards or downwards, with wrapped lines as parallel arcs. See
   [`TEMPLATES.md`](TEMPLATES.md#arced-text).
+- **Bold and italic words** (0.25.0) — `<b>…</b>` and `<i>…</i>` in any
+  text, typed or from a spreadsheet, set those words bold or italic inside
+  the line; Ctrl+B / Ctrl+I wrap a selection. See
+  [`TEMPLATES.md`](TEMPLATES.md#bold-and-italic-words).
 
 ## Next
 

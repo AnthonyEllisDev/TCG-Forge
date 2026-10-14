@@ -117,6 +117,40 @@ Only text boxes can arc (every text layer TCG Forge makes is one); the row
 does not appear for other layers. Typing on the canvas works as usual on an
 arced layer, though the caret is drawn on the straight line.
 
+## Bold and italic words
+
+Rules text is rarely one style from start to finish: a keyword in bold, the
+reminder text after it in italics, a line of flavour in the same box. Wrap
+the words in tags:
+
+```
+<b>Flying</b>, haste. <i>(This creature can block creatures with flying.)</i>
+```
+
+The tags work wherever text goes in — a Card Fields box, Properties → Text,
+a spreadsheet cell, typing on the card. In a Card Fields box or Properties →
+Text, select some words and press **Ctrl+B** or **Ctrl+I** (⌘ on a Mac) to
+wrap them; press it again on the same words to take the tags away.
+
+On the card the tags take no room and are never drawn. The words between
+them are set in the layer's own font, bold or italic, and measured that way,
+so wrapping and auto-fit see them at their real width; arced text bends them
+like any other word. `<b>` and `<i>` can be nested and run on across line
+breaks until they are closed — or to the end of the text if they never are.
+Capitals work too (`<B>`, which is what an UPPERCASE layer makes of them).
+Only these four tags mean anything: `<u>` or any other text in angle
+brackets is shown as typed.
+
+A font usually has its bold and italic faces in separate files. Put them in
+`assets/fonts` and the browser uses them where it can; where a face is
+missing it draws a slanted or thickened version of the regular one.
+
+The tags are part of the text, so they are saved, exported to a spreadsheet
+and read back exactly as typed, and they work on every card of a set and in
+every batch row. The card strip shows and searches a card's words without
+them. A literal `<b>` cannot be shown on a card; the angle brackets on their
+own (`a < b`) are fine. A build from before 0.25.0 shows the tags as text.
+
 ## Template file
 
 `workspace/templates/<id>.json`

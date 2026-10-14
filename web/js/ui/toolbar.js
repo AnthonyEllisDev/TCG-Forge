@@ -592,6 +592,7 @@ export function openShortcuts() {
     ['Ctrl/⌘ + S', 'Save project'],
     ['Ctrl/⌘ + E', 'Export card'],
     ['Ctrl/⌘ + B', 'Batch generate a set'],
+    ['Ctrl/⌘ + B / I in a text box', 'Bold / italic the selected words (<b>…</b>, <i>…</i>)'],
     ['Ctrl/⌘ + P', 'Print sheet'],
     ['Ctrl/⌘ + O', 'Open project'],
     ['Ctrl/⌘ + D', 'Duplicate selection'],

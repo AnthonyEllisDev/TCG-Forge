@@ -136,6 +136,7 @@ function render(force) {
     } else if (field.type === 'multiline') {
       const area = el('textarea', {
         id: `ff_${field.id}`, rows: '3', placeholder: field.placeholder || '', dataset: { iconTarget: '' },
+        title: 'Ctrl+B / Ctrl+I: bold or italic words (<b>…</b>, <i>…</i>)',
       });
       area.value = fieldValue(field.id);
       guardSwitch(area, field.id);

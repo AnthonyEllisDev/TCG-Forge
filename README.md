@@ -83,7 +83,10 @@ spacing, alignment, uppercase transform, and auto-fit that shrinks rules text
 until it fits its box (and never grows past the size the template intended).
 Text can arc, too — a title arched like a banner or a line curved under the
 art, wrapped lines running parallel (see
-[`docs/TEMPLATES.md`](docs/TEMPLATES.md#arced-text)).
+[`docs/TEMPLATES.md`](docs/TEMPLATES.md#arced-text)). And words inside a
+line can be bold or italic — `<b>Flying</b>`, `<i>(reminder text)</i>` —
+typed into a field or a spreadsheet cell, or with **Ctrl+B / Ctrl+I** (see
+[`docs/TEMPLATES.md`](docs/TEMPLATES.md#bold-and-italic-words)).
 
 **Icons in the rules text.** Type `{gem}` or `{element-fire}` into a field, a
 spreadsheet cell or the card itself, or pick from the **Icons** palette, and the
